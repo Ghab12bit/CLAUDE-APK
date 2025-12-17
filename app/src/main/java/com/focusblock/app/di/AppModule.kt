@@ -1,0 +1,64 @@
+package com.focusblock.app.di
+
+import android.content.Context
+import com.focusblock.app.database.FocusBlockDatabase
+import com.focusblock.app.database.dao.*
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
+
+@Module
+@InstallIn(SingletonComponent::class)
+object AppModule {
+
+    @Provides
+    @Singleton
+    fun provideDatabase(@ApplicationContext context: Context): FocusBlockDatabase {
+        return FocusBlockDatabase.getDatabase(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideBlockedAppDao(database: FocusBlockDatabase): BlockedAppDao {
+        return database.blockedAppDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideScheduleDao(database: FocusBlockDatabase): ScheduleDao {
+        return database.scheduleDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideQuickBlockSessionDao(database: FocusBlockDatabase): QuickBlockSessionDao {
+        return database.quickBlockSessionDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideBlockLogDao(database: FocusBlockDatabase): BlockLogDao {
+        return database.blockLogDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideUsageStatDao(database: FocusBlockDatabase): UsageStatDao {
+        return database.usageStatDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideSettingsDao(database: FocusBlockDatabase): SettingsDao {
+        return database.settingsDao()
+    }
+
+    @Provides
+    @Singleton
+    fun providePomodoroSessionDao(database: FocusBlockDatabase): PomodoroSessionDao {
+        return database.pomodoroSessionDao()
+    }
+}

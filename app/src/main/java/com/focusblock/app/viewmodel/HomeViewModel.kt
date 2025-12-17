@@ -1,0 +1,287 @@
+package com.focusblock.app.viewmodel
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.focusblock.app.database.entity.*
+import com.focusblock.app.database.repository.FocusBlockRepository
+import com.focusblock.app.service.AppBlockingService
+import com.focusblock.app.utils.AppUtils
+import com.focusblock.app.utils.PermissionUtils
+import com.focusblock.app.utils.TimeUtils
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+data class HomeUiState(
+    val isQuickBlockActive: Boolean = false,
+    val quickBlockSession: QuickBlockSession? = null,
+    val remainingTime: Long = 0,
+    val blockedAppsCount: Int = 0,
+    val blockedApps: List<BlockedApp> = emptyList(),
+    val activeSchedules: List<Schedule> = emptyList(),
+    val todayBlockCount: Int = 0,
+    val isStrictModeEnabled: Boolean = false,
+    val isHardModeEnabled: Boolean = false,
+    val permissionStatus: PermissionUtils.PermissionStatus = PermissionUtils.PermissionStatus(
+        hasUsageStats = false,
+        hasOverlay = false,
+        hasAccessibility = false,
+        hasNotification = false,
+        isIgnoringBattery = false
+    ),
+    val isPomodoroMode: Boolean = false,
+    val pomodoroState: PomodoroState = PomodoroState()
+)
+
+data class PomodoroState(
+    val isActive: Boolean = false,
+    val currentSessionType: PomodoroSessionType = PomodoroSessionType.WORK,
+    val remainingMillis: Long = 25 * 60 * 1000L,
+    val completedSessions: Int = 0,
+    val workDurationMinutes: Int = 25,
+    val shortBreakMinutes: Int = 5,
+    val longBreakMinutes: Int = 15,
+    val sessionsUntilLongBreak: Int = 4
+)
+
+@HiltViewModel
+class HomeViewModel @Inject constructor(
+    private val application: Application,
+    private val repository: FocusBlockRepository
+) : AndroidViewModel(application) {
+
+    private val _uiState = MutableStateFlow(HomeUiState())
+    val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    private val installedApps = MutableStateFlow<List<AppUtils.AppInfo>>(emptyList())
+
+    init {
+        loadData()
+        loadInstalledApps()
+        startTimerUpdates()
+    }
+
+    private fun loadData() {
+        viewModelScope.launch {
+            // Load Quick Block session
+            repository.getActiveQuickBlockSession().collect { session ->
+                _uiState.update { it.copy(
+                    isQuickBlockActive = session != null,
+                    quickBlockSession = session,
+                    isPomodoroMode = session?.isPomodoroSession == true
+                )}
+            }
+        }
+
+        viewModelScope.launch {
+            // Load blocked apps count
+            repository.getBlockedAppsCount().collect { count ->
+                _uiState.update { it.copy(blockedAppsCount = count) }
+            }
+        }
+
+        viewModelScope.launch {
+            // Load blocked apps
+            repository.getActiveBlockedApps().collect { apps ->
+                _uiState.update { it.copy(blockedApps = apps) }
+            }
+        }
+
+        viewModelScope.launch {
+            // Load schedules
+            repository.getAllSchedules().collect { schedules ->
+                _uiState.update { it.copy(activeSchedules = schedules) }
+            }
+        }
+
+        viewModelScope.launch {
+            // Load today's block count
+            val startOfDay = TimeUtils.getStartOfDay()
+            repository.getBlockCountSince(startOfDay).collect { count ->
+                _uiState.update { it.copy(todayBlockCount = count) }
+            }
+        }
+
+        viewModelScope.launch {
+            // Load strict mode status
+            repository.getStrictModeEnabledFlow().collect { enabled ->
+                _uiState.update { it.copy(isStrictModeEnabled = enabled) }
+            }
+        }
+
+        viewModelScope.launch {
+            // Load hard mode status
+            repository.getHardModeEnabledFlow().collect { enabled ->
+                _uiState.update { it.copy(isHardModeEnabled = enabled) }
+            }
+        }
+    }
+
+    private fun loadInstalledApps() {
+        viewModelScope.launch {
+            val apps = AppUtils.getInstalledApps(application, includeSystemApps = false)
+            installedApps.value = apps
+        }
+    }
+
+    private fun startTimerUpdates() {
+        viewModelScope.launch {
+            while (true) {
+                updateRemainingTime()
+                updatePermissionStatus()
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+    }
+
+    private fun updateRemainingTime() {
+        val session = _uiState.value.quickBlockSession ?: return
+        val endTime = session.endTime ?: return
+        val remaining = endTime - System.currentTimeMillis()
+
+        if (remaining <= 0) {
+            viewModelScope.launch {
+                stopQuickBlock()
+            }
+        } else {
+            _uiState.update { it.copy(remainingTime = remaining) }
+        }
+    }
+
+    private fun updatePermissionStatus() {
+        val status = PermissionUtils.getPermissionStatus(application)
+        _uiState.update { it.copy(permissionStatus = status) }
+    }
+
+    fun getInstalledApps(): List<AppUtils.AppInfo> = installedApps.value
+
+    fun startQuickBlock(selectedPackages: List<String>, durationMinutes: Int? = null) {
+        viewModelScope.launch {
+            // First, ensure all selected apps are in the database
+            selectedPackages.forEach { packageName ->
+                val existingApp = repository.getBlockedApp(packageName)
+                if (existingApp == null) {
+                    val appName = AppUtils.getAppName(application, packageName)
+                    repository.insertBlockedApp(
+                        BlockedApp(
+                            packageName = packageName,
+                            appName = appName,
+                            isBlocked = true
+                        )
+                    )
+                }
+            }
+
+            // Create quick block session
+            val session = QuickBlockSession(
+                startTime = System.currentTimeMillis(),
+                endTime = durationMinutes?.let { System.currentTimeMillis() + it * 60 * 1000L },
+                blockedPackages = selectedPackages.joinToString(","),
+                isActive = true,
+                isPomodoroSession = false
+            )
+            repository.insertQuickBlockSession(session)
+
+            // Start blocking service
+            AppBlockingService.start(application)
+        }
+    }
+
+    fun stopQuickBlock() {
+        viewModelScope.launch {
+            val session = _uiState.value.quickBlockSession
+            if (session != null) {
+                // Check if strict mode or hard mode prevents stopping
+                if (_uiState.value.isStrictModeEnabled || _uiState.value.isHardModeEnabled) {
+                    // Can't stop - needs PIN or wait for timer
+                    return@launch
+                }
+
+                repository.deactivateQuickBlockSession(session.id)
+            }
+            repository.deactivateAllQuickBlockSessions()
+            _uiState.update { it.copy(
+                isQuickBlockActive = false,
+                quickBlockSession = null,
+                remainingTime = 0
+            )}
+        }
+    }
+
+    fun startPomodoroSession(selectedPackages: List<String>, workMinutes: Int = 25, breakMinutes: Int = 5) {
+        viewModelScope.launch {
+            // Ensure all selected apps are in the database
+            selectedPackages.forEach { packageName ->
+                val existingApp = repository.getBlockedApp(packageName)
+                if (existingApp == null) {
+                    val appName = AppUtils.getAppName(application, packageName)
+                    repository.insertBlockedApp(
+                        BlockedApp(
+                            packageName = packageName,
+                            appName = appName,
+                            isBlocked = true
+                        )
+                    )
+                }
+            }
+
+            // Create pomodoro quick block session
+            val session = QuickBlockSession(
+                startTime = System.currentTimeMillis(),
+                endTime = System.currentTimeMillis() + workMinutes * 60 * 1000L,
+                blockedPackages = selectedPackages.joinToString(","),
+                isActive = true,
+                isPomodoroSession = true,
+                pomodoroWorkMinutes = workMinutes,
+                pomodoroBreakMinutes = breakMinutes
+            )
+            repository.insertQuickBlockSession(session)
+
+            // Update pomodoro state
+            _uiState.update { it.copy(
+                isPomodoroMode = true,
+                pomodoroState = it.pomodoroState.copy(
+                    isActive = true,
+                    currentSessionType = PomodoroSessionType.WORK,
+                    remainingMillis = workMinutes * 60 * 1000L,
+                    workDurationMinutes = workMinutes,
+                    shortBreakMinutes = breakMinutes
+                )
+            )}
+
+            // Start blocking service
+            AppBlockingService.start(application)
+        }
+    }
+
+    fun setStrictMode(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setStrictModeEnabled(enabled)
+        }
+    }
+
+    fun setHardMode(enabled: Boolean, pin: String? = null, unlockTimeMinutes: Int? = null) {
+        viewModelScope.launch {
+            repository.setHardModeEnabled(enabled)
+            if (enabled && pin != null) {
+                repository.setHardModePin(pin)
+            }
+            if (enabled && unlockTimeMinutes != null) {
+                val unlockTime = System.currentTimeMillis() + unlockTimeMinutes * 60 * 1000L
+                repository.setHardModeUnlockTime(unlockTime)
+            }
+        }
+    }
+
+    fun toggleAppBlocked(packageName: String, isBlocked: Boolean) {
+        viewModelScope.launch {
+            repository.setAppBlocked(packageName, isBlocked)
+        }
+    }
+
+    fun refreshPermissions() {
+        updatePermissionStatus()
+    }
+}

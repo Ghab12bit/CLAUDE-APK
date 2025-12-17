@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FocusBlock</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Blocking</string>
+    <string name="nav_strict_mode">Strict Mode</string>
+    <string name="nav_statistics">Statistics</string>
+    <string name="nav_profile">Profile</string>
+
+    <!-- Quick Block -->
+    <string name="quick_block">Quick Block</string>
+    <string name="quick_block_start">Start</string>
+    <string name="quick_block_stop">Stop</string>
+    <string name="quick_block_timer">Timer</string>
+    <string name="quick_block_pomodoro">Pomodoro</string>
+    <string name="quick_block_active">Active</string>
+
+    <!-- Schedules -->
+    <string name="schedules">Schedules</string>
+    <string name="add_schedule">Add</string>
+    <string name="work_focus">Work Focus</string>
+    <string name="sleep_hygiene">Sleep Hygiene</string>
+    <string name="study_time">Study Time</string>
+    <string name="family_time">Family Time</string>
+    <string name="social_media_break">Social Media Break</string>
+    <string name="digital_detox">Digital Detox</string>
+
+    <!-- Strict Mode -->
+    <string name="strict_mode">Strict Mode</string>
+    <string name="strict_mode_description">Lock your blockings to stay on track with your goals. Strict Mode helps you resist the urge to bypass your own settings.</string>
+    <string name="strict_mode_enabled">Strict Mode is enabled</string>
+    <string name="strict_mode_disabled">Strict Mode is disabled</string>
+
+    <!-- Hard Mode -->
+    <string name="hard_mode">Hard Mode</string>
+    <string name="hard_mode_description">Apps will only be unblocked after the timer expires. You\'ll need your PIN to make any changes.</string>
+    <string name="hard_mode_unlock_time">Unlock available at</string>
+    <string name="enter_pin">Enter PIN</string>
+    <string name="set_pin">Set PIN</string>
+    <string name="confirm_pin">Confirm PIN</string>
+    <string name="pin_mismatch">PINs do not match</string>
+    <string name="incorrect_pin">Incorrect PIN</string>
+
+    <!-- Blocking Screen -->
+    <string name="blocked_by_focusblock">Blocked by FocusBlock</string>
+    <string name="you_tried_to_open">You tried to open %s</string>
+    <string name="times_today">%d× today</string>
+    <string name="times_total">%d× total</string>
+    <string name="close">Close</string>
+    <string name="app_is_blocked">%s is blocked</string>
+    <string name="by_quick_block">by Quick Block</string>
+    <string name="by_schedule">by %s</string>
+
+    <!-- Statistics -->
+    <string name="today">Today</string>
+    <string name="this_week">This Week</string>
+    <string name="this_month">This Month</string>
+    <string name="screen_time">Screen Time</string>
+    <string name="blocks_count">Blocks Count</string>
+    <string name="most_blocked">Most Blocked</string>
+    <string name="saved_time">Saved Time</string>
+
+    <!-- Settings -->
+    <string name="settings">Settings</string>
+    <string name="blocked_apps">Blocked Apps</string>
+    <string name="allowlist">Allowlist</string>
+    <string name="notifications">Notifications</string>
+    <string name="appearance">Appearance</string>
+    <string name="about">About</string>
+    <string name="version">Version</string>
+
+    <!-- Permissions -->
+    <string name="permission_usage_stats">Usage Access</string>
+    <string name="permission_usage_stats_desc">Required to detect which apps you\'re using</string>
+    <string name="permission_overlay">Display Over Apps</string>
+    <string name="permission_overlay_desc">Required to show blocking screen</string>
+    <string name="permission_accessibility">Accessibility Service</string>
+    <string name="permission_accessibility_desc">Optional: For enhanced blocking capabilities</string>
+    <string name="permission_notification">Notifications</string>
+    <string name="permission_notification_desc">Required to show blocking status</string>
+    <string name="grant_permission">Grant Permission</string>
+
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_description">FocusBlock uses Accessibility Service to detect and block apps when they are opened. This helps ensure effective app blocking even when the standard method is bypassed.</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_blocking">App Blocking</string>
+    <string name="notification_channel_blocking_desc">Shows when app blocking is active</string>
+    <string name="notification_blocking_active">FocusBlock is protecting your focus</string>
+    <string name="notification_apps_blocked">%d apps are being blocked</string>
+
+    <!-- Pomodoro -->
+    <string name="pomodoro">Pomodoro</string>
+    <string name="work_session">Work Session</string>
+    <string name="short_break">Short Break</string>
+    <string name="long_break">Long Break</string>
+    <string name="pomodoro_work_default">25 min</string>
+    <string name="pomodoro_short_break_default">5 min</string>
+    <string name="pomodoro_long_break_default">15 min</string>
+
+    <!-- Time formats -->
+    <string name="time_format_hours_minutes">%dh %dm</string>
+    <string name="time_format_minutes">%d min</string>
+    <string name="time_format_seconds">%d sec</string>
+
+    <!-- Common -->
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="delete">Delete</string>
+    <string name="edit">Edit</string>
+    <string name="enable">Enable</string>
+    <string name="disable">Disable</string>
+    <string name="active">Active</string>
+    <string name="inactive">Inactive</string>
+    <string name="select_apps">Select Apps</string>
+    <string name="no_apps_selected">No apps selected</string>
+    <string name="search_apps">Search apps</string>
+</resources>

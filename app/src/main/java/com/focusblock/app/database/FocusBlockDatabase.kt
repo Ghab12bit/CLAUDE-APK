@@ -15,9 +15,12 @@ import com.focusblock.app.database.entity.*
         BlockLog::class,
         UsageStat::class,
         AppSettings::class,
-        PomodoroSession::class
+        PomodoroSession::class,
+        AppTimeLimit::class,
+        DailyUsage::class,
+        ExcludedApp::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class FocusBlockDatabase : RoomDatabase() {
@@ -29,6 +32,9 @@ abstract class FocusBlockDatabase : RoomDatabase() {
     abstract fun usageStatDao(): UsageStatDao
     abstract fun settingsDao(): SettingsDao
     abstract fun pomodoroSessionDao(): PomodoroSessionDao
+    abstract fun appTimeLimitDao(): AppTimeLimitDao
+    abstract fun dailyUsageDao(): DailyUsageDao
+    abstract fun excludedAppDao(): ExcludedAppDao
 
     companion object {
         @Volatile

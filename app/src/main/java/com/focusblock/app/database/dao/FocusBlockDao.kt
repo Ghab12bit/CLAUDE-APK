@@ -196,3 +196,104 @@ interface PomodoroSessionDao {
     @Query("UPDATE pomodoro_sessions SET completed = 1, endTime = :endTime WHERE id = :id")
     suspend fun completeSession(id: Long, endTime: Long)
 }
+
+@Dao
+interface AppTimeLimitDao {
+    @Query("SELECT * FROM app_time_limits ORDER BY appName ASC")
+    fun getAllTimeLimits(): Flow<List<AppTimeLimit>>
+
+    @Query("SELECT * FROM app_time_limits WHERE isEnabled = 1 ORDER BY appName ASC")
+    fun getEnabledTimeLimits(): Flow<List<AppTimeLimit>>
+
+    @Query("SELECT * FROM app_time_limits WHERE packageName = :packageName")
+    suspend fun getTimeLimit(packageName: String): AppTimeLimit?
+
+    @Query("SELECT * FROM app_time_limits WHERE packageName = :packageName")
+    fun getTimeLimitFlow(packageName: String): Flow<AppTimeLimit?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(timeLimit: AppTimeLimit)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(timeLimits: List<AppTimeLimit>)
+
+    @Update
+    suspend fun update(timeLimit: AppTimeLimit)
+
+    @Delete
+    suspend fun delete(timeLimit: AppTimeLimit)
+
+    @Query("DELETE FROM app_time_limits WHERE packageName = :packageName")
+    suspend fun deleteByPackage(packageName: String)
+
+    @Query("UPDATE app_time_limits SET isEnabled = :enabled WHERE packageName = :packageName")
+    suspend fun setEnabled(packageName: String, enabled: Boolean)
+}
+
+@Dao
+interface DailyUsageDao {
+    @Query("SELECT * FROM daily_usage WHERE date = :date ORDER BY usageMinutes DESC")
+    fun getUsageForDate(date: String): Flow<List<DailyUsage>>
+
+    @Query("SELECT * FROM daily_usage WHERE packageName = :packageName AND date = :date")
+    suspend fun getUsageForAppAndDate(packageName: String, date: String): DailyUsage?
+
+    @Query("SELECT * FROM daily_usage WHERE packageName = :packageName AND date = :date")
+    fun getUsageForAppAndDateFlow(packageName: String, date: String): Flow<DailyUsage?>
+
+    @Query("SELECT * FROM daily_usage WHERE date >= :startDate AND date <= :endDate ORDER BY date DESC, usageMinutes DESC")
+    fun getUsageForPeriod(startDate: String, endDate: String): Flow<List<DailyUsage>>
+
+    @Query("SELECT packageName, SUM(usageMinutes) as totalMinutes FROM daily_usage WHERE date >= :startDate GROUP BY packageName ORDER BY totalMinutes DESC")
+    suspend fun getTotalUsageByApp(startDate: String): List<AppTotalUsage>
+
+    @Query("SELECT SUM(usageMinutes) FROM daily_usage WHERE date = :date")
+    fun getTotalUsageForDate(date: String): Flow<Int?>
+
+    @Query("SELECT SUM(usageMinutes) FROM daily_usage WHERE date >= :startDate AND date <= :endDate")
+    fun getTotalUsageForPeriod(startDate: String, endDate: String): Flow<Int?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(dailyUsage: DailyUsage)
+
+    @Update
+    suspend fun update(dailyUsage: DailyUsage)
+
+    @Query("UPDATE daily_usage SET usageMinutes = :minutes, lastUpdated = :timestamp, limitReached = :limitReached WHERE packageName = :packageName AND date = :date")
+    suspend fun updateUsage(packageName: String, date: String, minutes: Int, limitReached: Boolean, timestamp: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM daily_usage WHERE date < :beforeDate")
+    suspend fun deleteOldUsage(beforeDate: String)
+}
+
+data class AppTotalUsage(
+    val packageName: String,
+    val totalMinutes: Int
+)
+
+@Dao
+interface ExcludedAppDao {
+    @Query("SELECT * FROM excluded_apps ORDER BY appName ASC")
+    fun getAllExcludedApps(): Flow<List<ExcludedApp>>
+
+    @Query("SELECT * FROM excluded_apps WHERE excludedFrom = :exclusionType ORDER BY appName ASC")
+    fun getExcludedAppsByType(exclusionType: ExclusionType): Flow<List<ExcludedApp>>
+
+    @Query("SELECT packageName FROM excluded_apps WHERE excludedFrom = :exclusionType")
+    suspend fun getExcludedPackageNames(exclusionType: ExclusionType): List<String>
+
+    @Query("SELECT * FROM excluded_apps WHERE packageName = :packageName")
+    suspend fun getExcludedApp(packageName: String): ExcludedApp?
+
+    @Query("SELECT EXISTS(SELECT 1 FROM excluded_apps WHERE packageName = :packageName)")
+    suspend fun isExcluded(packageName: String): Boolean
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(excludedApp: ExcludedApp)
+
+    @Delete
+    suspend fun delete(excludedApp: ExcludedApp)
+
+    @Query("DELETE FROM excluded_apps WHERE packageName = :packageName")
+    suspend fun deleteByPackage(packageName: String)
+}

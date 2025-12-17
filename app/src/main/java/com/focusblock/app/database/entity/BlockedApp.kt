@@ -115,3 +115,41 @@ data class PomodoroSession(
 enum class PomodoroSessionType {
     WORK, SHORT_BREAK, LONG_BREAK
 }
+
+@Entity(tableName = "app_time_limits")
+data class AppTimeLimit(
+    @PrimaryKey
+    val packageName: String,
+    val appName: String,
+    val dailyLimitMinutes: Int, // Daily usage limit in minutes
+    val isEnabled: Boolean = true,
+    val warningThreshold: Int = 5, // Minutes before limit to show warning
+    val resetTime: Int = 0, // Minutes from midnight (default midnight)
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "daily_usage")
+data class DailyUsage(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val packageName: String,
+    val date: String, // YYYY-MM-DD format
+    val usageMinutes: Int = 0,
+    val limitReached: Boolean = false,
+    val lastUpdated: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "excluded_apps")
+data class ExcludedApp(
+    @PrimaryKey
+    val packageName: String,
+    val appName: String,
+    val excludedFrom: ExclusionType = ExclusionType.SCREEN_TIME_REPORT,
+    val addedAt: Long = System.currentTimeMillis()
+)
+
+enum class ExclusionType {
+    SCREEN_TIME_REPORT,
+    ALL_REPORTS
+}

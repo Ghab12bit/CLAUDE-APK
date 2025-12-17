@@ -61,4 +61,22 @@ object AppModule {
     fun providePomodoroSessionDao(database: FocusBlockDatabase): PomodoroSessionDao {
         return database.pomodoroSessionDao()
     }
+
+    @Provides
+    @Singleton
+    fun provideAppTimeLimitDao(database: FocusBlockDatabase): AppTimeLimitDao {
+        return database.appTimeLimitDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideDailyUsageDao(database: FocusBlockDatabase): DailyUsageDao {
+        return database.dailyUsageDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideExcludedAppDao(database: FocusBlockDatabase): ExcludedAppDao {
+        return database.excludedAppDao()
+    }
 }

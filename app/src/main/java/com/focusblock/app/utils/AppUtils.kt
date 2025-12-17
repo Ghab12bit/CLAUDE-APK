@@ -123,32 +123,194 @@ object AppUtils {
         context.startActivity(intent)
     }
 
-    // Common social media and entertainment apps that users typically want to block
-    val SUGGESTED_APPS_TO_BLOCK = listOf(
-        "com.instagram.android",
-        "com.facebook.katana",
-        "com.facebook.orca", // Messenger
-        "com.twitter.android",
-        "com.snapchat.android",
-        "com.zhiliaoapp.musically", // TikTok
-        "com.google.android.youtube",
-        "com.reddit.frontpage",
-        "com.linkedin.android",
-        "com.pinterest",
-        "com.tumblr",
-        "com.discord",
-        "com.whatsapp",
-        "org.telegram.messenger",
-        "com.netflix.mediaclient",
-        "com.amazon.avod.thirdpartyclient", // Prime Video
-        "com.disney.disneyplus",
-        "com.hbo.hbonow",
-        "com.spotify.music",
-        "com.king.candycrushsaga",
-        "com.supercell.clashofclans",
-        "com.supercell.clashroyale",
-        "com.mobile.legends",
-        "com.tencent.ig", // PUBG
-        "com.activision.callofduty.shooter"
+    // App categories for grouping
+    enum class AppCategory(val displayName: String, val icon: String) {
+        SOCIAL_MEDIA("Social Media", "people"),
+        GAMES("Games", "games"),
+        ENTERTAINMENT("Entertainment", "movie"),
+        COMMUNICATION("Communication", "chat"),
+        SHOPPING("Shopping", "shopping"),
+        NEWS("News & Reading", "article"),
+        PRODUCTIVITY("Productivity", "work"),
+        DATING("Dating", "favorite"),
+        BROWSER("Browsers", "web"),
+        OTHER("Other", "apps")
+    }
+
+    // Package names mapped to categories
+    val APP_CATEGORIES: Map<AppCategory, List<String>> = mapOf(
+        AppCategory.SOCIAL_MEDIA to listOf(
+            "com.instagram.android",
+            "com.facebook.katana",
+            "com.twitter.android",
+            "com.snapchat.android",
+            "com.zhiliaoapp.musically", // TikTok
+            "com.reddit.frontpage",
+            "com.linkedin.android",
+            "com.pinterest",
+            "com.tumblr",
+            "com.vkontakte.android",
+            "com.twitter.android.lite",
+            "com.instagram.lite",
+            "com.facebook.lite",
+            "com.ss.android.ugc.trill", // TikTok (alternate)
+            "com.tiktok.musical.ly",
+            "com.bereal.ft",
+            "com.lemon8.android"
+        ),
+        AppCategory.GAMES to listOf(
+            "com.king.candycrushsaga",
+            "com.supercell.clashofclans",
+            "com.supercell.clashroyale",
+            "com.supercell.brawlstars",
+            "com.mobile.legends",
+            "com.tencent.ig", // PUBG
+            "com.activision.callofduty.shooter",
+            "com.epicgames.fortnite",
+            "com.mojang.minecraftpe",
+            "com.miHoYo.GenshinImpact",
+            "com.riotgames.league.wildrift",
+            "com.ea.gp.fifamobile",
+            "com.dts.freefireth",
+            "com.garena.game.codm",
+            "com.kiloo.subwaysurf",
+            "com.imangi.templerun2",
+            "io.anuke.mindustry",
+            "com.innersloth.spacemafia", // Among Us
+            "com.rovio.angrybirds2.revo",
+            "com.halfbrick.fruitninjafree"
+        ),
+        AppCategory.ENTERTAINMENT to listOf(
+            "com.google.android.youtube",
+            "com.netflix.mediaclient",
+            "com.amazon.avod.thirdpartyclient", // Prime Video
+            "com.disney.disneyplus",
+            "com.hbo.hbonow",
+            "com.hulu.plus",
+            "com.spotify.music",
+            "com.apple.android.music",
+            "com.pandora.android",
+            "com.soundcloud.android",
+            "com.google.android.youtube.tvmusic",
+            "tv.twitch.android.app",
+            "com.vimeo.android.videoapp",
+            "com.crunchyroll.crunchyroid",
+            "jp.nicovideo.nicobox",
+            "com.ted.android",
+            "com.dailymotion.dailymotion"
+        ),
+        AppCategory.COMMUNICATION to listOf(
+            "com.whatsapp",
+            "org.telegram.messenger",
+            "com.facebook.orca", // Messenger
+            "com.discord",
+            "com.Slack",
+            "jp.naver.line.android",
+            "com.viber.voip",
+            "com.skype.raider",
+            "us.zoom.videomeetings",
+            "com.google.android.apps.meetings", // Google Meet
+            "com.microsoft.teams",
+            "com.snapchat.android",
+            "com.imo.android.imoim",
+            "org.thoughtcrime.securesms", // Signal
+            "com.wire"
+        ),
+        AppCategory.SHOPPING to listOf(
+            "com.amazon.mShop.android.shopping",
+            "com.ebay.mobile",
+            "com.shopify.mobile",
+            "com.alibaba.aliexpresshd",
+            "com.flipkart.android",
+            "com.myntra.android",
+            "com.ubercab.eats",
+            "com.application.zomato",
+            "com.dd.doordash",
+            "com.grubhub.android",
+            "com.instacart.client",
+            "com.walmart.android",
+            "com.target.ui",
+            "com.offerup",
+            "com.contextlogic.wish"
+        ),
+        AppCategory.NEWS to listOf(
+            "flipboard.app",
+            "com.twitter.android",
+            "com.google.android.apps.magazines", // Google News
+            "com.nytimes.android",
+            "com.washingtonpost.android",
+            "com.guardian",
+            "com.cnn.mobile.android.phone",
+            "com.foxnews.android",
+            "com.medium.reader",
+            "com.quora.android",
+            "com.reddit.frontpage",
+            "com.ideashower.readitlater.pro", // Pocket
+            "com.feedly.android.beta"
+        ),
+        AppCategory.DATING to listOf(
+            "com.tinder",
+            "com.bumble.app",
+            "com.hinge.app",
+            "com.okcupid.okcupid",
+            "com.match.android.matchmobile",
+            "com.badoo.mobile",
+            "com.grindr.android",
+            "co.hinge.app",
+            "com.coffee.android",
+            "com.spark.jayvee"
+        ),
+        AppCategory.BROWSER to listOf(
+            "com.android.chrome",
+            "org.mozilla.firefox",
+            "com.opera.browser",
+            "com.brave.browser",
+            "com.sec.android.app.sbrowser", // Samsung Browser
+            "com.UCMobile.intl",
+            "com.opera.mini.native",
+            "com.microsoft.emmx", // Edge
+            "com.duckduckgo.mobile.android"
+        ),
+        AppCategory.PRODUCTIVITY to listOf(
+            "com.google.android.gm", // Gmail
+            "com.microsoft.office.outlook",
+            "com.google.android.apps.docs", // Google Docs
+            "com.microsoft.office.word",
+            "com.microsoft.office.excel",
+            "com.notion.id",
+            "com.todoist",
+            "com.ticktick.task",
+            "com.anydo",
+            "com.evernote"
+        )
     )
+
+    // Get category for a package name
+    fun getAppCategory(packageName: String): AppCategory {
+        for ((category, packages) in APP_CATEGORIES) {
+            if (packages.contains(packageName)) {
+                return category
+            }
+        }
+        return AppCategory.OTHER
+    }
+
+    // Get all apps in a category from installed apps
+    fun getAppsInCategory(
+        apps: List<AppInfo>,
+        category: AppCategory
+    ): List<AppInfo> {
+        val categoryPackages = APP_CATEGORIES[category] ?: emptyList()
+        return if (category == AppCategory.OTHER) {
+            // For "Other", return apps not in any defined category
+            apps.filter { app ->
+                APP_CATEGORIES.values.flatten().none { it == app.packageName }
+            }
+        } else {
+            apps.filter { app -> categoryPackages.contains(app.packageName) }
+        }
+    }
+
+    // Common social media and entertainment apps that users typically want to block
+    val SUGGESTED_APPS_TO_BLOCK = APP_CATEGORIES.values.flatten().distinct()
 }

@@ -15,7 +15,10 @@ class FocusBlockRepository @Inject constructor(
     private val blockLogDao: BlockLogDao,
     private val usageStatDao: UsageStatDao,
     private val settingsDao: SettingsDao,
-    private val pomodoroSessionDao: PomodoroSessionDao
+    private val pomodoroSessionDao: PomodoroSessionDao,
+    private val appTimeLimitDao: AppTimeLimitDao,
+    private val dailyUsageDao: DailyUsageDao,
+    private val excludedAppDao: ExcludedAppDao
 ) {
     // Blocked Apps
     fun getAllBlockedApps(): Flow<List<BlockedApp>> = blockedAppDao.getAllBlockedApps()
@@ -107,4 +110,47 @@ class FocusBlockRepository @Inject constructor(
     suspend fun insertPomodoroSession(session: PomodoroSession): Long = pomodoroSessionDao.insert(session)
     suspend fun updatePomodoroSession(session: PomodoroSession) = pomodoroSessionDao.update(session)
     suspend fun completePomodoroSession(id: Long, endTime: Long) = pomodoroSessionDao.completeSession(id, endTime)
+
+    // App Time Limits
+    fun getAllTimeLimits(): Flow<List<AppTimeLimit>> = appTimeLimitDao.getAllTimeLimits()
+    fun getEnabledTimeLimits(): Flow<List<AppTimeLimit>> = appTimeLimitDao.getEnabledTimeLimits()
+    suspend fun getTimeLimit(packageName: String): AppTimeLimit? = appTimeLimitDao.getTimeLimit(packageName)
+    fun getTimeLimitFlow(packageName: String): Flow<AppTimeLimit?> = appTimeLimitDao.getTimeLimitFlow(packageName)
+    suspend fun insertTimeLimit(timeLimit: AppTimeLimit) = appTimeLimitDao.insert(timeLimit)
+    suspend fun insertTimeLimits(timeLimits: List<AppTimeLimit>) = appTimeLimitDao.insertAll(timeLimits)
+    suspend fun updateTimeLimit(timeLimit: AppTimeLimit) = appTimeLimitDao.update(timeLimit)
+    suspend fun deleteTimeLimit(timeLimit: AppTimeLimit) = appTimeLimitDao.delete(timeLimit)
+    suspend fun deleteTimeLimitByPackage(packageName: String) = appTimeLimitDao.deleteByPackage(packageName)
+    suspend fun setTimeLimitEnabled(packageName: String, enabled: Boolean) = appTimeLimitDao.setEnabled(packageName, enabled)
+
+    // Daily Usage
+    fun getUsageForDate(date: String): Flow<List<DailyUsage>> = dailyUsageDao.getUsageForDate(date)
+    suspend fun getUsageForAppAndDate(packageName: String, date: String): DailyUsage? =
+        dailyUsageDao.getUsageForAppAndDate(packageName, date)
+    fun getUsageForAppAndDateFlow(packageName: String, date: String): Flow<DailyUsage?> =
+        dailyUsageDao.getUsageForAppAndDateFlow(packageName, date)
+    fun getUsageForPeriod(startDate: String, endDate: String): Flow<List<DailyUsage>> =
+        dailyUsageDao.getUsageForPeriod(startDate, endDate)
+    suspend fun getTotalUsageByApp(startDate: String): List<AppTotalUsage> =
+        dailyUsageDao.getTotalUsageByApp(startDate)
+    fun getTotalUsageForDate(date: String): Flow<Int?> = dailyUsageDao.getTotalUsageForDate(date)
+    fun getTotalUsageForPeriod(startDate: String, endDate: String): Flow<Int?> =
+        dailyUsageDao.getTotalUsageForPeriod(startDate, endDate)
+    suspend fun insertDailyUsage(dailyUsage: DailyUsage) = dailyUsageDao.insert(dailyUsage)
+    suspend fun updateDailyUsage(dailyUsage: DailyUsage) = dailyUsageDao.update(dailyUsage)
+    suspend fun updateAppUsage(packageName: String, date: String, minutes: Int, limitReached: Boolean) =
+        dailyUsageDao.updateUsage(packageName, date, minutes, limitReached)
+    suspend fun deleteOldUsage(beforeDate: String) = dailyUsageDao.deleteOldUsage(beforeDate)
+
+    // Excluded Apps
+    fun getAllExcludedApps(): Flow<List<ExcludedApp>> = excludedAppDao.getAllExcludedApps()
+    fun getExcludedAppsByType(exclusionType: ExclusionType): Flow<List<ExcludedApp>> =
+        excludedAppDao.getExcludedAppsByType(exclusionType)
+    suspend fun getExcludedPackageNames(exclusionType: ExclusionType): List<String> =
+        excludedAppDao.getExcludedPackageNames(exclusionType)
+    suspend fun getExcludedApp(packageName: String): ExcludedApp? = excludedAppDao.getExcludedApp(packageName)
+    suspend fun isAppExcluded(packageName: String): Boolean = excludedAppDao.isExcluded(packageName)
+    suspend fun insertExcludedApp(excludedApp: ExcludedApp) = excludedAppDao.insert(excludedApp)
+    suspend fun deleteExcludedApp(excludedApp: ExcludedApp) = excludedAppDao.delete(excludedApp)
+    suspend fun deleteExcludedAppByPackage(packageName: String) = excludedAppDao.deleteByPackage(packageName)
 }

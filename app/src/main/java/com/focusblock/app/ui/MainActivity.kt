@@ -25,6 +25,9 @@ import com.focusblock.app.ui.schedules.SchedulesScreen
 import com.focusblock.app.ui.settings.SettingsScreen
 import com.focusblock.app.ui.statistics.StatisticsScreen
 import com.focusblock.app.ui.theme.BackgroundDark
+import com.focusblock.app.ui.theme.CardDark
+import com.focusblock.app.ui.theme.TextPrimary
+import com.focusblock.app.ui.theme.TextSecondary
 import com.focusblock.app.ui.theme.FocusBlockTheme
 import com.focusblock.app.utils.PermissionUtils
 import dagger.hilt.android.AndroidEntryPoint
@@ -127,11 +130,11 @@ fun MainApp() {
                         },
                         label = { Text(screen.title) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedIconColor = TextPrimary,
                             selectedTextColor = MaterialTheme.colorScheme.primary,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                            unselectedIconColor = TextSecondary,
+                            unselectedTextColor = TextSecondary,
+                            indicatorColor = MaterialTheme.colorScheme.primary
                         )
                     )
                 }

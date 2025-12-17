@@ -27,8 +27,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.focusblock.app.ui.components.AppSelectionDialog
+import com.focusblock.app.ui.components.HardModeSetupDialog
 import com.focusblock.app.ui.components.PermissionCard
 import com.focusblock.app.ui.components.TimerPickerDialog
+import com.focusblock.app.ui.components.PomodoroSetupDialog
 import com.focusblock.app.ui.theme.*
 import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.TimeUtils
@@ -45,7 +47,9 @@ fun HomeScreen(
     var showAppSelectionDialog by remember { mutableStateOf(false) }
     var showTimerDialog by remember { mutableStateOf(false) }
     var showPomodoroDialog by remember { mutableStateOf(false) }
+    var showHardModeDialog by remember { mutableStateOf(false) }
     var selectedApps by remember { mutableStateOf<List<String>>(emptyList()) }
+    var timerDurationMinutes by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.refreshPermissions()
@@ -157,7 +161,7 @@ fun HomeScreen(
                 isEnabled = uiState.isStrictModeEnabled,
                 isHardModeEnabled = uiState.isHardModeEnabled,
                 onToggle = { viewModel.setStrictMode(it) },
-                onHardModeClick = { /* Navigate to hard mode setup */ }
+                onHardModeClick = { showHardModeDialog = true }
             )
         }
     }
@@ -180,8 +184,29 @@ fun HomeScreen(
         TimerPickerDialog(
             onDismiss = { showTimerDialog = false },
             onConfirm = { minutes ->
+                timerDurationMinutes = minutes
                 showTimerDialog = false
                 showAppSelectionDialog = true
+            }
+        )
+    }
+
+    if (showPomodoroDialog) {
+        PomodoroSetupDialog(
+            onDismiss = { showPomodoroDialog = false },
+            onConfirm = { workMinutes, breakMinutes ->
+                showPomodoroDialog = false
+                showAppSelectionDialog = true
+            }
+        )
+    }
+
+    if (showHardModeDialog) {
+        HardModeSetupDialog(
+            onDismiss = { showHardModeDialog = false },
+            onConfirm = { pin, unlockMinutes ->
+                viewModel.setHardMode(true, pin, unlockMinutes)
+                showHardModeDialog = false
             }
         )
     }

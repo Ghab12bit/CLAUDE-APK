@@ -323,7 +323,7 @@ fun MostBlockedAppItem(
 
                 // Progress bar
                 LinearProgressIndicator(
-                    progress = { percentage / 100f },
+                    progress = percentage / 100f,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(6.dp)

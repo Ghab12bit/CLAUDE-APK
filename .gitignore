@@ -81,8 +81,8 @@ lint/tmp/
 # lint/reports/
 
 # Gradle wrapper
-# Comment the following line if you want to commit gradle-wrapper.jar
-gradle/wrapper/gradle-wrapper.jar
+# The gradle-wrapper.jar is now committed for easier builds
+# gradle/wrapper/gradle-wrapper.jar
 
 # Mac OS
 .DS_Store

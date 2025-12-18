@@ -238,7 +238,7 @@ fun BlocksChartCard(
                 ) {
                     val maxBlocks = dailyBlocks.values.maxOrNull()?.toFloat() ?: 1f
 
-                    dailyBlocks.entries.takeLast(7).forEach { (day, count) ->
+                    dailyBlocks.entries.toList().takeLast(7).forEach { (day, count) ->
                         val heightPercent = if (maxBlocks > 0) count / maxBlocks else 0f
 
                         Column(

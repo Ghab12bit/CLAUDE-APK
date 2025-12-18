@@ -577,7 +577,7 @@ fun StrictModeCard(
 
             if (isEnabled) {
                 Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider(color = Divider)
+                Divider(color = Divider)
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Row(

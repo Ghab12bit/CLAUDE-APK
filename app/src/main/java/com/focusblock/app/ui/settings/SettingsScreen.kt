@@ -112,7 +112,7 @@ fun SettingsScreen(
                     onClick = { showBlockedAppsDialog = true }
                 )
 
-                HorizontalDivider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
+                Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
 
                 SettingsItem(
                     icon = Icons.Outlined.CheckCircle,
@@ -138,7 +138,7 @@ fun SettingsScreen(
                     onCheckedChange = { viewModel.setStrictMode(it) }
                 )
 
-                HorizontalDivider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
+                Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
 
                 SettingsItem(
                     icon = Icons.Outlined.Security,
@@ -163,7 +163,7 @@ fun SettingsScreen(
                     }
                 )
 
-                HorizontalDivider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
+                Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
 
                 SettingsItem(
                     icon = Icons.Outlined.Pin,
@@ -188,7 +188,7 @@ fun SettingsScreen(
                     onClick = { PermissionUtils.openUsageAccessSettings(context) }
                 )
 
-                HorizontalDivider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
+                Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
 
                 PermissionSettingsItem(
                     icon = Icons.Outlined.Layers,
@@ -197,7 +197,7 @@ fun SettingsScreen(
                     onClick = { PermissionUtils.openOverlaySettings(context) }
                 )
 
-                HorizontalDivider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
+                Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
 
                 PermissionSettingsItem(
                     icon = Icons.Outlined.Accessibility,
@@ -206,7 +206,7 @@ fun SettingsScreen(
                     onClick = { PermissionUtils.openAccessibilitySettings(context) }
                 )
 
-                HorizontalDivider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
+                Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
 
                 PermissionSettingsItem(
                     icon = Icons.Outlined.BatteryChargingFull,
@@ -231,7 +231,7 @@ fun SettingsScreen(
                     onClick = { /* Show duration picker */ }
                 )
 
-                HorizontalDivider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
+                Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
 
                 SettingsItem(
                     icon = Icons.Outlined.Coffee,
@@ -240,7 +240,7 @@ fun SettingsScreen(
                     onClick = { /* Show duration picker */ }
                 )
 
-                HorizontalDivider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
+                Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
 
                 SettingsItem(
                     icon = Icons.Outlined.Weekend,

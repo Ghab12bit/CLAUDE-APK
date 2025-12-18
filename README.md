@@ -130,8 +130,61 @@ Samsung's aggressive battery management may stop the service:
 
 Personal use only. Not for distribution on app stores.
 
-## Version
+## Version History
 
-1.0.0 - Initial release
-1.0.1 Release
-[V1.zip](https://github.com/user-attachments/files/24244521/V1.zip)
+### v1.3.0 - UI Polish (Latest)
+**Commit:** `16482f2`
+- Modern, calm, premium UI styling
+- Quick Block hero card with 24dp radius, 8dp elevation
+- Enhanced stats cards with icon containers
+- Schedule cards with accent bars and day chips
+- Improved chart styling with value labels
+- Better empty states with circular icons
+- Refined color palette with depth system
+
+### v1.2.0 - Gradle & Compatibility
+**Commit:** `98c3f1f`
+- Upgraded Gradle to 8.5 for Java 21 compatibility
+- Fixed deprecated `rootProject.buildDir`
+- Added gradle-wrapper.jar for building without local Gradle
+
+### v1.1.0 - Stability & Features
+**Commit:** `6da2a0b`
+- Critical stability fixes (wake lock, ANR prevention)
+- Fixed notification permission check for Android 13+
+- UI improvements for Home, Schedule, and Statistics screens
+- Added "Select Apps" button in Quick Block
+- Made "Apps blocked" section clickable
+- Added active block indicator with end time
+- Added snackbar confirmation on block start
+- Schedule time picker with 12-hour format
+- Days of week selection in schedules
+
+### v1.0.1 - Bug Fixes
+**Commit:** `ce3b657`
+- Fixed LinearProgressIndicator progress parameter
+- Fixed Map.entries takeLast compatibility
+- Fixed composable call in HardModeUnlockActivity
+- Added missing Material 3 experimental APIs opt-in
+
+### v1.0.0 - Initial Release
+**Commit:** `29c4a9e`
+- Complete FocusBlock digital wellbeing app
+- Quick Block, Schedules, Strict Mode, Hard Mode
+- Pomodoro Timer, Statistics, Allowlist
+- Modern dark UI with Material 3
+
+---
+
+## Download Previous Builds
+
+| Version | Commit | Download |
+|---------|--------|----------|
+| v1.3.0 | `16482f2` | [Latest Branch](../../tree/claude/add-hard-mode-unlock-bTrNn) |
+| v1.0.1 | `ce3b657` | [V1.zip](https://github.com/user-attachments/files/24244521/V1.zip) |
+
+> To build a specific version:
+> ```bash
+> git checkout <commit-hash>
+> ./gradlew assembleDebug
+> ```

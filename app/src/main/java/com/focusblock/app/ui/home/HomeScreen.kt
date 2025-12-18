@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -44,21 +45,40 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var showAppSelectionDialog by remember { mutableStateOf(false) }
     var showTimerDialog by remember { mutableStateOf(false) }
     var showPomodoroDialog by remember { mutableStateOf(false) }
     var showHardModeDialog by remember { mutableStateOf(false) }
+    var showBlockedAppsDialog by remember { mutableStateOf(false) }
     var selectedApps by remember { mutableStateOf<List<String>>(emptyList()) }
     var timerDurationMinutes by remember { mutableStateOf<Int?>(null) }
+    var isEditingApps by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.refreshPermissions()
     }
 
+    // Show snackbar when blocking starts
+    LaunchedEffect(uiState.isQuickBlockActive) {
+        if (uiState.isQuickBlockActive) {
+            val appsCount = uiState.quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotEmpty() }?.size ?: 0
+            snackbarHostState.showSnackbar(
+                message = "Blocking $appsCount apps",
+                duration = SnackbarDuration.Short
+            )
+        }
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        containerColor = BackgroundDark
+    ) { paddingValues ->
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .padding(paddingValues)
             .background(BackgroundDark),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -115,12 +135,17 @@ fun HomeScreen(
             QuickBlockCard(
                 isActive = uiState.isQuickBlockActive,
                 remainingTime = uiState.remainingTime,
+                endTime = uiState.quickBlockSession?.endTime,
                 blockedAppsCount = uiState.quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotEmpty() }?.size ?: 0,
                 isPomodoroMode = uiState.isPomodoroMode,
                 onStartClick = { showAppSelectionDialog = true },
                 onStopClick = { viewModel.stopQuickBlock() },
                 onTimerClick = { showTimerDialog = true },
                 onPomodoroClick = { showPomodoroDialog = true },
+                onSelectAppsClick = {
+                    isEditingApps = true
+                    showAppSelectionDialog = true
+                },
                 isStrictMode = uiState.isStrictModeEnabled,
                 isHardMode = uiState.isHardModeEnabled
             )
@@ -130,7 +155,8 @@ fun HomeScreen(
         item {
             StatsSummaryCard(
                 todayBlockCount = uiState.todayBlockCount,
-                blockedAppsCount = uiState.blockedAppsCount
+                blockedAppsCount = uiState.blockedAppsCount,
+                onAppsBlockedClick = { showBlockedAppsDialog = true }
             )
         }
 
@@ -166,6 +192,7 @@ fun HomeScreen(
             )
         }
     }
+    } // End Scaffold
 
     // Dialogs
     if (showAppSelectionDialog) {
@@ -211,18 +238,35 @@ fun HomeScreen(
             }
         )
     }
+
+    // Blocked Apps Dialog - View and manage currently blocked apps
+    if (showBlockedAppsDialog) {
+        BlockedAppsDialog(
+            blockedApps = uiState.blockedApps,
+            onDismiss = { showBlockedAppsDialog = false },
+            onEditApps = {
+                showBlockedAppsDialog = false
+                showAppSelectionDialog = true
+            },
+            onToggleApp = { packageName, blocked ->
+                viewModel.toggleAppBlocked(packageName, blocked)
+            }
+        )
+    }
 }
 
 @Composable
 fun QuickBlockCard(
     isActive: Boolean,
     remainingTime: Long,
+    endTime: Long?,
     blockedAppsCount: Int,
     isPomodoroMode: Boolean,
     onStartClick: () -> Unit,
     onStopClick: () -> Unit,
     onTimerClick: () -> Unit,
     onPomodoroClick: () -> Unit,
+    onSelectAppsClick: () -> Unit,
     isStrictMode: Boolean,
     isHardMode: Boolean
 ) {
@@ -244,25 +288,37 @@ fun QuickBlockCard(
                     style = MaterialTheme.typography.titleLarge,
                     color = TextPrimary
                 )
+                // Select Apps button
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onSelectAppsClick() }
+                        .background(Primary.copy(alpha = 0.1f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Block,
+                        imageVector = Icons.Outlined.Apps,
                         contentDescription = null,
-                        tint = TextSecondary,
-                        modifier = Modifier.size(20.dp)
+                        tint = Primary,
+                        modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = "$blockedAppsCount",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
+                        text = if (blockedAppsCount > 0) "$blockedAppsCount apps" else "Select Apps",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Primary
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = Primary,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Main button
             Button(
@@ -299,33 +355,52 @@ fun QuickBlockCard(
                 }
             }
 
-            // Active indicator
+            // Active indicator with end time
             if (isActive) {
                 Spacer(modifier = Modifier.height(12.dp))
-                Row(
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = StatusActive.copy(alpha = 0.1f))
                 ) {
-                    Box(
+                    Row(
                         modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(StatusActive)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Active",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = StatusActive
-                    )
-                    if (isPomodoroMode) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "• Pomodoro",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = AccentOrange
-                        )
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(StatusActive)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Blocking Active",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = StatusActive
+                            )
+                            if (isPomodoroMode) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "• Pomodoro",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = AccentOrange
+                                )
+                            }
+                        }
+                        if (endTime != null && endTime > 0) {
+                            Text(
+                                text = "until ${TimeUtils.getTimeString(endTime)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
                     }
                 }
             }
@@ -380,7 +455,8 @@ fun QuickBlockCard(
 @Composable
 fun StatsSummaryCard(
     todayBlockCount: Int,
-    blockedAppsCount: Int
+    blockedAppsCount: Int,
+    onAppsBlockedClick: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -404,11 +480,47 @@ fun StatsSummaryCard(
                     .height(48.dp)
                     .background(Divider)
             )
-            StatItem(
-                value = blockedAppsCount.toString(),
-                label = "Apps blocked",
-                icon = Icons.Outlined.Apps
-            )
+            // Make Apps blocked section clickable
+            Column(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onAppsBlockedClick() }
+                    .padding(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Apps,
+                        contentDescription = null,
+                        tint = Primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = blockedAppsCount.toString(),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Apps blocked",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = TextTertiary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -620,4 +732,152 @@ fun StrictModeCard(
             }
         }
     }
+}
+
+@Composable
+fun BlockedAppsDialog(
+    blockedApps: List<com.focusblock.app.database.entity.BlockedApp>,
+    onDismiss: () -> Unit,
+    onEditApps: () -> Unit,
+    onToggleApp: (String, Boolean) -> Unit
+) {
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Blocked Apps",
+                    style = MaterialTheme.typography.titleLarge
+                )
+                Text(
+                    text = "${blockedApps.size} apps",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
+                )
+            }
+        },
+        text = {
+            if (blockedApps.isEmpty()) {
+                // Empty state
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Block,
+                        contentDescription = null,
+                        tint = TextTertiary,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "No apps blocked yet",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "Add apps to start blocking",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 400.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(blockedApps) { app ->
+                        val appInfo = try {
+                            context.packageManager.getApplicationInfo(app.packageName, 0)
+                        } catch (e: Exception) { null }
+                        val appName = appInfo?.let {
+                            context.packageManager.getApplicationLabel(it).toString()
+                        } ?: app.packageName
+                        val appIcon = appInfo?.let {
+                            try { context.packageManager.getApplicationIcon(it) } catch (e: Exception) { null }
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(CardDark)
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                if (appIcon != null) {
+                                    Image(
+                                        bitmap = appIcon.toBitmap(48, 48).asImageBitmap(),
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Divider),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Apps,
+                                            contentDescription = null,
+                                            tint = TextSecondary
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = appName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextPrimary,
+                                    maxLines = 1
+                                )
+                            }
+                            Switch(
+                                checked = app.isBlocked,
+                                onCheckedChange = { onToggleApp(app.packageName, it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Primary,
+                                    checkedTrackColor = Primary.copy(alpha = 0.5f),
+                                    uncheckedThumbColor = TextSecondary,
+                                    uncheckedTrackColor = Divider
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onEditApps,
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Filled.Edit, null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Edit Apps")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }

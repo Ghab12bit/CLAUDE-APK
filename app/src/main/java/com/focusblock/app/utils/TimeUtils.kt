@@ -7,8 +7,9 @@ import java.util.concurrent.TimeUnit
 object TimeUtils {
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-    private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-    private val dateTimeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+    private val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
+    private val timeFormat24 = SimpleDateFormat("HH:mm", Locale.getDefault())
+    private val dateTimeFormat = SimpleDateFormat("yyyy-MM-dd h:mm a", Locale.getDefault())
 
     fun getCurrentDateString(): String = dateFormat.format(Date())
 
@@ -39,6 +40,19 @@ object TimeUtils {
     }
 
     fun minutesToTimeString(minutes: Int): String {
+        val hours = minutes / 60
+        val mins = minutes % 60
+        val isPM = hours >= 12
+        val displayHour = when {
+            hours == 0 -> 12
+            hours > 12 -> hours - 12
+            else -> hours
+        }
+        val period = if (isPM) "PM" else "AM"
+        return String.format(Locale.getDefault(), "%d:%02d %s", displayHour, mins, period)
+    }
+
+    fun minutesToTimeString24(minutes: Int): String {
         val hours = minutes / 60
         val mins = minutes % 60
         return String.format(Locale.getDefault(), "%02d:%02d", hours, mins)

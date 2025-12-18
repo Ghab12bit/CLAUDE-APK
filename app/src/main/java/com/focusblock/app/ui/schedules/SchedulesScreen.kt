@@ -391,7 +391,6 @@ fun ScheduleEditDialog(
     onDismiss: () -> Unit,
     onSave: (Schedule) -> Unit
 ) {
-    // Dialog implementation - simplified for space
     var name by remember { mutableStateOf(schedule?.name ?: "") }
     var iconType by remember { mutableStateOf(schedule?.iconType ?: ScheduleIconType.WORK) }
     var startTime by remember { mutableStateOf(schedule?.startTimeMinutes ?: 9 * 60) }
@@ -399,6 +398,13 @@ fun ScheduleEditDialog(
     var selectedDays by remember { mutableStateOf(schedule?.daysOfWeek?.split(",")?.mapNotNull { it.toIntOrNull() } ?: listOf(1, 2, 3, 4, 5)) }
     var selectedApps by remember { mutableStateOf(schedule?.blockedPackages?.split(",")?.filter { it.isNotEmpty() } ?: emptyList()) }
     var showAppSelector by remember { mutableStateOf(false) }
+    var showStartTimePicker by remember { mutableStateOf(false) }
+    var showEndTimePicker by remember { mutableStateOf(false) }
+    var isEnabled by remember { mutableStateOf(schedule?.isEnabled ?: true) }
+
+    // Days of week labels
+    val dayLabels = listOf("M", "T", "W", "T", "F", "S", "S")
+    val dayValues = listOf(1, 2, 3, 4, 5, 6, 7)
 
     if (showAppSelector) {
         com.focusblock.app.ui.components.AppSelectionDialog(
@@ -408,6 +414,28 @@ fun ScheduleEditDialog(
             onConfirm = {
                 selectedApps = it
                 showAppSelector = false
+            }
+        )
+    } else if (showStartTimePicker) {
+        ScheduleTimePickerDialog(
+            initialHour = startTime / 60,
+            initialMinute = startTime % 60,
+            title = "Start Time",
+            onDismiss = { showStartTimePicker = false },
+            onConfirm = { hour, minute ->
+                startTime = hour * 60 + minute
+                showStartTimePicker = false
+            }
+        )
+    } else if (showEndTimePicker) {
+        ScheduleTimePickerDialog(
+            initialHour = endTime / 60,
+            initialMinute = endTime % 60,
+            title = "End Time",
+            onDismiss = { showEndTimePicker = false },
+            onConfirm = { hour, minute ->
+                endTime = hour * 60 + minute
+                showEndTimePicker = false
             }
         )
     } else {
@@ -427,6 +455,26 @@ fun ScheduleEditDialog(
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
+
+                    // Enable/Disable toggle for existing schedules
+                    if (schedule != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Enable Schedule", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                            Switch(
+                                checked = isEnabled,
+                                onCheckedChange = { isEnabled = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Primary,
+                                    checkedTrackColor = Primary.copy(alpha = 0.5f)
+                                )
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
 
                     // Icon type selection
                     Text("Icon", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
@@ -462,26 +510,94 @@ fun ScheduleEditDialog(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Time selection
+                    // Time selection - now clickable
+                    Text("Time", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                    Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Start", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
-                            Text(
-                                text = TimeUtils.minutesToTimeString(startTime),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Primary
-                            )
+                        // Start time button
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { showStartTimePicker = true },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = CardDark)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text("Start", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = TimeUtils.minutesToTimeString(startTime),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = Primary
+                                )
+                            }
                         }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("End", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
-                            Text(
-                                text = TimeUtils.minutesToTimeString(endTime),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Primary
-                            )
+
+                        // End time button
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { showEndTimePicker = true },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = CardDark)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text("End", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = TimeUtils.minutesToTimeString(endTime),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = Primary
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Days of week selection
+                    Text("Days", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        dayLabels.forEachIndexed { index, label ->
+                            val dayValue = dayValues[index]
+                            val isSelected = selectedDays.contains(dayValue)
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) Primary else Divider)
+                                    .clickable {
+                                        selectedDays = if (isSelected) {
+                                            selectedDays - dayValue
+                                        } else {
+                                            selectedDays + dayValue
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (isSelected) TextPrimary else TextSecondary
+                                )
+                            }
                         }
                     }
 
@@ -490,7 +606,8 @@ fun ScheduleEditDialog(
                     // Apps selection
                     OutlinedButton(
                         onClick = { showAppSelector = true },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(Icons.Outlined.Apps, null)
                         Spacer(modifier = Modifier.width(8.dp))
@@ -506,14 +623,15 @@ fun ScheduleEditDialog(
                             name = name.ifEmpty { "Schedule" },
                             iconType = iconType,
                             colorHex = getScheduleColor(iconType).toString(),
+                            isEnabled = isEnabled,
                             startTimeMinutes = startTime,
                             endTimeMinutes = endTime,
-                            daysOfWeek = selectedDays.joinToString(","),
+                            daysOfWeek = selectedDays.sorted().joinToString(","),
                             blockedPackages = selectedApps.joinToString(",")
                         )
                         onSave(newSchedule)
                     },
-                    enabled = name.isNotEmpty() && selectedApps.isNotEmpty()
+                    enabled = name.isNotEmpty() && selectedApps.isNotEmpty() && selectedDays.isNotEmpty()
                 ) {
                     Text("Save")
                 }
@@ -525,6 +643,148 @@ fun ScheduleEditDialog(
             }
         )
     }
+}
+
+@Composable
+fun ScheduleTimePickerDialog(
+    initialHour: Int,
+    initialMinute: Int,
+    title: String,
+    onDismiss: () -> Unit,
+    onConfirm: (Int, Int) -> Unit
+) {
+    var hour by remember { mutableStateOf(initialHour) }
+    var minute by remember { mutableStateOf(initialMinute) }
+    var isPM by remember { mutableStateOf(initialHour >= 12) }
+
+    // Convert to 12-hour format for display
+    val displayHour = when {
+        hour == 0 -> 12
+        hour > 12 -> hour - 12
+        else -> hour
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    // Hour picker
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        IconButton(onClick = {
+                            hour = if (hour >= 23) 0 else hour + 1
+                            isPM = hour >= 12
+                        }) {
+                            Icon(Icons.Filled.KeyboardArrowUp, null, tint = Primary)
+                        }
+                        Text(
+                            text = String.format("%02d", displayHour),
+                            style = MaterialTheme.typography.displaySmall,
+                            color = Primary
+                        )
+                        IconButton(onClick = {
+                            hour = if (hour <= 0) 23 else hour - 1
+                            isPM = hour >= 12
+                        }) {
+                            Icon(Icons.Filled.KeyboardArrowDown, null, tint = Primary)
+                        }
+                    }
+
+                    Text(
+                        text = ":",
+                        style = MaterialTheme.typography.displaySmall,
+                        color = Primary,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+
+                    // Minute picker
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        IconButton(onClick = {
+                            minute = if (minute >= 55) 0 else minute + 5
+                        }) {
+                            Icon(Icons.Filled.KeyboardArrowUp, null, tint = Primary)
+                        }
+                        Text(
+                            text = String.format("%02d", minute),
+                            style = MaterialTheme.typography.displaySmall,
+                            color = Primary
+                        )
+                        IconButton(onClick = {
+                            minute = if (minute <= 0) 55 else minute - 5
+                        }) {
+                            Icon(Icons.Filled.KeyboardArrowDown, null, tint = Primary)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    // AM/PM toggle
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (!isPM) Primary else Divider)
+                                .clickable {
+                                    if (isPM) {
+                                        hour -= 12
+                                        isPM = false
+                                    }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = "AM",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (!isPM) TextPrimary else TextSecondary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isPM) Primary else Divider)
+                                .clickable {
+                                    if (!isPM) {
+                                        hour += 12
+                                        isPM = true
+                                    }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = "PM",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (isPM) TextPrimary else TextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(hour, minute) }) {
+                Text("OK")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 fun getScheduleColor(type: ScheduleIconType): Color {

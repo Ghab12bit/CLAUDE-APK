@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -162,23 +164,40 @@ fun ScheduleTemplateChip(
     color: Color,
     onClick: () -> Unit
 ) {
-    AssistChip(
-        onClick = onClick,
-        label = { Text(name) },
-        leadingIcon = {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = color,
-                modifier = Modifier.size(18.dp)
+    Surface(
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .clickable { onClick() },
+        shape = RoundedCornerShape(14.dp),
+        color = color.copy(alpha = 0.1f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(color.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = color,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = name,
+                style = MaterialTheme.typography.labelLarge,
+                color = TextPrimary,
+                fontWeight = FontWeight.Medium
             )
-        },
-        colors = AssistChipDefaults.assistChipColors(
-            containerColor = color.copy(alpha = 0.1f),
-            labelColor = TextPrimary
-        ),
-        border = null
-    )
+        }
+    }
 }
 
 @Composable
@@ -195,70 +214,80 @@ fun ScheduleCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onEdit() },
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark)
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
+        Box(
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            // Accent bar on left
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(100.dp)
+                    .background(color)
+                    .align(Alignment.CenterStart)
+            )
+
+            Column(
+                modifier = Modifier.padding(start = 20.dp, end = 16.dp, top = 18.dp, bottom = 18.dp)
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Icon
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(color.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Icon(
-                            imageVector = getScheduleIcon(schedule.iconType),
-                            contentDescription = null,
-                            tint = color,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    Column {
-                        Text(
-                            text = schedule.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = "${TimeUtils.minutesToTimeString(schedule.startTimeMinutes)} - ${TimeUtils.minutesToTimeString(schedule.endTimeMinutes)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = color
-                        )
-                    }
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Active badge
-                    if (schedule.isEnabled) {
+                        // Icon
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(StatusActive.copy(alpha = 0.2f))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .size(50.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(color.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "Active",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = StatusActive
+                            Icon(
+                                imageVector = getScheduleIcon(schedule.iconType),
+                                contentDescription = null,
+                                tint = color,
+                                modifier = Modifier.size(26.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Spacer(modifier = Modifier.width(14.dp))
+
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = schedule.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                if (schedule.isEnabled) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(StatusActive)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "${TimeUtils.minutesToTimeString(schedule.startTimeMinutes)} - ${TimeUtils.minutesToTimeString(schedule.endTimeMinutes)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = color,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
 
                     Box {
@@ -305,36 +334,66 @@ fun ScheduleCard(
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-            // Days of week
-            Text(
-                text = TimeUtils.getDaysOfWeekString(schedule.daysOfWeek),
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
-            )
-
-            // Blocked apps count
-            val appsCount = schedule.blockedPackages.split(",").filter { it.isNotEmpty() }.size
-            if (appsCount > 0) {
-                Spacer(modifier = Modifier.height(8.dp))
+                // Days and apps info row
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Block,
-                        contentDescription = null,
-                        tint = TextTertiary,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "$appsCount apps blocked",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextTertiary
-                    )
+                    // Days of week chips
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        val days = listOf("M", "T", "W", "T", "F", "S", "S")
+                        val selectedDays = schedule.daysOfWeek.split(",").mapNotNull { it.toIntOrNull() }
+                        days.forEachIndexed { index, day ->
+                            val isSelected = selectedDays.contains(index + 1)
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSelected) color.copy(alpha = 0.2f) else Color.Transparent),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = day,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isSelected) color else TextTertiary,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+
+                    // Blocked apps count
+                    val appsCount = schedule.blockedPackages.split(",").filter { it.isNotEmpty() }.size
+                    if (appsCount > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = SurfaceElevated
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Block,
+                                    contentDescription = null,
+                                    tint = TextTertiary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "$appsCount apps",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -345,40 +404,54 @@ fun ScheduleCard(
 fun EmptySchedulesCard(onAddClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark)
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(32.dp),
+                .padding(40.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Schedule,
-                contentDescription = null,
-                tint = TextTertiary,
-                modifier = Modifier.size(64.dp)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .clip(CircleShape)
+                    .background(SurfaceElevated),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Schedule,
+                    contentDescription = null,
+                    tint = TextTertiary,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(20.dp))
             Text(
                 text = "No schedules yet",
-                style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary
+                style = MaterialTheme.typography.titleLarge,
+                color = TextPrimary,
+                fontWeight = FontWeight.SemiBold
             )
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "Create a schedule to automatically block apps",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary,
+                textAlign = TextAlign.Center
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
             Button(
                 onClick = onAddClick,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Primary),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
             ) {
-                Icon(Icons.Filled.Add, null)
+                Icon(Icons.Filled.Add, null, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Add Schedule")
+                Text("Add Schedule", fontWeight = FontWeight.Medium)
             }
         }
     }

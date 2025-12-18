@@ -152,42 +152,39 @@ fun StatSummaryCard(
 ) {
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark)
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(20.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(color.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(color.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = color,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = color,
+                    modifier = Modifier.size(24.dp)
                 )
             }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = value,
                 style = MaterialTheme.typography.headlineMedium,
                 color = TextPrimary,
                 fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary
             )
         }
     }
@@ -200,64 +197,114 @@ fun BlocksChartCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark)
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(20.dp)
         ) {
-            Text(
-                text = "Block Activity",
-                style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Block Activity",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (dailyBlocks.isNotEmpty()) {
+                    val totalBlocks = dailyBlocks.values.sum()
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Primary.copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            text = "$totalBlocks total",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Primary,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             if (dailyBlocks.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(120.dp),
+                        .height(140.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "No data yet",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.BarChart,
+                            contentDescription = null,
+                            tint = TextTertiary,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "No data yet",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
+                        )
+                    }
                 }
             } else {
-                // Simple bar chart
+                // Enhanced bar chart
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(120.dp),
+                        .height(140.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.Bottom
                 ) {
                     val maxBlocks = dailyBlocks.values.maxOrNull()?.toFloat() ?: 1f
+                    val entries = dailyBlocks.entries.toList().takeLast(7)
+                    val maxIndex = entries.indexOfFirst { it.value == maxBlocks.toInt() }
 
-                    dailyBlocks.entries.toList().takeLast(7).forEach { (day, count) ->
+                    entries.forEachIndexed { index, (day, count) ->
                         val heightPercent = if (maxBlocks > 0) count / maxBlocks else 0f
+                        val isHighest = index == maxIndex && count > 0
 
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            if (count > 0) {
+                                Text(
+                                    text = count.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isHighest) Primary else TextTertiary,
+                                    fontWeight = if (isHighest) FontWeight.Bold else FontWeight.Normal
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                            }
                             Box(
                                 modifier = Modifier
-                                    .width(24.dp)
-                                    .height((100 * heightPercent).dp.coerceAtLeast(4.dp))
-                                    .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                    .width(32.dp)
+                                    .height((100 * heightPercent).dp.coerceAtLeast(6.dp))
+                                    .clip(RoundedCornerShape(8.dp))
                                     .background(
-                                        if (count > 0) Primary else Divider
+                                        if (count > 0) {
+                                            if (isHighest) Primary else Primary.copy(alpha = 0.6f)
+                                        } else {
+                                            SurfaceElevated
+                                        }
                                     )
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = day.takeLast(2), // Just show day number
+                                text = day.takeLast(2),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextTertiary
+                                color = if (isHighest) Primary else TextTertiary,
+                                fontWeight = if (isHighest) FontWeight.SemiBold else FontWeight.Normal
                             )
                         }
                     }
@@ -280,11 +327,12 @@ fun MostBlockedAppItem(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // App icon
@@ -293,58 +341,67 @@ fun MostBlockedAppItem(
                     bitmap = drawable.toBitmap(48, 48).asImageBitmap(),
                     contentDescription = appName,
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
                 )
             } ?: Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Divider),
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SurfaceElevated),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Filled.Android,
                     contentDescription = null,
-                    tint = TextSecondary
+                    tint = TextSecondary,
+                    modifier = Modifier.size(28.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(14.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = appName,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextPrimary
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Medium
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Progress bar
-                LinearProgressIndicator(
-                    progress = percentage / 100f,
+                // Progress bar with rounded track
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
-                    color = Primary,
-                    trackColor = Divider
-                )
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(SurfaceElevated)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(percentage / 100f)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Primary)
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(14.dp))
 
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = blockCount.toString(),
                     style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = "$percentage%",
                     style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary
+                    color = Primary
                 )
             }
         }
@@ -358,46 +415,68 @@ fun RecentBlockItem(
     val context = LocalContext.current
     val appIcon = remember(blockLog.packageName) { AppUtils.getAppIcon(context, blockLog.packageName) }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = CardDark
     ) {
-        appIcon?.let { drawable ->
-            Image(
-                bitmap = drawable.toBitmap(40, 40).asImageBitmap(),
-                contentDescription = blockLog.appName,
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-            )
-        } ?: Box(
+        Row(
             modifier = Modifier
-                .size(32.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Divider)
-        )
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            appIcon?.let { drawable ->
+                Image(
+                    bitmap = drawable.toBitmap(40, 40).asImageBitmap(),
+                    contentDescription = blockLog.appName,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                )
+            } ?: Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(SurfaceElevated),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Android,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
 
-        Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = blockLog.appName,
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextPrimary
-            )
-            Text(
-                text = "Blocked by ${blockLog.blockedBy.name.lowercase().replace("_", " ")}",
-                style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = blockLog.appName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Blocked by ${blockLog.blockedBy.name.lowercase().replace("_", " ")}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary
+                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = SurfaceElevated
+            ) {
+                Text(
+                    text = TimeUtils.getTimeString(blockLog.timestamp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextTertiary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
         }
-
-        Text(
-            text = TimeUtils.getTimeString(blockLog.timestamp),
-            style = MaterialTheme.typography.labelSmall,
-            color = TextTertiary
-        )
     }
 }

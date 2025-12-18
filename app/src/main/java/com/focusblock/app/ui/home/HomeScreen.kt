@@ -271,64 +271,97 @@ fun QuickBlockCard(
     isHardMode: Boolean
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark)
+        modifier = Modifier
+            .fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDarkElevated),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
         Column(
-            modifier = Modifier.padding(20.dp)
+            modifier = Modifier.padding(24.dp)
         ) {
+            // Header with icon and title
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Quick Block",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = TextPrimary
-                )
-                // Select Apps button
                 Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onSelectAppsClick() }
-                        .background(Primary.copy(alpha = 0.1f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Apps,
-                        contentDescription = null,
-                        tint = Primary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = if (blockedAppsCount > 0) "$blockedAppsCount apps" else "Select Apps",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Primary
-                    )
-                    Icon(
-                        imageVector = Icons.Filled.ChevronRight,
-                        contentDescription = null,
-                        tint = Primary,
-                        modifier = Modifier.size(16.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Primary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Shield,
+                            contentDescription = null,
+                            tint = Primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column {
+                        Text(
+                            text = "Quick Block",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (isActive) "Protection active" else "Start blocking apps",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isActive) StatusActive else TextSecondary
+                        )
+                    }
+                }
+                // Select Apps button
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onSelectAppsClick() },
+                    color = Primary.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Apps,
+                            contentDescription = null,
+                            tint = Primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = if (blockedAppsCount > 0) "$blockedAppsCount apps" else "Select",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Primary,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // Main button
+            // Main action button - Hero CTA
             Button(
                 onClick = { if (isActive) onStopClick() else onStartClick() },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(12.dp),
+                    .height(64.dp),
+                shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isActive) AccentRed else Primary
+                ),
+                elevation = ButtonDefaults.buttonElevation(
+                    defaultElevation = 4.dp,
+                    pressedElevation = 8.dp
                 ),
                 enabled = !isStrictMode && !isHardMode || !isActive
             ) {
@@ -338,18 +371,21 @@ fun QuickBlockCard(
                 ) {
                     Icon(
                         imageVector = if (isActive) Icons.Filled.Stop else Icons.Filled.PlayArrow,
-                        contentDescription = null
+                        contentDescription = null,
+                        modifier = Modifier.size(26.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     if (isActive && remainingTime > 0) {
                         Text(
                             text = TimeUtils.formatTimerWithHours(remainingTime),
-                            style = MaterialTheme.typography.titleMedium
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold
                         )
                     } else {
                         Text(
-                            text = if (isActive) "Stop" else "Start",
-                            style = MaterialTheme.typography.titleMedium
+                            text = if (isActive) "Stop Blocking" else "Start Blocking",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
@@ -357,16 +393,16 @@ fun QuickBlockCard(
 
             // Active indicator with end time
             if (isActive) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Card(
+                Spacer(modifier = Modifier.height(16.dp))
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = StatusActive.copy(alpha = 0.1f))
+                    shape = RoundedCornerShape(14.dp),
+                    color = StatusActive.copy(alpha = 0.08f)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -375,23 +411,30 @@ fun QuickBlockCard(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(8.dp)
+                                    .size(10.dp)
                                     .clip(CircleShape)
                                     .background(StatusActive)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = "Blocking Active",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = StatusActive
+                                color = StatusActive,
+                                fontWeight = FontWeight.Medium
                             )
                             if (isPomodoroMode) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "• Pomodoro",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = AccentOrange
-                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = AccentOrange.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "Pomodoro",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = AccentOrange,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
                             }
                         }
                         if (endTime != null && endTime > 0) {
@@ -405,47 +448,71 @@ fun QuickBlockCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Timer and Pomodoro buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                OutlinedButton(
-                    onClick = onTimerClick,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = TextPrimary
-                    ),
-                    border = BorderStroke(1.dp, Divider)
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { onTimerClick() },
+                    shape = RoundedCornerShape(14.dp),
+                    color = SurfaceElevated,
+                    border = BorderStroke(1.dp, SurfaceBorder)
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Timer,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Timer")
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Timer,
+                            contentDescription = null,
+                            tint = TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Timer",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = TextPrimary
+                        )
+                    }
                 }
 
-                OutlinedButton(
-                    onClick = onPomodoroClick,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = TextPrimary
-                    ),
-                    border = BorderStroke(1.dp, Divider)
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { onPomodoroClick() },
+                    shape = RoundedCornerShape(14.dp),
+                    color = SurfaceElevated,
+                    border = BorderStroke(1.dp, SurfaceBorder)
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Pending,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Pomodoro")
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Pending,
+                            contentDescription = null,
+                            tint = AccentOrange,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Pomodoro",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = TextPrimary
+                        )
+                    }
                 }
             }
         }
@@ -458,68 +525,103 @@ fun StatsSummaryCard(
     blockedAppsCount: Int,
     onAppsBlockedClick: () -> Unit = {}
 ) {
-    Card(
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
+        // Blocks today card
+        Card(
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = CardDark),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
-            StatItem(
-                value = todayBlockCount.toString(),
-                label = "Blocks today",
-                icon = Icons.Outlined.Block
-            )
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .height(48.dp)
-                    .background(Divider)
-            )
-            // Make Apps blocked section clickable
             Column(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { onAppsBlockedClick() }
-                    .padding(8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .fillMaxWidth()
+                    .padding(20.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(AccentRed.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Apps,
+                        imageVector = Icons.Outlined.Block,
                         contentDescription = null,
-                        tint = Primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = blockedAppsCount.toString(),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Bold
+                        tint = AccentRed,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = todayBlockCount.toString(),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Blocks today",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+        }
+
+        // Apps blocked card - clickable
+        Card(
+            modifier = Modifier
+                .weight(1f)
+                .clickable { onAppsBlockedClick() },
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = CardDark),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Text(
-                        text = "Apps blocked",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Primary.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Apps,
+                            contentDescription = null,
+                            tint = Primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                     Icon(
                         imageVector = Icons.Filled.ChevronRight,
                         contentDescription = null,
                         tint = TextTertiary,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = blockedAppsCount.toString(),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Apps blocked",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
             }
         }
     }
@@ -575,49 +677,78 @@ fun SchedulePreviewCard(
 
     Card(
         modifier = Modifier
-            .width(160.dp)
-            .height(120.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.15f))
+            .width(170.dp)
+            .height(130.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+        Box(
+            modifier = Modifier.fillMaxSize()
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            // Accent bar on left
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(color)
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 16.dp, end = 14.dp, top = 14.dp, bottom = 14.dp),
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
-                if (schedule.isEnabled) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(StatusActive.copy(alpha = 0.2f))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(color.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "Active",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = StatusActive
+                        Icon(
+                            imageVector = when (schedule.iconType) {
+                                com.focusblock.app.database.entity.ScheduleIconType.WORK -> Icons.Outlined.Work
+                                com.focusblock.app.database.entity.ScheduleIconType.SLEEP -> Icons.Outlined.Bedtime
+                                com.focusblock.app.database.entity.ScheduleIconType.STUDY -> Icons.Outlined.School
+                                else -> Icons.Outlined.Schedule
+                            },
+                            contentDescription = null,
+                            tint = color,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    if (schedule.isEnabled) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(StatusActive)
                         )
                     }
                 }
-            }
 
-            Column {
-                Text(
-                    text = schedule.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = TextPrimary
-                )
-                Text(
-                    text = "${TimeUtils.minutesToTimeString(schedule.startTimeMinutes)} - ${TimeUtils.minutesToTimeString(schedule.endTimeMinutes)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = color
-                )
+                Column {
+                    Text(
+                        text = schedule.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "${TimeUtils.minutesToTimeString(schedule.startTimeMinutes)} - ${TimeUtils.minutesToTimeString(schedule.endTimeMinutes)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary
+                    )
+                }
             }
         }
     }
@@ -632,11 +763,12 @@ fun StrictModeCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark)
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(20.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -648,25 +780,27 @@ fun StrictModeCard(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(if (isEnabled) Primary.copy(alpha = 0.2f) else Divider),
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isEnabled) Primary.copy(alpha = 0.15f) else SurfaceElevated),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Lock,
                             contentDescription = null,
                             tint = if (isEnabled) Primary else TextSecondary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(14.dp))
                     Column {
                         Text(
                             text = "Strict Mode",
                             style = MaterialTheme.typography.titleMedium,
-                            color = TextPrimary
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Medium
                         )
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = if (isEnabled) "Cannot disable blocking" else "Lock your settings",
                             style = MaterialTheme.typography.bodySmall,
@@ -679,55 +813,73 @@ fun StrictModeCard(
                     checked = isEnabled,
                     onCheckedChange = onToggle,
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Primary,
-                        checkedTrackColor = Primary.copy(alpha = 0.5f),
+                        checkedThumbColor = TextPrimary,
+                        checkedTrackColor = Primary,
                         uncheckedThumbColor = TextSecondary,
-                        uncheckedTrackColor = Divider
+                        uncheckedTrackColor = SurfaceBorder
                     )
                 )
             }
 
             if (isEnabled) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Divider(color = Divider)
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider(color = SurfaceBorder, thickness = 1.dp)
+                Spacer(modifier = Modifier.height(16.dp))
 
-                Row(
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onHardModeClick() }
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { onHardModeClick() },
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (isHardModeEnabled) AccentOrange.copy(alpha = 0.1f) else SurfaceElevated
                 ) {
                     Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(AccentOrange.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Security,
+                                    contentDescription = null,
+                                    tint = AccentOrange,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Hard Mode",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = if (isHardModeEnabled) "Enabled" else "Require PIN + time lock",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isHardModeEnabled) AccentOrange else TextSecondary
+                                )
+                            }
+                        }
                         Icon(
-                            imageVector = Icons.Filled.Security,
+                            imageVector = Icons.Filled.ChevronRight,
                             contentDescription = null,
-                            tint = AccentOrange,
+                            tint = TextTertiary,
                             modifier = Modifier.size(20.dp)
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Hard Mode",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = "Require PIN + time lock",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                        }
                     }
-                    Icon(
-                        imageVector = Icons.Filled.ChevronRight,
-                        contentDescription = null,
-                        tint = TextSecondary
-                    )
                 }
             }
         }
@@ -745,6 +897,8 @@ fun BlockedAppsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = CardDarkElevated,
+        shape = RoundedCornerShape(24.dp),
         title = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -753,13 +907,20 @@ fun BlockedAppsDialog(
             ) {
                 Text(
                     text = "Blocked Apps",
-                    style = MaterialTheme.typography.titleLarge
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
                 )
-                Text(
-                    text = "${blockedApps.size} apps",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
-                )
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Primary.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        text = "${blockedApps.size}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Primary,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
             }
         },
         text = {
@@ -768,21 +929,30 @@ fun BlockedAppsDialog(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 24.dp),
+                        .padding(vertical = 32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Block,
-                        contentDescription = null,
-                        tint = TextTertiary,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .background(SurfaceElevated),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Block,
+                            contentDescription = null,
+                            tint = TextTertiary,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = "No apps blocked yet",
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         color = TextPrimary
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Add apps to start blocking",
                         style = MaterialTheme.typography.bodySmall,
@@ -792,7 +962,7 @@ fun BlockedAppsDialog(
             } else {
                 LazyColumn(
                     modifier = Modifier.heightIn(max = 400.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(blockedApps) { app ->
                         val appInfo = try {
@@ -805,60 +975,66 @@ fun BlockedAppsDialog(
                             try { context.packageManager.getApplicationIcon(it) } catch (e: Exception) { null }
                         }
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(CardDark)
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            color = SurfaceElevated
                         ) {
                             Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (appIcon != null) {
-                                    Image(
-                                        bitmap = appIcon.toBitmap(48, 48).asImageBitmap(),
-                                        contentDescription = null,
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Divider),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Apps,
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    if (appIcon != null) {
+                                        Image(
+                                            bitmap = appIcon.toBitmap(48, 48).asImageBitmap(),
                                             contentDescription = null,
-                                            tint = TextSecondary
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .clip(RoundedCornerShape(12.dp))
                                         )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(SurfaceBorder),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Apps,
+                                                contentDescription = null,
+                                                tint = TextSecondary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
                                     }
+                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Text(
+                                        text = appName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = TextPrimary,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1
+                                    )
                                 }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    text = appName,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = TextPrimary,
-                                    maxLines = 1
+                                Switch(
+                                    checked = app.isBlocked,
+                                    onCheckedChange = { onToggleApp(app.packageName, it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = TextPrimary,
+                                        checkedTrackColor = Primary,
+                                        uncheckedThumbColor = TextSecondary,
+                                        uncheckedTrackColor = SurfaceBorder
+                                    )
                                 )
                             }
-                            Switch(
-                                checked = app.isBlocked,
-                                onCheckedChange = { onToggleApp(app.packageName, it) },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Primary,
-                                    checkedTrackColor = Primary.copy(alpha = 0.5f),
-                                    uncheckedThumbColor = TextSecondary,
-                                    uncheckedTrackColor = Divider
-                                )
-                            )
                         }
                     }
                 }
@@ -867,16 +1043,17 @@ fun BlockedAppsDialog(
         confirmButton = {
             Button(
                 onClick = onEditApps,
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Primary)
             ) {
                 Icon(Icons.Filled.Edit, null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Edit Apps")
+                Text("Edit Apps", fontWeight = FontWeight.Medium)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close")
+                Text("Close", color = TextSecondary)
             }
         }
     )

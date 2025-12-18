@@ -823,7 +823,7 @@ fun StrictModeCard(
 
             if (isEnabled) {
                 Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider(color = SurfaceBorder, thickness = 1.dp)
+                Divider(color = SurfaceBorder, thickness = 1.dp)
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Surface(

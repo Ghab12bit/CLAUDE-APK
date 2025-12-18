@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+
 package com.focusblock.app.ui.components
 
 import androidx.compose.foundation.*
@@ -30,7 +32,6 @@ import com.focusblock.app.ui.theme.*
 import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.PermissionUtils
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppSelectionDialog(
     apps: List<AppUtils.AppInfo>,

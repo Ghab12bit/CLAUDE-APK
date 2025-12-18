@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+
 package com.focusblock.app.ui.home
 
 import android.graphics.drawable.Drawable
@@ -36,7 +38,6 @@ import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.TimeUtils
 import com.focusblock.app.viewmodel.HomeViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()

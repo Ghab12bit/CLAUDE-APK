@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+
 package com.focusblock.app.ui.statistics
 
 import androidx.compose.foundation.*
@@ -27,7 +29,6 @@ import com.focusblock.app.utils.TimeUtils
 import com.focusblock.app.viewmodel.StatisticsViewModel
 import com.focusblock.app.viewmodel.StatsPeriod
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatisticsScreen(
     viewModel: StatisticsViewModel = hiltViewModel()

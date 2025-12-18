@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+
 package com.focusblock.app.ui.settings
 
 import androidx.compose.foundation.*
@@ -28,7 +30,6 @@ import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.PermissionUtils
 import com.focusblock.app.viewmodel.SettingsViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()

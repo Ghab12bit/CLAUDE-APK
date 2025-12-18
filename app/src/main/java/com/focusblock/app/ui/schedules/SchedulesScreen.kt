@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+
 package com.focusblock.app.ui.schedules
 
 import androidx.compose.foundation.*
@@ -25,7 +27,6 @@ import com.focusblock.app.ui.theme.*
 import com.focusblock.app.utils.TimeUtils
 import com.focusblock.app.viewmodel.SchedulesViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SchedulesScreen(
     viewModel: SchedulesViewModel = hiltViewModel()

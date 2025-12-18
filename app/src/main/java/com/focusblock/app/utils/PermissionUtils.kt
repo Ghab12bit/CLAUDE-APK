@@ -1,8 +1,11 @@
 package com.focusblock.app.utils
 
+import android.Manifest
 import android.app.AppOpsManager
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
@@ -10,6 +13,7 @@ import android.os.Process
 import android.provider.Settings
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.view.accessibility.AccessibilityManager
+import androidx.core.content.ContextCompat
 import com.focusblock.app.service.FocusBlockAccessibilityService
 
 object PermissionUtils {
@@ -51,6 +55,19 @@ object PermissionUtils {
     fun isIgnoringBatteryOptimizations(context: Context): Boolean {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         return powerManager.isIgnoringBatteryOptimizations(context.packageName)
+    }
+
+    fun hasNotificationPermission(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            // Pre-Android 13, check if notifications are enabled
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.areNotificationsEnabled()
+        }
     }
 
     fun openUsageAccessSettings(context: Context) {
@@ -119,7 +136,7 @@ object PermissionUtils {
             hasUsageStats = hasUsageStatsPermission(context),
             hasOverlay = hasOverlayPermission(context),
             hasAccessibility = hasAccessibilityServiceEnabled(context),
-            hasNotification = true, // Simplified for now
+            hasNotification = hasNotificationPermission(context),
             isIgnoringBattery = isIgnoringBatteryOptimizations(context)
         )
     }

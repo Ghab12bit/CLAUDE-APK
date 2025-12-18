@@ -77,15 +77,27 @@ class AppBlockingService : Service() {
 
     private fun startMonitoring() {
         serviceScope.launch {
+            var checkCount = 0
             while (isMonitoring) {
                 try {
                     checkCurrentApp()
+                    // Re-acquire wake lock every 5 minutes to prevent timeout
+                    checkCount++
+                    if (checkCount >= 600) { // 600 * 500ms = 5 minutes
+                        checkCount = 0
+                        reacquireWakeLock()
+                    }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
                 delay(CHECK_INTERVAL)
             }
         }
+    }
+
+    private fun reacquireWakeLock() {
+        releaseWakeLock()
+        acquireWakeLock()
     }
 
     private suspend fun checkCurrentApp() {
@@ -274,7 +286,8 @@ class AppBlockingService : Service() {
     }
 
     private fun getBlockedAppsCountSync(): Int {
-        return runBlocking {
+        // Use runBlocking with Dispatchers.IO to avoid blocking main thread
+        return runBlocking(Dispatchers.IO) {
             try {
                 repository.getBlockedAppsCount().first()
             } catch (e: Exception) {

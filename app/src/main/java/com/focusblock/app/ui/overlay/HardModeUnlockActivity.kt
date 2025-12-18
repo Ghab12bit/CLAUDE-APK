@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.focusblock.app.ui.overlay
 
 import android.os.Bundle
@@ -18,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -51,7 +54,8 @@ fun HardModeUnlockScreen(
     onUnlocked: () -> Unit,
     onCancel: () -> Unit
 ) {
-    val database = remember { FocusBlockDatabase.getDatabase(androidx.compose.ui.platform.LocalContext.current) }
+    val context = LocalContext.current
+    val database = remember { FocusBlockDatabase.getDatabase(context) }
     val scope = rememberCoroutineScope()
 
     var pin by remember { mutableStateOf("") }

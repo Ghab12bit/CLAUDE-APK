@@ -836,12 +836,16 @@ fun HardModeSetupDialog(
     onConfirm: (pin: String, unlockMinutes: Int) -> Unit
 ) {
     var pin by remember { mutableStateOf("") }
-    var unlockHours by remember { mutableStateOf(24) }
-    var step by remember { mutableStateOf(1) }
+    var unlockHours by remember { mutableStateOf(1) }
+    var unlockMinutes by remember { mutableStateOf(0) }
+    var useCustomTime by remember { mutableStateOf(false) }
+    var selectedPreset by remember { mutableStateOf<Int?>(1) } // 1 hour default
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = CardDark)
         ) {
@@ -897,27 +901,39 @@ fun HardModeSetupDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 // Unlock time selector
                 Text(
                     text = "Unlock available after:",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextPrimary
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
+                // Preset options
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
-                    listOf(1, 6, 12, 24, 48).forEach { hours ->
+                    listOf(
+                        1 to "1h",
+                        2 to "2h",
+                        6 to "6h",
+                        12 to "12h",
+                        24 to "1d",
+                        48 to "2d"
+                    ).forEach { (hours, label) ->
                         FilterChip(
-                            selected = unlockHours == hours,
-                            onClick = { unlockHours = hours },
-                            label = {
-                                Text(if (hours < 24) "${hours}h" else "${hours / 24}d")
+                            selected = selectedPreset == hours && !useCustomTime,
+                            onClick = {
+                                selectedPreset = hours
+                                unlockHours = hours
+                                unlockMinutes = 0
+                                useCustomTime = false
                             },
+                            label = { Text(label) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = AccentOrange,
                                 selectedLabelColor = TextPrimary
@@ -926,7 +942,113 @@ fun HardModeSetupDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Custom time toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Custom duration",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
+                    Switch(
+                        checked = useCustomTime,
+                        onCheckedChange = {
+                            useCustomTime = it
+                            if (it) selectedPreset = null
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = TextPrimary,
+                            checkedTrackColor = AccentOrange
+                        )
+                    )
+                }
+
+                // Custom time picker
+                if (useCustomTime) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = BackgroundDark)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Hours picker
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                IconButton(onClick = { if (unlockHours < 168) unlockHours++ }) {
+                                    Icon(Icons.Filled.KeyboardArrowUp, null, tint = AccentOrange)
+                                }
+                                Text(
+                                    text = String.format("%02d", unlockHours),
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = TextPrimary
+                                )
+                                IconButton(onClick = { if (unlockHours > 0) unlockHours-- }) {
+                                    Icon(Icons.Filled.KeyboardArrowDown, null, tint = AccentOrange)
+                                }
+                                Text("hours", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                            }
+
+                            Text(
+                                text = ":",
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = TextPrimary,
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+
+                            // Minutes picker
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                IconButton(onClick = {
+                                    unlockMinutes = if (unlockMinutes >= 55) 0 else unlockMinutes + 5
+                                }) {
+                                    Icon(Icons.Filled.KeyboardArrowUp, null, tint = AccentOrange)
+                                }
+                                Text(
+                                    text = String.format("%02d", unlockMinutes),
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = TextPrimary
+                                )
+                                IconButton(onClick = {
+                                    unlockMinutes = if (unlockMinutes <= 0) 55 else unlockMinutes - 5
+                                }) {
+                                    Icon(Icons.Filled.KeyboardArrowDown, null, tint = AccentOrange)
+                                }
+                                Text("mins", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Display selected time
+                val totalMinutes = unlockHours * 60 + unlockMinutes
+                val displayText = when {
+                    totalMinutes >= 1440 -> "${totalMinutes / 1440} day${if (totalMinutes >= 2880) "s" else ""} ${(totalMinutes % 1440) / 60}h"
+                    totalMinutes >= 60 -> "${totalMinutes / 60}h ${totalMinutes % 60}m"
+                    else -> "${totalMinutes}m"
+                }
+                Text(
+                    text = "Lock for: $displayText",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = AccentOrange
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Warning
                 Card(
@@ -968,10 +1090,10 @@ fun HardModeSetupDialog(
                         Text("Cancel")
                     }
                     Button(
-                        onClick = { onConfirm(pin, unlockHours * 60) },
+                        onClick = { onConfirm(pin, unlockHours * 60 + unlockMinutes) },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
-                        enabled = pin.length >= 4,
+                        enabled = pin.length >= 4 && (unlockHours > 0 || unlockMinutes > 0),
                         colors = ButtonDefaults.buttonColors(containerColor = AccentOrange)
                     ) {
                         Text("Enable")

@@ -22,6 +22,8 @@ data class HomeUiState(
     val blockedApps: List<BlockedApp> = emptyList(),
     val activeSchedules: List<Schedule> = emptyList(),
     val todayBlockCount: Int = 0,
+    val weekBlockCount: Int = 0,
+    val focusStreak: Int = 0,
     val isStrictModeEnabled: Boolean = false,
     val isHardModeEnabled: Boolean = false,
     val permissionStatus: PermissionUtils.PermissionStatus = PermissionUtils.PermissionStatus(
@@ -105,6 +107,14 @@ class HomeViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            // Load week's block count
+            val startOfWeek = TimeUtils.getStartOfDay() - (7 * 24 * 60 * 60 * 1000L)
+            repository.getBlockCountSince(startOfWeek).collect { count ->
+                _uiState.update { it.copy(weekBlockCount = count) }
+            }
+        }
+
+        viewModelScope.launch {
             // Load strict mode status
             repository.getStrictModeEnabledFlow().collect { enabled ->
                 _uiState.update { it.copy(isStrictModeEnabled = enabled) }
@@ -159,7 +169,7 @@ class HomeViewModel @Inject constructor(
 
     fun startQuickBlock(selectedPackages: List<String>, durationMinutes: Int? = null) {
         viewModelScope.launch {
-            // First, ensure all selected apps are in the database
+            // First, ensure all selected apps are in the database and marked as blocked
             selectedPackages.forEach { packageName ->
                 val existingApp = repository.getBlockedApp(packageName)
                 if (existingApp == null) {
@@ -171,6 +181,9 @@ class HomeViewModel @Inject constructor(
                             isBlocked = true
                         )
                     )
+                } else if (!existingApp.isBlocked) {
+                    // App exists but is not blocked - update it
+                    repository.setAppBlocked(packageName, true)
                 }
             }
 
@@ -189,24 +202,41 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun stopQuickBlock() {
+    fun stopQuickBlock(forceStop: Boolean = false) {
         viewModelScope.launch {
+            // Check if strict mode or hard mode prevents stopping (unless force stop with PIN)
+            if (!forceStop && (_uiState.value.isStrictModeEnabled || _uiState.value.isHardModeEnabled)) {
+                // Can't stop - needs PIN or wait for timer
+                return@launch
+            }
+
             val session = _uiState.value.quickBlockSession
             if (session != null) {
-                // Check if strict mode or hard mode prevents stopping
-                if (_uiState.value.isStrictModeEnabled || _uiState.value.isHardModeEnabled) {
-                    // Can't stop - needs PIN or wait for timer
-                    return@launch
-                }
-
                 repository.deactivateQuickBlockSession(session.id)
             }
             repository.deactivateAllQuickBlockSessions()
+
+            // Also update UI state immediately for responsive feedback
             _uiState.update { it.copy(
                 isQuickBlockActive = false,
                 quickBlockSession = null,
-                remainingTime = 0
+                remainingTime = 0,
+                isPomodoroMode = false
             )}
+        }
+    }
+
+    fun verifyPinAndStop(pin: String): Boolean {
+        val savedPin = kotlinx.coroutines.runBlocking { repository.getHardModePin() }
+        return if (pin == savedPin) {
+            stopQuickBlock(forceStop = true)
+            viewModelScope.launch {
+                repository.setHardModeEnabled(false)
+                repository.setStrictModeEnabled(false)
+            }
+            true
+        } else {
+            false
         }
     }
 

@@ -52,6 +52,8 @@ fun HomeScreen(
     var showPomodoroDialog by remember { mutableStateOf(false) }
     var showHardModeDialog by remember { mutableStateOf(false) }
     var showBlockedAppsDialog by remember { mutableStateOf(false) }
+    var showUnlockPinDialog by remember { mutableStateOf(false) }
+    var showStrictModeUnlockDialog by remember { mutableStateOf(false) }
     var selectedApps by remember { mutableStateOf<List<String>>(emptyList()) }
     var timerDurationMinutes by remember { mutableStateOf<Int?>(null) }
     var isEditingApps by remember { mutableStateOf(false) }
@@ -139,7 +141,17 @@ fun HomeScreen(
                 blockedAppsCount = uiState.quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotEmpty() }?.size ?: 0,
                 isPomodoroMode = uiState.isPomodoroMode,
                 onStartClick = { showAppSelectionDialog = true },
-                onStopClick = { viewModel.stopQuickBlock() },
+                onStopClick = {
+                    if (uiState.isHardModeEnabled) {
+                        // Show PIN dialog for hard mode
+                        showUnlockPinDialog = true
+                    } else if (uiState.isStrictModeEnabled) {
+                        // Show strict mode unlock dialog
+                        showStrictModeUnlockDialog = true
+                    } else {
+                        viewModel.stopQuickBlock()
+                    }
+                },
                 onTimerClick = { showTimerDialog = true },
                 onPomodoroClick = { showPomodoroDialog = true },
                 onSelectAppsClick = {
@@ -158,6 +170,19 @@ fun HomeScreen(
                 blockedAppsCount = uiState.blockedAppsCount,
                 onAppsBlockedClick = { showBlockedAppsDialog = true }
             )
+        }
+
+        // Weekly Summary Card
+        item {
+            WeeklySummaryCard(
+                weekBlockCount = uiState.weekBlockCount,
+                todayBlockCount = uiState.todayBlockCount
+            )
+        }
+
+        // Focus Tips
+        item {
+            FocusTipsCard()
         }
 
         // Active Schedules
@@ -250,6 +275,32 @@ fun HomeScreen(
             },
             onToggleApp = { packageName, blocked ->
                 viewModel.toggleAppBlocked(packageName, blocked)
+            }
+        )
+    }
+
+    // Hard Mode Unlock PIN Dialog
+    if (showUnlockPinDialog) {
+        UnlockPinDialog(
+            onDismiss = { showUnlockPinDialog = false },
+            onVerify = { pin ->
+                val success = viewModel.verifyPinAndStop(pin)
+                if (success) {
+                    showUnlockPinDialog = false
+                }
+                success
+            }
+        )
+    }
+
+    // Strict Mode Unlock Dialog
+    if (showStrictModeUnlockDialog) {
+        StrictModeUnlockDialog(
+            onDismiss = { showStrictModeUnlockDialog = false },
+            onDisableStrictMode = {
+                viewModel.setStrictMode(false)
+                viewModel.stopQuickBlock()
+                showStrictModeUnlockDialog = false
             }
         )
     }
@@ -362,8 +413,7 @@ fun QuickBlockCard(
                 elevation = ButtonDefaults.buttonElevation(
                     defaultElevation = 4.dp,
                     pressedElevation = 8.dp
-                ),
-                enabled = !isStrictMode && !isHardMode || !isActive
+                )
             ) {
                 Row(
                     horizontalArrangement = Arrangement.Center,
@@ -755,6 +805,181 @@ fun SchedulePreviewCard(
 }
 
 @Composable
+fun WeeklySummaryCard(
+    weekBlockCount: Int,
+    todayBlockCount: Int
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(AccentGreen.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.TrendingUp,
+                        contentDescription = null,
+                        tint = AccentGreen,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Weekly Summary",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = weekBlockCount.toString(),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = AccentGreen,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Distractions\nblocked",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(50.dp)
+                        .background(SurfaceBorder)
+                )
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    val avgDaily = if (weekBlockCount > 0) weekBlockCount / 7 else 0
+                    Text(
+                        text = avgDaily.toString(),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Daily\naverage",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(50.dp)
+                        .background(SurfaceBorder)
+                )
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    val trend = if (todayBlockCount > 0 && weekBlockCount > 0) {
+                        val avgDaily = weekBlockCount / 7
+                        if (todayBlockCount > avgDaily) "↑" else if (todayBlockCount < avgDaily) "↓" else "→"
+                    } else "→"
+                    Text(
+                        text = trend,
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = if (trend == "↓") AccentGreen else if (trend == "↑") AccentOrange else TextSecondary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Today's\ntrend",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FocusTipsCard() {
+    val tips = listOf(
+        "🎯 Start with short focus sessions and gradually increase duration",
+        "📱 Put your phone face-down to reduce temptation",
+        "⏰ Use the Pomodoro technique: 25 min work, 5 min break",
+        "🌙 Enable Sleep schedule to avoid late-night scrolling",
+        "💪 Celebrate small wins - every blocked distraction counts!",
+        "🧘 Take regular breaks to maintain productivity",
+        "📊 Check your stats weekly to track progress"
+    )
+    val currentTipIndex = remember { (System.currentTimeMillis() / (1000 * 60 * 60)).toInt() % tips.size }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Primary.copy(alpha = 0.08f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Primary.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Lightbulb,
+                    contentDescription = null,
+                    tint = Primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = "Focus Tip",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Primary,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = tips[currentTipIndex],
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun StrictModeCard(
     isEnabled: Boolean,
     isHardModeEnabled: Boolean,
@@ -1054,6 +1279,187 @@ fun BlockedAppsDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Close", color = TextSecondary)
+            }
+        }
+    )
+}
+
+@Composable
+fun UnlockPinDialog(
+    onDismiss: () -> Unit,
+    onVerify: (String) -> Boolean
+) {
+    var pin by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardDarkElevated,
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(AccentOrange.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Lock,
+                        contentDescription = null,
+                        tint = AccentOrange,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Enter PIN to Unlock",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        text = {
+            Column {
+                Text(
+                    text = "Hard Mode is enabled. Enter your PIN to stop blocking.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = {
+                        if (it.length <= 6 && it.all { c -> c.isDigit() }) {
+                            pin = it
+                            error = null
+                        }
+                    },
+                    label = { Text("PIN") },
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword
+                    ),
+                    singleLine = true,
+                    isError = error != null,
+                    supportingText = error?.let { { Text(it, color = AccentRed) } },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (!onVerify(pin)) {
+                        error = "Incorrect PIN"
+                        pin = ""
+                    }
+                },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                enabled = pin.length >= 4
+            ) {
+                Text("Unlock", fontWeight = FontWeight.Medium)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextSecondary)
+            }
+        }
+    )
+}
+
+@Composable
+fun StrictModeUnlockDialog(
+    onDismiss: () -> Unit,
+    onDisableStrictMode: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardDarkElevated,
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(Primary.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Lock,
+                        contentDescription = null,
+                        tint = Primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Strict Mode Active",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Strict Mode prevents you from stopping the block easily. Are you sure you want to disable it?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = AccentRed.copy(alpha = 0.1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Warning,
+                            contentDescription = null,
+                            tint = AccentRed,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "This will also stop the current blocking session",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AccentRed
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDisableStrictMode,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+            ) {
+                Text("Disable & Stop", fontWeight = FontWeight.Medium)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Keep Blocking", color = Primary)
             }
         }
     )

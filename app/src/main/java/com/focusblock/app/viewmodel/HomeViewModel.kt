@@ -25,6 +25,9 @@ data class HomeUiState(
     val weekBlockCount: Int = 0,
     val focusStreak: Int = 0,
     val isStrictModeEnabled: Boolean = false,
+    val isStrictModeLocked: Boolean = false,
+    val strictModeEndTime: Long? = null,
+    val strictModeRemainingTime: Long = 0,
     val isHardModeEnabled: Boolean = false,
     val permissionStatus: PermissionUtils.PermissionStatus = PermissionUtils.PermissionStatus(
         hasUsageStats = false,
@@ -122,6 +125,19 @@ class HomeViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            // Load strict mode end time
+            repository.getStrictModeEndTimeFlow().collect { endTime ->
+                val now = System.currentTimeMillis()
+                val isLocked = endTime != null && endTime > now
+                _uiState.update { it.copy(
+                    strictModeEndTime = endTime,
+                    isStrictModeLocked = isLocked,
+                    strictModeRemainingTime = if (isLocked) (endTime!! - now) else 0
+                )}
+            }
+        }
+
+        viewModelScope.launch {
             // Load hard mode status
             repository.getHardModeEnabledFlow().collect { enabled ->
                 _uiState.update { it.copy(isHardModeEnabled = enabled) }
@@ -140,6 +156,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             while (true) {
                 updateRemainingTime()
+                updateStrictModeRemainingTime()
                 updatePermissionStatus()
                 kotlinx.coroutines.delay(1000)
             }
@@ -153,10 +170,34 @@ class HomeViewModel @Inject constructor(
 
         if (remaining <= 0) {
             viewModelScope.launch {
-                stopQuickBlock()
+                stopQuickBlock(forceStop = true)
             }
         } else {
             _uiState.update { it.copy(remainingTime = remaining) }
+        }
+    }
+
+    private fun updateStrictModeRemainingTime() {
+        val endTime = _uiState.value.strictModeEndTime ?: return
+        val now = System.currentTimeMillis()
+        val remaining = endTime - now
+
+        if (remaining <= 0 && _uiState.value.isStrictModeLocked) {
+            // Strict mode timer expired - auto disable
+            viewModelScope.launch {
+                repository.setStrictModeEnabled(false)
+                repository.clearStrictModeEndTime()
+                _uiState.update { it.copy(
+                    isStrictModeLocked = false,
+                    strictModeRemainingTime = 0,
+                    isStrictModeEnabled = false
+                )}
+            }
+        } else if (remaining > 0) {
+            _uiState.update { it.copy(
+                strictModeRemainingTime = remaining,
+                isStrictModeLocked = true
+            )}
         }
     }
 
@@ -204,6 +245,12 @@ class HomeViewModel @Inject constructor(
 
     fun stopQuickBlock(forceStop: Boolean = false) {
         viewModelScope.launch {
+            // Check if strict mode is time-locked - cannot be bypassed
+            if (_uiState.value.isStrictModeLocked) {
+                // Strict mode is time-locked - absolutely cannot stop until timer expires
+                return@launch
+            }
+
             // Check if strict mode or hard mode prevents stopping (unless force stop with PIN)
             if (!forceStop && (_uiState.value.isStrictModeEnabled || _uiState.value.isHardModeEnabled)) {
                 // Can't stop - needs PIN or wait for timer
@@ -227,12 +274,20 @@ class HomeViewModel @Inject constructor(
     }
 
     fun verifyPinAndStop(pin: String): Boolean {
+        // If strict mode is time-locked, even PIN cannot bypass
+        if (_uiState.value.isStrictModeLocked) {
+            return false
+        }
+
         val savedPin = kotlinx.coroutines.runBlocking { repository.getHardModePin() }
         return if (pin == savedPin) {
             stopQuickBlock(forceStop = true)
             viewModelScope.launch {
                 repository.setHardModeEnabled(false)
-                repository.setStrictModeEnabled(false)
+                // Only disable strict mode if not time-locked
+                if (!_uiState.value.isStrictModeLocked) {
+                    repository.setStrictModeEnabled(false)
+                }
             }
             true
         } else {
@@ -286,11 +341,37 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun setStrictMode(enabled: Boolean) {
+    fun setStrictMode(enabled: Boolean, durationMinutes: Int? = null) {
         viewModelScope.launch {
+            // If trying to disable, check if locked
+            if (!enabled && _uiState.value.isStrictModeLocked) {
+                // Cannot disable while locked - time must expire
+                return@launch
+            }
+
             repository.setStrictModeEnabled(enabled)
+
+            if (enabled && durationMinutes != null && durationMinutes > 0) {
+                // Set the end time for strict mode lock
+                val endTime = System.currentTimeMillis() + durationMinutes * 60 * 1000L
+                repository.setStrictModeEndTime(endTime)
+                _uiState.update { it.copy(
+                    isStrictModeLocked = true,
+                    strictModeEndTime = endTime,
+                    strictModeRemainingTime = durationMinutes * 60 * 1000L
+                )}
+            } else if (!enabled) {
+                repository.clearStrictModeEndTime()
+                _uiState.update { it.copy(
+                    isStrictModeLocked = false,
+                    strictModeEndTime = null,
+                    strictModeRemainingTime = 0
+                )}
+            }
         }
     }
+
+    fun isStrictModeLocked(): Boolean = _uiState.value.isStrictModeLocked
 
     fun setHardMode(enabled: Boolean, pin: String? = null, unlockTimeMinutes: Int? = null) {
         viewModelScope.launch {

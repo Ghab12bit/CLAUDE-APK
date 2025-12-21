@@ -85,6 +85,18 @@ class FocusBlockRepository @Inject constructor(
     suspend fun isStrictModeEnabled(): Boolean = getSetting(AppSettings.KEY_STRICT_MODE_ENABLED)?.toBooleanStrictOrNull() ?: false
     suspend fun setStrictModeEnabled(enabled: Boolean) = setSetting(AppSettings.KEY_STRICT_MODE_ENABLED, enabled.toString())
 
+    suspend fun getStrictModeEndTime(): Long? = getSetting(AppSettings.KEY_STRICT_MODE_END_TIME)?.toLongOrNull()
+    suspend fun setStrictModeEndTime(time: Long) = setSetting(AppSettings.KEY_STRICT_MODE_END_TIME, time.toString())
+    suspend fun clearStrictModeEndTime() = setSetting(AppSettings.KEY_STRICT_MODE_END_TIME, "0")
+
+    fun getStrictModeEndTimeFlow(): Flow<Long?> =
+        settingsDao.getValueFlow(AppSettings.KEY_STRICT_MODE_END_TIME).map { it?.toLongOrNull() }
+
+    suspend fun isStrictModeLocked(): Boolean {
+        val endTime = getStrictModeEndTime() ?: return false
+        return endTime > System.currentTimeMillis()
+    }
+
     suspend fun isHardModeEnabled(): Boolean = getSetting(AppSettings.KEY_HARD_MODE_ENABLED)?.toBooleanStrictOrNull() ?: false
     suspend fun setHardModeEnabled(enabled: Boolean) = setSetting(AppSettings.KEY_HARD_MODE_ENABLED, enabled.toString())
 

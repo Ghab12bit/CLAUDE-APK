@@ -86,6 +86,7 @@ data class AppSettings(
 ) {
     companion object {
         const val KEY_STRICT_MODE_ENABLED = "strict_mode_enabled"
+        const val KEY_STRICT_MODE_END_TIME = "strict_mode_end_time"
         const val KEY_HARD_MODE_ENABLED = "hard_mode_enabled"
         const val KEY_HARD_MODE_PIN = "hard_mode_pin"
         const val KEY_HARD_MODE_UNLOCK_TIME = "hard_mode_unlock_time"

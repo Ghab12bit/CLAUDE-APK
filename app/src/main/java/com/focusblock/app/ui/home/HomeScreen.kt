@@ -5,6 +5,7 @@ package com.focusblock.app.ui.home
 import android.graphics.drawable.Drawable
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -34,6 +35,7 @@ import com.focusblock.app.ui.components.HardModeSetupDialog
 import com.focusblock.app.ui.components.PermissionCard
 import com.focusblock.app.ui.components.TimerPickerDialog
 import com.focusblock.app.ui.components.PomodoroSetupDialog
+import com.focusblock.app.ui.components.StrictModeSetupDialog
 import com.focusblock.app.ui.theme.*
 import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.TimeUtils
@@ -54,6 +56,7 @@ fun HomeScreen(
     var showBlockedAppsDialog by remember { mutableStateOf(false) }
     var showUnlockPinDialog by remember { mutableStateOf(false) }
     var showStrictModeUnlockDialog by remember { mutableStateOf(false) }
+    var showStrictModeSetupDialog by remember { mutableStateOf(false) }
     var selectedApps by remember { mutableStateOf<List<String>>(emptyList()) }
     var timerDurationMinutes by remember { mutableStateOf<Int?>(null) }
     var isEditingApps by remember { mutableStateOf(false) }
@@ -211,8 +214,18 @@ fun HomeScreen(
         item {
             StrictModeCard(
                 isEnabled = uiState.isStrictModeEnabled,
+                isLocked = uiState.isStrictModeLocked,
+                remainingTime = uiState.strictModeRemainingTime,
                 isHardModeEnabled = uiState.isHardModeEnabled,
-                onToggle = { viewModel.setStrictMode(it) },
+                onToggle = { enabled ->
+                    if (enabled) {
+                        // Show duration picker when enabling
+                        showStrictModeSetupDialog = true
+                    } else if (!uiState.isStrictModeLocked) {
+                        // Can only disable if not locked
+                        viewModel.setStrictMode(false)
+                    }
+                },
                 onHardModeClick = { showHardModeDialog = true }
             )
         }
@@ -296,11 +309,26 @@ fun HomeScreen(
     // Strict Mode Unlock Dialog
     if (showStrictModeUnlockDialog) {
         StrictModeUnlockDialog(
+            isLocked = uiState.isStrictModeLocked,
+            remainingTime = uiState.strictModeRemainingTime,
             onDismiss = { showStrictModeUnlockDialog = false },
             onDisableStrictMode = {
-                viewModel.setStrictMode(false)
-                viewModel.stopQuickBlock()
-                showStrictModeUnlockDialog = false
+                if (!uiState.isStrictModeLocked) {
+                    viewModel.setStrictMode(false)
+                    viewModel.stopQuickBlock()
+                    showStrictModeUnlockDialog = false
+                }
+            }
+        )
+    }
+
+    // Strict Mode Setup Dialog (Duration Picker)
+    if (showStrictModeSetupDialog) {
+        StrictModeSetupDialog(
+            onDismiss = { showStrictModeSetupDialog = false },
+            onConfirm = { durationMinutes ->
+                viewModel.setStrictMode(true, durationMinutes)
+                showStrictModeSetupDialog = false
             }
         )
     }
@@ -982,14 +1010,31 @@ fun FocusTipsCard() {
 @Composable
 fun StrictModeCard(
     isEnabled: Boolean,
+    isLocked: Boolean,
+    remainingTime: Long,
     isHardModeEnabled: Boolean,
     onToggle: (Boolean) -> Unit,
     onHardModeClick: () -> Unit
 ) {
+    // Format remaining time
+    val remainingTimeText = if (remainingTime > 0) {
+        val hours = (remainingTime / (1000 * 60 * 60)).toInt()
+        val minutes = ((remainingTime / (1000 * 60)) % 60).toInt()
+        val seconds = ((remainingTime / 1000) % 60).toInt()
+        if (hours > 0) {
+            String.format("%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format("%02d:%02d", minutes, seconds)
+        }
+    } else ""
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isLocked) Primary.copy(alpha = 0.08f) else CardDark
+        ),
+        border = if (isLocked) BorderStroke(1.dp, Primary.copy(alpha = 0.3f)) else null,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
@@ -1001,7 +1046,8 @@ fun StrictModeCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
                 ) {
                     Box(
                         modifier = Modifier
@@ -1011,7 +1057,7 @@ fun StrictModeCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Lock,
+                            imageVector = if (isLocked) Icons.Filled.LockClock else Icons.Filled.Lock,
                             contentDescription = null,
                             tint = if (isEnabled) Primary else TextSecondary,
                             modifier = Modifier.size(22.dp)
@@ -1019,15 +1065,34 @@ fun StrictModeCard(
                     }
                     Spacer(modifier = Modifier.width(14.dp))
                     Column {
-                        Text(
-                            text = "Strict Mode",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = TextPrimary,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Strict Mode",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Medium
+                            )
+                            if (isLocked) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Primary.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = "LOCKED",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Primary,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = if (isEnabled) "Cannot disable blocking" else "Lock your settings",
+                            text = if (isLocked) "Time-locked until timer expires"
+                                   else if (isEnabled) "Cannot disable blocking"
+                                   else "Lock your settings with timer",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
@@ -1037,16 +1102,58 @@ fun StrictModeCard(
                 Switch(
                     checked = isEnabled,
                     onCheckedChange = onToggle,
+                    enabled = !isLocked, // Disable switch when locked
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = TextPrimary,
                         checkedTrackColor = Primary,
                         uncheckedThumbColor = TextSecondary,
-                        uncheckedTrackColor = SurfaceBorder
+                        uncheckedTrackColor = SurfaceBorder,
+                        disabledCheckedThumbColor = TextPrimary.copy(alpha = 0.6f),
+                        disabledCheckedTrackColor = Primary.copy(alpha = 0.6f)
                     )
                 )
             }
 
-            if (isEnabled) {
+            // Show remaining time when locked
+            if (isLocked && remainingTime > 0) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = Primary.copy(alpha = 0.12f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Timer,
+                            contentDescription = null,
+                            tint = Primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "Unlocks in",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TextSecondary
+                            )
+                            Text(
+                                text = remainingTimeText,
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = Primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (isEnabled && !isLocked) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Divider(color = SurfaceBorder, thickness = 1.dp)
                 Spacer(modifier = Modifier.height(16.dp))
@@ -1379,9 +1486,23 @@ fun UnlockPinDialog(
 
 @Composable
 fun StrictModeUnlockDialog(
+    isLocked: Boolean = false,
+    remainingTime: Long = 0,
     onDismiss: () -> Unit,
     onDisableStrictMode: () -> Unit
 ) {
+    // Format remaining time
+    val remainingTimeText = if (remainingTime > 0) {
+        val hours = (remainingTime / (1000 * 60 * 60)).toInt()
+        val minutes = ((remainingTime / (1000 * 60)) % 60).toInt()
+        val seconds = ((remainingTime / 1000) % 60).toInt()
+        if (hours > 0) {
+            String.format("%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format("%02d:%02d", minutes, seconds)
+        }
+    } else ""
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = CardDarkElevated,
@@ -1395,19 +1516,19 @@ fun StrictModeUnlockDialog(
                     modifier = Modifier
                         .size(56.dp)
                         .clip(CircleShape)
-                        .background(Primary.copy(alpha = 0.15f)),
+                        .background(if (isLocked) AccentRed.copy(alpha = 0.15f) else Primary.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Lock,
+                        imageVector = if (isLocked) Icons.Filled.LockClock else Icons.Filled.Lock,
                         contentDescription = null,
-                        tint = Primary,
+                        tint = if (isLocked) AccentRed else Primary,
                         modifier = Modifier.size(28.dp)
                     )
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "Strict Mode Active",
+                    text = if (isLocked) "Strict Mode Locked" else "Strict Mode Active",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -1417,49 +1538,117 @@ fun StrictModeUnlockDialog(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "Strict Mode prevents you from stopping the block easily. Are you sure you want to disable it?",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = AccentRed.copy(alpha = 0.1f)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                if (isLocked) {
+                    // Show locked state with remaining time
+                    Text(
+                        text = "Strict Mode is time-locked and cannot be disabled until the timer expires.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Primary.copy(alpha = 0.1f))
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Warning,
-                            contentDescription = null,
-                            tint = AccentRed,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "This will also stop the current blocking session",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = AccentRed
-                        )
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Time remaining",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = remainingTimeText,
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = Primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = AccentRed.copy(alpha = 0.1f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Info,
+                                contentDescription = null,
+                                tint = AccentRed,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "No PIN, restart, or setting can bypass this lock",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = AccentRed
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "Strict Mode prevents you from stopping the block easily. Are you sure you want to disable it?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = AccentRed.copy(alpha = 0.1f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Warning,
+                                contentDescription = null,
+                                tint = AccentRed,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "This will also stop the current blocking session",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = AccentRed
+                            )
+                        }
                     }
                 }
             }
         },
         confirmButton = {
-            Button(
-                onClick = onDisableStrictMode,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
-            ) {
-                Text("Disable & Stop", fontWeight = FontWeight.Medium)
+            if (isLocked) {
+                Button(
+                    onClick = onDismiss,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Primary)
+                ) {
+                    Text("OK, I'll Wait", fontWeight = FontWeight.Medium)
+                }
+            } else {
+                Button(
+                    onClick = onDisableStrictMode,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                ) {
+                    Text("Disable & Stop", fontWeight = FontWeight.Medium)
+                }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Keep Blocking", color = Primary)
+            if (!isLocked) {
+                TextButton(onClick = onDismiss) {
+                    Text("Keep Blocking", color = Primary)
+                }
             }
         }
     )

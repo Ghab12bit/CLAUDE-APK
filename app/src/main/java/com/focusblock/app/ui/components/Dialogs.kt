@@ -1105,6 +1105,286 @@ fun HardModeSetupDialog(
 }
 
 @Composable
+fun StrictModeSetupDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (durationMinutes: Int) -> Unit
+) {
+    var selectedHours by remember { mutableStateOf(1) }
+    var selectedMinutes by remember { mutableStateOf(0) }
+    var useCustomTime by remember { mutableStateOf(false) }
+    var selectedPreset by remember { mutableStateOf<Int?>(60) } // 1 hour default in minutes
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = CardDark)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Icon with glow effect
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(Primary.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Lock,
+                        contentDescription = null,
+                        tint = Primary,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
+                    text = "Strict Mode",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "Once enabled, blocking cannot be stopped\nuntil the timer expires",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Duration selector title
+                Text(
+                    text = "Lock Duration",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Preset duration chips - scrollable
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    listOf(
+                        30 to "30m",
+                        60 to "1h",
+                        120 to "2h",
+                        180 to "3h",
+                        300 to "5h",
+                        480 to "8h",
+                        720 to "12h",
+                        1440 to "24h"
+                    ).forEach { (minutes, label) ->
+                        FilterChip(
+                            selected = selectedPreset == minutes && !useCustomTime,
+                            onClick = {
+                                selectedPreset = minutes
+                                selectedHours = minutes / 60
+                                selectedMinutes = minutes % 60
+                                useCustomTime = false
+                            },
+                            label = { Text(label) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Primary,
+                                selectedLabelColor = TextPrimary
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Custom time toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Custom duration",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
+                    Switch(
+                        checked = useCustomTime,
+                        onCheckedChange = {
+                            useCustomTime = it
+                            if (it) selectedPreset = null
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = TextPrimary,
+                            checkedTrackColor = Primary
+                        )
+                    )
+                }
+
+                // Custom time picker
+                if (useCustomTime) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = BackgroundDark)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Hours picker
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                IconButton(onClick = { if (selectedHours < 72) selectedHours++ }) {
+                                    Icon(Icons.Filled.KeyboardArrowUp, null, tint = Primary)
+                                }
+                                Text(
+                                    text = String.format("%02d", selectedHours),
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = TextPrimary
+                                )
+                                IconButton(onClick = { if (selectedHours > 0) selectedHours-- }) {
+                                    Icon(Icons.Filled.KeyboardArrowDown, null, tint = Primary)
+                                }
+                                Text("hours", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                            }
+
+                            Text(
+                                text = ":",
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = TextPrimary,
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+
+                            // Minutes picker
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                IconButton(onClick = {
+                                    selectedMinutes = if (selectedMinutes >= 55) 0 else selectedMinutes + 5
+                                }) {
+                                    Icon(Icons.Filled.KeyboardArrowUp, null, tint = Primary)
+                                }
+                                Text(
+                                    text = String.format("%02d", selectedMinutes),
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = TextPrimary
+                                )
+                                IconButton(onClick = {
+                                    selectedMinutes = if (selectedMinutes <= 0) 55 else selectedMinutes - 5
+                                }) {
+                                    Icon(Icons.Filled.KeyboardArrowDown, null, tint = Primary)
+                                }
+                                Text("mins", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Display selected duration
+                val totalMinutes = selectedHours * 60 + selectedMinutes
+                val displayText = when {
+                    totalMinutes >= 1440 -> "${totalMinutes / 1440}d ${(totalMinutes % 1440) / 60}h"
+                    totalMinutes >= 60 -> "${totalMinutes / 60}h ${totalMinutes % 60}m"
+                    else -> "${totalMinutes}m"
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Primary.copy(alpha = 0.1f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Timer,
+                            contentDescription = null,
+                            tint = Primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Lock for $displayText",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Primary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Warning
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = AccentRed.copy(alpha = 0.1f)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Warning,
+                            contentDescription = null,
+                            tint = AccentRed,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "No PIN, restart, or setting can disable\nStrict Mode until the timer expires!",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AccentRed
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                        border = BorderStroke(1.dp, Divider)
+                    ) {
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = { onConfirm(selectedHours * 60 + selectedMinutes) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        enabled = (selectedHours > 0 || selectedMinutes > 0),
+                        colors = ButtonDefaults.buttonColors(containerColor = Primary)
+                    ) {
+                        Icon(Icons.Filled.Lock, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Activate")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun PomodoroSetupDialog(
     onDismiss: () -> Unit,
     onConfirm: (workMinutes: Int, breakMinutes: Int) -> Unit

@@ -10,7 +10,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.focusblock.app.database.repository.FocusBlockRepository
 import com.focusblock.app.ui.statistics.AppUsageInfo
-import com.focusblock.app.utils.AppUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,7 +38,7 @@ data class InsightsUiState(
     val totalScreenTime: String = "0m",
     val screenTimeChange: String = "No data available",
     val isChangePositive: Boolean = true,
-    val hourlyUsage: Map<Int, Triple<Int, Int, Int>> = emptyMap(), // Hour -> (Distractive, Neutral, Productive) minutes
+    val hourlyUsage: Map<Int, Triple<Int, Int, Int>> = emptyMap(),
     val mostUsedApps: List<AppUsageInfo> = emptyList(),
     val appsExpanded: Boolean = false,
     val awakeTime: String = "16h",
@@ -67,49 +66,25 @@ class InsightsViewModel @Inject constructor(
         application.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
     }
 
-    // Known distractive app categories/packages
-    private val distractiveApps = setOf(
-        "com.instagram.android",
-        "com.facebook.katana",
-        "com.facebook.orca",
-        "com.twitter.android",
-        "com.zhiliaoapp.musically", // TikTok
-        "com.snapchat.android",
-        "com.pinterest",
-        "com.reddit.frontpage",
-        "com.tumblr",
-        "com.whatsapp",
-        "org.telegram.messenger",
-        "com.discord",
-        "com.spotify.music",
-        "com.netflix.mediaclient",
-        "com.amazon.avod.thirdpartyclient",
-        "com.google.android.youtube",
-        "tv.twitch.android.app"
+    // Keywords to identify distractive apps (matched against package name OR app name)
+    private val distractiveKeywords = setOf(
+        "youtube", "instagram", "facebook", "twitter", "tiktok", "snapchat",
+        "reddit", "pinterest", "tumblr", "whatsapp", "telegram", "discord",
+        "spotify", "netflix", "twitch", "hulu", "disney", "prime video",
+        "messenger", "wechat", "line", "viber", "tinder", "bumble",
+        "musically", "reels", "shorts", "mxplayer", "mx player", "vlc",
+        "game", "gaming", "candy", "clash", "pubg", "fortnite", "roblox",
+        "revanced", "vanced", "newpipe" // YouTube alternatives
     )
 
-    private val productiveApps = setOf(
-        "com.google.android.apps.docs",
-        "com.google.android.apps.docs.editors.docs",
-        "com.google.android.apps.docs.editors.sheets",
-        "com.google.android.apps.docs.editors.slides",
-        "com.microsoft.office.word",
-        "com.microsoft.office.excel",
-        "com.microsoft.office.powerpoint",
-        "com.microsoft.office.outlook",
-        "com.google.android.gm",
-        "com.slack",
-        "com.microsoft.teams",
-        "com.notion.id",
-        "com.todoist",
-        "com.anydo",
-        "com.ticktick.task",
-        "com.evernote",
-        "com.google.android.calendar",
-        "com.android.vending", // Play Store
-        "com.google.android.apps.maps",
-        "com.android.chrome",
-        "org.mozilla.firefox"
+    // Keywords to identify productive apps
+    private val productiveKeywords = setOf(
+        "docs", "sheets", "slides", "word", "excel", "powerpoint",
+        "outlook", "gmail", "mail", "email", "calendar", "notion",
+        "todoist", "trello", "asana", "slack", "teams", "zoom",
+        "meet", "drive", "dropbox", "onedrive", "evernote", "notes",
+        "calculator", "clock", "alarm", "reminder", "task", "work",
+        "office", "pdf", "reader", "editor", "code", "studio"
     )
 
     init {
@@ -159,14 +134,13 @@ class InsightsViewModel @Inject constructor(
 
             try {
                 val usageStats = usageStatsManager?.queryUsageStats(
-                    UsageStatsManager.INTERVAL_BEST,
+                    UsageStatsManager.INTERVAL_DAILY,
                     startTime,
                     endTime
                 ) ?: emptyList()
 
                 processUsageStats(usageStats, dateLabel, startTime, endTime)
             } catch (e: Exception) {
-                // No permission or error
                 _uiState.update {
                     it.copy(
                         dateLabel = dateLabel,
@@ -183,32 +157,37 @@ class InsightsViewModel @Inject constructor(
         startTime: Long,
         endTime: Long
     ) {
-        // Filter out system apps and aggregate
-        val filteredStats = stats.filter { stat ->
-            stat.totalTimeInForeground > 60000 && // At least 1 minute
-            !isSystemApp(stat.packageName) &&
-            stat.packageName != application.packageName
-        }
+        // IMPORTANT: Aggregate by package name to prevent duplicates
+        val aggregatedStats = stats
+            .filter { it.totalTimeInForeground > 0 }
+            .groupBy { it.packageName }
+            .mapValues { (_, statsList) ->
+                statsList.sumOf { it.totalTimeInForeground }
+            }
+            .filter { (packageName, timeMs) ->
+                timeMs > 60000 && // At least 1 minute
+                !isSystemApp(packageName) &&
+                packageName != application.packageName &&
+                !isLauncherOrSystemUI(packageName)
+            }
 
         // Calculate total screen time
-        val totalTimeMs = filteredStats.sumOf { it.totalTimeInForeground }
+        val totalTimeMs = aggregatedStats.values.sum()
         val totalMinutes = (totalTimeMs / 60000).toInt()
         val totalScreenTime = formatDuration(totalMinutes)
 
-        // Calculate hourly usage distribution (simplified estimation)
-        val hourlyUsage = estimateHourlyUsage(filteredStats, startTime, endTime)
-
-        // Get most used apps
-        val appUsageList = filteredStats
-            .sortedByDescending { it.totalTimeInForeground }
-            .take(10)
-            .map { stat ->
-                val appName = getAppName(stat.packageName)
-                val minutes = (stat.totalTimeInForeground / 60000).toInt()
-                val category = categorizeApp(stat.packageName)
+        // Get most used apps (sorted by usage, no duplicates)
+        val appUsageList = aggregatedStats
+            .toList()
+            .sortedByDescending { it.second }
+            .take(15)
+            .map { (packageName, timeMs) ->
+                val appName = getAppName(packageName)
+                val minutes = (timeMs / 60000).toInt()
+                val category = categorizeApp(packageName, appName)
 
                 AppUsageInfo(
-                    packageName = stat.packageName,
+                    packageName = packageName,
                     appName = appName,
                     usageDuration = formatDuration(minutes),
                     usageMinutes = minutes,
@@ -218,21 +197,24 @@ class InsightsViewModel @Inject constructor(
 
         // Calculate category distribution
         val categoryMinutes = mutableMapOf(
-            AppCategory.DISTRACTIVE to 0,
-            AppCategory.NEUTRAL to 0,
-            AppCategory.PRODUCTIVE to 0
+            AppCategory.DISTRACTIVE to 0L,
+            AppCategory.NEUTRAL to 0L,
+            AppCategory.PRODUCTIVE to 0L
         )
 
-        filteredStats.forEach { stat ->
-            val category = categorizeApp(stat.packageName)
-            val minutes = (stat.totalTimeInForeground / 60000).toInt()
-            categoryMinutes[category] = categoryMinutes[category]!! + minutes
+        aggregatedStats.forEach { (packageName, timeMs) ->
+            val appName = getAppName(packageName)
+            val category = categorizeApp(packageName, appName)
+            categoryMinutes[category] = categoryMinutes[category]!! + timeMs
         }
 
-        val total = categoryMinutes.values.sum().coerceAtLeast(1)
-        val distractivePercent = (categoryMinutes[AppCategory.DISTRACTIVE]!! * 100) / total
-        val neutralPercent = (categoryMinutes[AppCategory.NEUTRAL]!! * 100) / total
-        val productivePercent = (categoryMinutes[AppCategory.PRODUCTIVE]!! * 100) / total
+        val totalCategoryMs = categoryMinutes.values.sum().coerceAtLeast(1)
+        val distractivePercent = ((categoryMinutes[AppCategory.DISTRACTIVE]!! * 100) / totalCategoryMs).toInt()
+        val neutralPercent = ((categoryMinutes[AppCategory.NEUTRAL]!! * 100) / totalCategoryMs).toInt()
+        val productivePercent = ((categoryMinutes[AppCategory.PRODUCTIVE]!! * 100) / totalCategoryMs).toInt()
+
+        // Calculate hourly usage distribution
+        val hourlyUsage = estimateHourlyUsage(aggregatedStats, startTime)
 
         // Calculate peak time
         val peakHour = hourlyUsage.maxByOrNull { (_, v) -> v.first + v.second + v.third }?.key ?: 12
@@ -242,18 +224,22 @@ class InsightsViewModel @Inject constructor(
         val awakeMinutes = 16 * 60
         val balancePercentage = ((totalMinutes * 100) / awakeMinutes).coerceIn(0, 100)
 
-        // Estimate pickups (one per app session, roughly)
-        val pickupCount = filteredStats.sumOf {
-            // Rough estimate: one pickup per 15 minutes of use minimum 1
-            ((it.totalTimeInForeground / (15 * 60 * 1000)) + 1).toInt()
-        }
+        // Estimate pickups based on number of apps used
+        val pickupCount = (aggregatedStats.size * 3).coerceAtLeast(totalMinutes / 20)
 
-        // Calculate screen time change (vs yesterday for day tab)
+        // Calculate screen time change (vs yesterday)
         val changeText = calculateChangeText(totalMinutes, startTime)
 
-        // Estimate longest focus and continuous use
-        val longestFocus = formatDuration(calculateLongestFocusPeriod(filteredStats))
-        val longestContinuousUse = formatDuration(calculateLongestContinuousUse(filteredStats))
+        // Calculate focus metrics
+        val longestAppMinutes = aggregatedStats.values.maxOrNull()?.let { (it / 60000).toInt() } ?: 0
+        val distractiveMinutes = (categoryMinutes[AppCategory.DISTRACTIVE]!! / 60000).toInt()
+        val focusEstimate = when {
+            totalMinutes == 0 -> 0
+            distractiveMinutes == 0 -> 120
+            distractiveMinutes < totalMinutes / 4 -> 60
+            distractiveMinutes < totalMinutes / 2 -> 30
+            else -> 15
+        }
 
         _uiState.update {
             it.copy(
@@ -270,16 +256,15 @@ class InsightsViewModel @Inject constructor(
                 productivePercent = productivePercent,
                 pickupCount = pickupCount,
                 isPickupEstimated = true,
-                longestFocus = longestFocus,
-                longestContinuousUse = longestContinuousUse
+                longestFocus = formatDuration(focusEstimate),
+                longestContinuousUse = formatDuration(longestAppMinutes)
             )
         }
     }
 
     private fun estimateHourlyUsage(
-        stats: List<UsageStats>,
-        startTime: Long,
-        endTime: Long
+        aggregatedStats: Map<String, Long>,
+        startTime: Long
     ): Map<Int, Triple<Int, Int, Int>> {
         val hourlyMap = mutableMapOf<Int, Triple<Int, Int, Int>>()
 
@@ -288,34 +273,52 @@ class InsightsViewModel @Inject constructor(
             hourlyMap[hour] = Triple(0, 0, 0)
         }
 
-        // Distribute usage across hours (simplified estimation)
-        val totalMinutes = stats.sumOf { it.totalTimeInForeground / 60000 }.toInt()
-        if (totalMinutes == 0) return hourlyMap
+        // Group aggregated stats by category
+        var distractiveTotal = 0L
+        var neutralTotal = 0L
+        var productiveTotal = 0L
 
-        // Group by category
-        val categoryUsage = stats.groupBy { categorizeApp(it.packageName) }
-            .mapValues { (_, v) -> v.sumOf { it.totalTimeInForeground / 60000 }.toInt() }
+        aggregatedStats.forEach { (packageName, timeMs) ->
+            val appName = getAppName(packageName)
+            when (categorizeApp(packageName, appName)) {
+                AppCategory.DISTRACTIVE -> distractiveTotal += timeMs
+                AppCategory.NEUTRAL -> neutralTotal += timeMs
+                AppCategory.PRODUCTIVE -> productiveTotal += timeMs
+            }
+        }
 
-        val distractiveTotal = categoryUsage[AppCategory.DISTRACTIVE] ?: 0
-        val neutralTotal = categoryUsage[AppCategory.NEUTRAL] ?: 0
-        val productiveTotal = categoryUsage[AppCategory.PRODUCTIVE] ?: 0
+        val distractiveMinutes = (distractiveTotal / 60000).toInt()
+        val neutralMinutes = (neutralTotal / 60000).toInt()
+        val productiveMinutes = (productiveTotal / 60000).toInt()
 
-        // Distribute across typical usage hours (8 AM - 11 PM more heavily)
-        val weights = mapOf(
-            0 to 0.02f, 1 to 0.01f, 2 to 0.01f, 3 to 0.01f,
-            4 to 0.01f, 5 to 0.01f, 6 to 0.02f, 7 to 0.03f,
-            8 to 0.05f, 9 to 0.06f, 10 to 0.07f, 11 to 0.07f,
-            12 to 0.08f, 13 to 0.07f, 14 to 0.06f, 15 to 0.06f,
-            16 to 0.06f, 17 to 0.06f, 18 to 0.06f, 19 to 0.06f,
-            20 to 0.06f, 21 to 0.04f, 22 to 0.03f, 23 to 0.02f
-        )
+        if (distractiveMinutes + neutralMinutes + productiveMinutes == 0) return hourlyMap
 
+        // Distribute across typical usage hours (weighted by time of day)
+        val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        val weights = mutableMapOf<Int, Float>()
+
+        // More weight to hours that have passed today
         for (hour in 0..23) {
-            val weight = weights[hour] ?: 0.04f
+            weights[hour] = when {
+                hour > currentHour -> 0.01f // Future hours get minimal weight
+                hour in 0..5 -> 0.02f // Late night/early morning
+                hour in 6..8 -> 0.05f // Morning
+                hour in 9..12 -> 0.08f // Late morning
+                hour in 13..17 -> 0.07f // Afternoon
+                hour in 18..21 -> 0.08f // Evening (peak usage)
+                else -> 0.04f // Late evening
+            }
+        }
+
+        // Normalize weights for hours up to current hour
+        val totalWeight = weights.filter { it.key <= currentHour }.values.sum()
+
+        for (hour in 0..currentHour) {
+            val normalizedWeight = if (totalWeight > 0) weights[hour]!! / totalWeight else 0f
             hourlyMap[hour] = Triple(
-                (distractiveTotal * weight).toInt(),
-                (neutralTotal * weight).toInt(),
-                (productiveTotal * weight).toInt()
+                (distractiveMinutes * normalizedWeight).toInt(),
+                (neutralMinutes * normalizedWeight).toInt(),
+                (productiveMinutes * normalizedWeight).toInt()
             )
         }
 
@@ -323,74 +326,58 @@ class InsightsViewModel @Inject constructor(
     }
 
     private fun calculateChangeText(currentMinutes: Int, periodStart: Long): String {
-        // Get previous period's usage
         val calendar = Calendar.getInstance()
         calendar.timeInMillis = periodStart
         calendar.add(Calendar.DAY_OF_YEAR, -1)
         val previousStart = calendar.timeInMillis
-
-        calendar.timeInMillis = periodStart
         val previousEnd = periodStart
 
         try {
             val previousStats = usageStatsManager?.queryUsageStats(
-                UsageStatsManager.INTERVAL_BEST,
+                UsageStatsManager.INTERVAL_DAILY,
                 previousStart,
                 previousEnd
             ) ?: emptyList()
 
+            // Aggregate previous day stats
             val previousMinutes = previousStats
-                .filter { !isSystemApp(it.packageName) && it.totalTimeInForeground > 60000 }
-                .sumOf { it.totalTimeInForeground / 60000 }.toInt()
+                .filter { !isSystemApp(it.packageName) && !isLauncherOrSystemUI(it.packageName) }
+                .groupBy { it.packageName }
+                .mapValues { (_, list) -> list.sumOf { it.totalTimeInForeground } }
+                .values.sum()
+                .let { (it / 60000).toInt() }
 
             val diff = currentMinutes - previousMinutes
-            return if (diff > 0) {
-                "${formatDuration(diff)} more than yesterday"
-            } else if (diff < 0) {
-                "${formatDuration(-diff)} less than yesterday"
-            } else {
-                "Same as yesterday"
+            return when {
+                diff > 0 -> "${formatDuration(diff)} more than yesterday"
+                diff < 0 -> "${formatDuration(-diff)} less than yesterday"
+                else -> "Same as yesterday"
             }
         } catch (e: Exception) {
             return "vs yesterday unavailable"
         }
     }
 
-    private fun calculateLongestFocusPeriod(stats: List<UsageStats>): Int {
-        // Estimate: longest gap between distractive app usage
-        // Simplified: return 20-60 min based on distractive usage ratio
-        val distractiveMinutes = stats
-            .filter { categorizeApp(it.packageName) == AppCategory.DISTRACTIVE }
-            .sumOf { it.totalTimeInForeground / 60000 }.toInt()
+    private fun categorizeApp(packageName: String, appName: String): AppCategory {
+        val lowerPackage = packageName.lowercase()
+        val lowerName = appName.lowercase()
 
-        val totalMinutes = stats.sumOf { it.totalTimeInForeground / 60000 }.toInt()
-
-        return when {
-            totalMinutes == 0 -> 0
-            distractiveMinutes == 0 -> 120 // No distractions
-            distractiveMinutes < totalMinutes / 4 -> 60
-            distractiveMinutes < totalMinutes / 2 -> 30
-            else -> 15
+        // Check for distractive keywords in package name or app name
+        if (distractiveKeywords.any { keyword ->
+            lowerPackage.contains(keyword) || lowerName.contains(keyword)
+        }) {
+            return AppCategory.DISTRACTIVE
         }
-    }
 
-    private fun calculateLongestContinuousUse(stats: List<UsageStats>): Int {
-        // Return the longest single app session (max foreground time)
-        return stats.maxOfOrNull { (it.totalTimeInForeground / 60000).toInt() } ?: 0
-    }
-
-    private fun categorizeApp(packageName: String): AppCategory {
-        return when {
-            distractiveApps.any { packageName.contains(it, ignoreCase = true) } -> AppCategory.DISTRACTIVE
-            productiveApps.any { packageName.contains(it, ignoreCase = true) } -> AppCategory.PRODUCTIVE
-            packageName.contains("game", ignoreCase = true) -> AppCategory.DISTRACTIVE
-            packageName.contains("social", ignoreCase = true) -> AppCategory.DISTRACTIVE
-            packageName.contains("video", ignoreCase = true) -> AppCategory.DISTRACTIVE
-            packageName.contains("mail", ignoreCase = true) -> AppCategory.PRODUCTIVE
-            packageName.contains("calendar", ignoreCase = true) -> AppCategory.PRODUCTIVE
-            packageName.contains("office", ignoreCase = true) -> AppCategory.PRODUCTIVE
-            else -> AppCategory.NEUTRAL
+        // Check for productive keywords
+        if (productiveKeywords.any { keyword ->
+            lowerPackage.contains(keyword) || lowerName.contains(keyword)
+        }) {
+            return AppCategory.PRODUCTIVE
         }
+
+        // Default to neutral
+        return AppCategory.NEUTRAL
     }
 
     private fun isSystemApp(packageName: String): Boolean {
@@ -400,6 +387,25 @@ class InsightsViewModel @Inject constructor(
         } catch (e: PackageManager.NameNotFoundException) {
             true
         }
+    }
+
+    private fun isLauncherOrSystemUI(packageName: String): Boolean {
+        val systemPackages = setOf(
+            "com.android.launcher",
+            "com.android.systemui",
+            "com.android.settings",
+            "com.android.vending",
+            "com.google.android.gms",
+            "com.google.android.gsf",
+            "com.samsung.android",
+            "com.sec.android",
+            "com.android.providers",
+            "com.android.inputmethod",
+            "com.google.android.inputmethod",
+            "com.samsung.android.honeyboard",
+            "com.google.android.permissioncontroller"
+        )
+        return systemPackages.any { packageName.startsWith(it) }
     }
 
     private fun getAppName(packageName: String): String {

@@ -77,9 +77,9 @@ sealed class Screen(
     )
     data object Statistics : Screen(
         route = "statistics",
-        title = "Statistics",
-        selectedIcon = Icons.Filled.BarChart,
-        unselectedIcon = Icons.Outlined.BarChart
+        title = "Insights",
+        selectedIcon = Icons.Filled.Insights,
+        unselectedIcon = Icons.Outlined.Insights
     )
     data object Settings : Screen(
         route = "settings",

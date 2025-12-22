@@ -1,21 +1,24 @@
 package com.focusblock.app.viewmodel
 
 import android.app.Application
-import android.app.usage.UsageStats
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.focusblock.app.database.repository.FocusBlockRepository
 import com.focusblock.app.ui.statistics.AppUsageInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 import javax.inject.Inject
@@ -50,8 +53,17 @@ data class InsightsUiState(
     val longestFocus: String = "0m",
     val longestContinuousUse: String = "0m",
     val pickupCount: Int = 0,
-    val isPickupEstimated: Boolean = true
+    val isPickupEstimated: Boolean = false
 )
+
+// Data class to track app session
+private data class AppSession(
+    val packageName: String,
+    val startTime: Long,
+    var endTime: Long = 0L
+) {
+    val duration: Long get() = if (endTime > startTime) endTime - startTime else 0L
+}
 
 @HiltViewModel
 class InsightsViewModel @Inject constructor(
@@ -66,7 +78,7 @@ class InsightsViewModel @Inject constructor(
         application.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
     }
 
-    // Keywords to identify distractive apps (matched against package name OR app name)
+    // Keywords to identify distractive apps
     private val distractiveKeywords = setOf(
         "youtube", "instagram", "facebook", "twitter", "tiktok", "snapchat",
         "reddit", "pinterest", "tumblr", "whatsapp", "telegram", "discord",
@@ -74,17 +86,94 @@ class InsightsViewModel @Inject constructor(
         "messenger", "wechat", "line", "viber", "tinder", "bumble",
         "musically", "reels", "shorts", "mxplayer", "mx player", "vlc",
         "game", "gaming", "candy", "clash", "pubg", "fortnite", "roblox",
-        "revanced", "vanced", "newpipe" // YouTube alternatives
+        "revanced", "vanced", "newpipe"
     )
 
     // Keywords to identify productive apps
     private val productiveKeywords = setOf(
         "docs", "sheets", "slides", "word", "excel", "powerpoint",
-        "outlook", "gmail", "mail", "email", "calendar", "notion",
-        "todoist", "trello", "asana", "slack", "teams", "zoom",
-        "meet", "drive", "dropbox", "onedrive", "evernote", "notes",
-        "calculator", "clock", "alarm", "reminder", "task", "work",
+        "outlook", "gmail", "calendar", "notion", "todoist", "trello",
+        "asana", "slack", "teams", "zoom", "meet", "drive", "dropbox",
+        "onedrive", "evernote", "notes", "calculator", "reminder", "task",
         "office", "pdf", "reader", "editor", "code", "studio"
+    )
+
+    // Packages to completely exclude (system/background services)
+    private val excludedPackages = setOf(
+        // Android System
+        "android",
+        "com.android.systemui",
+        "com.android.launcher",
+        "com.android.launcher3",
+        "com.android.settings",
+        "com.android.vending",
+        "com.android.providers",
+        "com.android.inputmethod",
+        "com.android.phone",
+        "com.android.server",
+        "com.android.keychain",
+        "com.android.packageinstaller",
+        "com.android.permissioncontroller",
+        "com.android.shell",
+        "com.android.incallui",
+
+        // Google Services
+        "com.google.android.gms",
+        "com.google.android.gsf",
+        "com.google.android.permissioncontroller",
+        "com.google.android.inputmethod",
+        "com.google.android.ext.services",
+        "com.google.android.providers",
+        "com.google.android.overlay",
+        "com.google.android.packageinstaller",
+
+        // Samsung System (One UI)
+        "com.samsung.android.lool", // Samsung Device Care
+        "com.samsung.android.forest", // Digital Wellbeing
+        "com.samsung.android.app.routines",
+        "com.samsung.android.honeyboard", // Samsung Keyboard
+        "com.samsung.android.smartswitchassistant",
+        "com.samsung.android.game.gamehome",
+        "com.samsung.android.game.gametools",
+        "com.samsung.android.app.tips",
+        "com.samsung.android.dialer",
+        "com.samsung.android.messaging",
+        "com.samsung.android.contacts",
+        "com.samsung.android.incallui",
+        "com.samsung.android.app.smartcapture",
+        "com.samsung.android.providers",
+        "com.samsung.android.samsungpass",
+        "com.samsung.android.samsungpassautofill",
+        "com.samsung.android.authfw",
+        "com.samsung.android.biometrics",
+        "com.samsung.android.rubin.app",
+        "com.samsung.android.visionintelligence",
+        "com.samsung.android.bixby",
+        "com.samsung.android.app.settings.bixby",
+        "com.samsung.android.oneconnect",
+        "com.samsung.android.mdx",
+        "com.samsung.android.mobileservice",
+        "com.samsung.android.spay",
+        "com.samsung.android.themestore",
+        "com.samsung.android.app.spage",
+        "com.samsung.android.app.cocktailbarservice",
+        "com.samsung.android.da.daagent",
+        "com.samsung.android.stickercenter",
+        "com.samsung.android.ardrawing",
+        "com.samsung.android.aremoji",
+
+        // Samsung Launcher
+        "com.sec.android.app.launcher",
+        "com.sec.android.app.samsungapps",
+        "com.sec.android.inputmethod",
+        "com.sec.android.daemonapp",
+        "com.sec.android.provider",
+        "com.sec.android.app.sbrowser", // Samsung Internet - might want to track this
+
+        // Other System
+        "com.qualcomm",
+        "com.android.nfc",
+        "com.android.bluetooth"
     )
 
     init {
@@ -132,58 +221,217 @@ class InsightsViewModel @Inject constructor(
                 }
             }
 
-            try {
-                val usageStats = usageStatsManager?.queryUsageStats(
-                    UsageStatsManager.INTERVAL_DAILY,
-                    startTime,
-                    endTime
-                ) ?: emptyList()
+            withContext(Dispatchers.IO) {
+                try {
+                    // Use UsageEvents API for accurate tracking
+                    val usageData = getAccurateUsageFromEvents(startTime, endTime)
+                    val yesterdayData = if (tab == InsightsTab.DAY) {
+                        getAccurateUsageFromEvents(startTime - 86400000, startTime)
+                    } else null
 
-                processUsageStats(usageStats, dateLabel, startTime, endTime)
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        dateLabel = dateLabel,
-                        screenTimeChange = "Grant usage access permission"
-                    )
+                    withContext(Dispatchers.Main) {
+                        processUsageData(usageData, yesterdayData, dateLabel)
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        _uiState.update {
+                            it.copy(
+                                dateLabel = dateLabel,
+                                screenTimeChange = "Grant usage access permission"
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 
-    private fun processUsageStats(
-        stats: List<UsageStats>,
-        dateLabel: String,
-        startTime: Long,
-        endTime: Long
+    /**
+     * Get accurate usage data using UsageEvents API
+     * This tracks individual MOVE_TO_FOREGROUND and MOVE_TO_BACKGROUND events
+     * to calculate exact screen time per app
+     */
+    private fun getAccurateUsageFromEvents(startTime: Long, endTime: Long): Map<String, AppUsageData> {
+        val usageMap = mutableMapOf<String, AppUsageData>()
+        val activeApps = mutableMapOf<String, Long>() // packageName -> foreground start time
+        val hourlyUsageMap = mutableMapOf<String, MutableMap<Int, Long>>() // packageName -> hour -> duration
+        var pickupCount = 0
+        var lastEventWasBackground = true
+
+        val usageEvents = usageStatsManager?.queryEvents(startTime, endTime) ?: return emptyMap()
+        val event = UsageEvents.Event()
+
+        while (usageEvents.hasNextEvent()) {
+            usageEvents.getNextEvent(event)
+            val packageName = event.packageName ?: continue
+
+            // Skip excluded packages
+            if (shouldExcludePackage(packageName)) continue
+
+            when (event.eventType) {
+                UsageEvents.Event.MOVE_TO_FOREGROUND,
+                UsageEvents.Event.ACTIVITY_RESUMED -> {
+                    // App came to foreground
+                    activeApps[packageName] = event.timeStamp
+
+                    // Count as pickup if previous event was background (screen unlock)
+                    if (lastEventWasBackground) {
+                        pickupCount++
+                        lastEventWasBackground = false
+                    }
+                }
+
+                UsageEvents.Event.MOVE_TO_BACKGROUND,
+                UsageEvents.Event.ACTIVITY_PAUSED -> {
+                    // App went to background
+                    val startTimestamp = activeApps.remove(packageName)
+                    if (startTimestamp != null && startTimestamp < event.timeStamp) {
+                        val duration = event.timeStamp - startTimestamp
+
+                        // Only count reasonable sessions (< 4 hours continuous)
+                        if (duration < 4 * 60 * 60 * 1000) {
+                            // Add to total usage
+                            val existing = usageMap.getOrPut(packageName) {
+                                AppUsageData(packageName, 0L, 0, mutableMapOf())
+                            }
+                            usageMap[packageName] = existing.copy(
+                                totalTime = existing.totalTime + duration,
+                                sessionCount = existing.sessionCount + 1
+                            )
+
+                            // Track hourly usage
+                            val hour = Calendar.getInstance().apply {
+                                timeInMillis = startTimestamp
+                            }.get(Calendar.HOUR_OF_DAY)
+
+                            val hourlyMap = hourlyUsageMap.getOrPut(packageName) { mutableMapOf() }
+                            hourlyMap[hour] = (hourlyMap[hour] ?: 0L) + duration
+                        }
+                    }
+                    lastEventWasBackground = true
+                }
+
+                UsageEvents.Event.SCREEN_NON_INTERACTIVE -> {
+                    // Screen turned off - close all active sessions
+                    val currentTime = event.timeStamp
+                    activeApps.forEach { (pkg, startTimestamp) ->
+                        if (startTimestamp < currentTime) {
+                            val duration = currentTime - startTimestamp
+                            if (duration < 4 * 60 * 60 * 1000) {
+                                val existing = usageMap.getOrPut(pkg) {
+                                    AppUsageData(pkg, 0L, 0, mutableMapOf())
+                                }
+                                usageMap[pkg] = existing.copy(
+                                    totalTime = existing.totalTime + duration,
+                                    sessionCount = existing.sessionCount + 1
+                                )
+                            }
+                        }
+                    }
+                    activeApps.clear()
+                    lastEventWasBackground = true
+                }
+            }
+        }
+
+        // Handle still-active apps (currently in foreground)
+        val now = System.currentTimeMillis().coerceAtMost(endTime)
+        activeApps.forEach { (pkg, startTimestamp) ->
+            if (startTimestamp < now) {
+                val duration = now - startTimestamp
+                if (duration < 4 * 60 * 60 * 1000) {
+                    val existing = usageMap.getOrPut(pkg) {
+                        AppUsageData(pkg, 0L, 0, mutableMapOf())
+                    }
+                    usageMap[pkg] = existing.copy(
+                        totalTime = existing.totalTime + duration,
+                        sessionCount = existing.sessionCount + 1
+                    )
+                }
+            }
+        }
+
+        // Store pickup count and hourly data in a special entry
+        usageMap["__metadata__"] = AppUsageData(
+            "__metadata__",
+            pickupCount.toLong(),
+            pickupCount,
+            hourlyUsageMap.mapValues { it.value.toMap() }.toMutableMap()
+        )
+
+        // Add hourly data to each app
+        hourlyUsageMap.forEach { (pkg, hourly) ->
+            usageMap[pkg]?.let { data ->
+                usageMap[pkg] = data.copy(hourlyUsage = hourly)
+            }
+        }
+
+        return usageMap.filter { it.key != "__metadata__" || it.key == "__metadata__" }
+    }
+
+    private fun shouldExcludePackage(packageName: String): Boolean {
+        // Check exact matches
+        if (excludedPackages.contains(packageName)) return true
+
+        // Check prefix matches
+        if (excludedPackages.any { packageName.startsWith(it) }) return true
+
+        // Exclude our own app
+        if (packageName == application.packageName) return true
+
+        // Check if it's a system app
+        return try {
+            val appInfo = application.packageManager.getApplicationInfo(packageName, 0)
+            // Only exclude if it's a system app AND not a user-installed update
+            val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            val isUpdatedSystem = (appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+
+            // Keep updated system apps (like Chrome, YouTube if pre-installed)
+            isSystem && !isUpdatedSystem && !isUserFacingApp(packageName)
+        } catch (e: PackageManager.NameNotFoundException) {
+            true
+        }
+    }
+
+    private fun isUserFacingApp(packageName: String): Boolean {
+        // These are system apps but user-facing, so we should track them
+        val userFacingSystemApps = setOf(
+            "com.android.chrome",
+            "com.google.android.youtube",
+            "com.google.android.apps.photos",
+            "com.google.android.apps.maps",
+            "com.google.android.gm",
+            "com.google.android.calendar",
+            "com.sec.android.app.sbrowser" // Samsung Internet
+        )
+        return userFacingSystemApps.contains(packageName)
+    }
+
+    private fun processUsageData(
+        usageData: Map<String, AppUsageData>,
+        yesterdayData: Map<String, AppUsageData>?,
+        dateLabel: String
     ) {
-        // IMPORTANT: Aggregate by package name to prevent duplicates
-        val aggregatedStats = stats
-            .filter { it.totalTimeInForeground > 0 }
-            .groupBy { it.packageName }
-            .mapValues { (_, statsList) ->
-                statsList.sumOf { it.totalTimeInForeground }
-            }
-            .filter { (packageName, timeMs) ->
-                timeMs > 60000 && // At least 1 minute
-                !isSystemApp(packageName) &&
-                packageName != application.packageName &&
-                !isLauncherOrSystemUI(packageName)
-            }
+        // Extract metadata
+        val metadata = usageData["__metadata__"]
+        val pickupCount = metadata?.sessionCount ?: 0
+
+        // Filter actual app data
+        val appData = usageData.filter { it.key != "__metadata__" && it.value.totalTime > 60000 }
 
         // Calculate total screen time
-        val totalTimeMs = aggregatedStats.values.sum()
+        val totalTimeMs = appData.values.sumOf { it.totalTime }
         val totalMinutes = (totalTimeMs / 60000).toInt()
         val totalScreenTime = formatDuration(totalMinutes)
 
-        // Get most used apps (sorted by usage, no duplicates)
-        val appUsageList = aggregatedStats
+        // Get most used apps
+        val appUsageList = appData
             .toList()
-            .sortedByDescending { it.second }
+            .sortedByDescending { it.second.totalTime }
             .take(15)
-            .map { (packageName, timeMs) ->
+            .map { (packageName, data) ->
                 val appName = getAppName(packageName)
-                val minutes = (timeMs / 60000).toInt()
+                val minutes = (data.totalTime / 60000).toInt()
                 val category = categorizeApp(packageName, appName)
 
                 AppUsageInfo(
@@ -196,43 +444,55 @@ class InsightsViewModel @Inject constructor(
             }
 
         // Calculate category distribution
-        val categoryMinutes = mutableMapOf(
-            AppCategory.DISTRACTIVE to 0L,
-            AppCategory.NEUTRAL to 0L,
-            AppCategory.PRODUCTIVE to 0L
-        )
+        var distractiveMs = 0L
+        var neutralMs = 0L
+        var productiveMs = 0L
 
-        aggregatedStats.forEach { (packageName, timeMs) ->
+        appData.forEach { (packageName, data) ->
             val appName = getAppName(packageName)
-            val category = categorizeApp(packageName, appName)
-            categoryMinutes[category] = categoryMinutes[category]!! + timeMs
+            when (categorizeApp(packageName, appName)) {
+                AppCategory.DISTRACTIVE -> distractiveMs += data.totalTime
+                AppCategory.NEUTRAL -> neutralMs += data.totalTime
+                AppCategory.PRODUCTIVE -> productiveMs += data.totalTime
+            }
         }
 
-        val totalCategoryMs = categoryMinutes.values.sum().coerceAtLeast(1)
-        val distractivePercent = ((categoryMinutes[AppCategory.DISTRACTIVE]!! * 100) / totalCategoryMs).toInt()
-        val neutralPercent = ((categoryMinutes[AppCategory.NEUTRAL]!! * 100) / totalCategoryMs).toInt()
-        val productivePercent = ((categoryMinutes[AppCategory.PRODUCTIVE]!! * 100) / totalCategoryMs).toInt()
+        val totalCategoryMs = (distractiveMs + neutralMs + productiveMs).coerceAtLeast(1)
+        val distractivePercent = ((distractiveMs * 100) / totalCategoryMs).toInt()
+        val neutralPercent = ((neutralMs * 100) / totalCategoryMs).toInt()
+        val productivePercent = ((productiveMs * 100) / totalCategoryMs).toInt()
 
-        // Calculate hourly usage distribution
-        val hourlyUsage = estimateHourlyUsage(aggregatedStats, startTime)
+        // Calculate hourly usage
+        val hourlyUsage = calculateHourlyUsage(appData)
 
         // Calculate peak time
         val peakHour = hourlyUsage.maxByOrNull { (_, v) -> v.first + v.second + v.third }?.key ?: 12
         val peakTimeRange = "${formatHour(peakHour)} - ${formatHour(peakHour + 1)}"
 
-        // Calculate balance percentage (phone time / awake time, assuming 16h awake)
+        // Calculate balance percentage
         val awakeMinutes = 16 * 60
         val balancePercentage = ((totalMinutes * 100) / awakeMinutes).coerceIn(0, 100)
 
-        // Estimate pickups based on number of apps used
-        val pickupCount = (aggregatedStats.size * 3).coerceAtLeast(totalMinutes / 20)
+        // Calculate change from yesterday
+        val changeText = if (yesterdayData != null) {
+            val yesterdayMs = yesterdayData
+                .filter { it.key != "__metadata__" && it.value.totalTime > 60000 }
+                .values.sumOf { it.totalTime }
+            val yesterdayMinutes = (yesterdayMs / 60000).toInt()
+            val diff = totalMinutes - yesterdayMinutes
 
-        // Calculate screen time change (vs yesterday)
-        val changeText = calculateChangeText(totalMinutes, startTime)
+            when {
+                diff > 0 -> "${formatDuration(diff)} more than yesterday"
+                diff < 0 -> "${formatDuration(-diff)} less than yesterday"
+                else -> "Same as yesterday"
+            }
+        } else {
+            "No comparison data"
+        }
 
         // Calculate focus metrics
-        val longestAppMinutes = aggregatedStats.values.maxOrNull()?.let { (it / 60000).toInt() } ?: 0
-        val distractiveMinutes = (categoryMinutes[AppCategory.DISTRACTIVE]!! / 60000).toInt()
+        val longestAppMinutes = appData.values.maxOfOrNull { (it.totalTime / 60000).toInt() } ?: 0
+        val distractiveMinutes = (distractiveMs / 60000).toInt()
         val focusEstimate = when {
             totalMinutes == 0 -> 0
             distractiveMinutes == 0 -> 120
@@ -246,7 +506,7 @@ class InsightsViewModel @Inject constructor(
                 dateLabel = dateLabel,
                 totalScreenTime = totalScreenTime,
                 screenTimeChange = changeText,
-                isChangePositive = changeText.contains("less") || changeText.contains("-"),
+                isChangePositive = changeText.contains("less"),
                 hourlyUsage = hourlyUsage,
                 mostUsedApps = appUsageList,
                 balancePercentage = balancePercentage,
@@ -255,17 +515,14 @@ class InsightsViewModel @Inject constructor(
                 neutralPercent = neutralPercent,
                 productivePercent = productivePercent,
                 pickupCount = pickupCount,
-                isPickupEstimated = true,
+                isPickupEstimated = false,
                 longestFocus = formatDuration(focusEstimate),
                 longestContinuousUse = formatDuration(longestAppMinutes)
             )
         }
     }
 
-    private fun estimateHourlyUsage(
-        aggregatedStats: Map<String, Long>,
-        startTime: Long
-    ): Map<Int, Triple<Int, Int, Int>> {
+    private fun calculateHourlyUsage(appData: Map<String, AppUsageData>): Map<Int, Triple<Int, Int, Int>> {
         val hourlyMap = mutableMapOf<Int, Triple<Int, Int, Int>>()
 
         // Initialize all hours
@@ -273,139 +530,52 @@ class InsightsViewModel @Inject constructor(
             hourlyMap[hour] = Triple(0, 0, 0)
         }
 
-        // Group aggregated stats by category
-        var distractiveTotal = 0L
-        var neutralTotal = 0L
-        var productiveTotal = 0L
+        // Aggregate hourly data by category
+        val hourlyDistractive = mutableMapOf<Int, Long>()
+        val hourlyNeutral = mutableMapOf<Int, Long>()
+        val hourlyProductive = mutableMapOf<Int, Long>()
 
-        aggregatedStats.forEach { (packageName, timeMs) ->
+        appData.forEach { (packageName, data) ->
             val appName = getAppName(packageName)
-            when (categorizeApp(packageName, appName)) {
-                AppCategory.DISTRACTIVE -> distractiveTotal += timeMs
-                AppCategory.NEUTRAL -> neutralTotal += timeMs
-                AppCategory.PRODUCTIVE -> productiveTotal += timeMs
+            val category = categorizeApp(packageName, appName)
+
+            data.hourlyUsage.forEach { (hour, duration) ->
+                when (category) {
+                    AppCategory.DISTRACTIVE -> hourlyDistractive[hour] = (hourlyDistractive[hour] ?: 0L) + duration
+                    AppCategory.NEUTRAL -> hourlyNeutral[hour] = (hourlyNeutral[hour] ?: 0L) + duration
+                    AppCategory.PRODUCTIVE -> hourlyProductive[hour] = (hourlyProductive[hour] ?: 0L) + duration
+                }
             }
         }
 
-        val distractiveMinutes = (distractiveTotal / 60000).toInt()
-        val neutralMinutes = (neutralTotal / 60000).toInt()
-        val productiveMinutes = (productiveTotal / 60000).toInt()
-
-        if (distractiveMinutes + neutralMinutes + productiveMinutes == 0) return hourlyMap
-
-        // Distribute across typical usage hours (weighted by time of day)
-        val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-        val weights = mutableMapOf<Int, Float>()
-
-        // More weight to hours that have passed today
         for (hour in 0..23) {
-            weights[hour] = when {
-                hour > currentHour -> 0.01f // Future hours get minimal weight
-                hour in 0..5 -> 0.02f // Late night/early morning
-                hour in 6..8 -> 0.05f // Morning
-                hour in 9..12 -> 0.08f // Late morning
-                hour in 13..17 -> 0.07f // Afternoon
-                hour in 18..21 -> 0.08f // Evening (peak usage)
-                else -> 0.04f // Late evening
-            }
-        }
-
-        // Normalize weights for hours up to current hour
-        val totalWeight = weights.filter { it.key <= currentHour }.values.sum()
-
-        for (hour in 0..currentHour) {
-            val normalizedWeight = if (totalWeight > 0) weights[hour]!! / totalWeight else 0f
             hourlyMap[hour] = Triple(
-                (distractiveMinutes * normalizedWeight).toInt(),
-                (neutralMinutes * normalizedWeight).toInt(),
-                (productiveMinutes * normalizedWeight).toInt()
+                ((hourlyDistractive[hour] ?: 0L) / 60000).toInt(),
+                ((hourlyNeutral[hour] ?: 0L) / 60000).toInt(),
+                ((hourlyProductive[hour] ?: 0L) / 60000).toInt()
             )
         }
 
         return hourlyMap
     }
 
-    private fun calculateChangeText(currentMinutes: Int, periodStart: Long): String {
-        val calendar = Calendar.getInstance()
-        calendar.timeInMillis = periodStart
-        calendar.add(Calendar.DAY_OF_YEAR, -1)
-        val previousStart = calendar.timeInMillis
-        val previousEnd = periodStart
-
-        try {
-            val previousStats = usageStatsManager?.queryUsageStats(
-                UsageStatsManager.INTERVAL_DAILY,
-                previousStart,
-                previousEnd
-            ) ?: emptyList()
-
-            // Aggregate previous day stats
-            val previousMinutes = previousStats
-                .filter { !isSystemApp(it.packageName) && !isLauncherOrSystemUI(it.packageName) }
-                .groupBy { it.packageName }
-                .mapValues { (_, list) -> list.sumOf { it.totalTimeInForeground } }
-                .values.sum()
-                .let { (it / 60000).toInt() }
-
-            val diff = currentMinutes - previousMinutes
-            return when {
-                diff > 0 -> "${formatDuration(diff)} more than yesterday"
-                diff < 0 -> "${formatDuration(-diff)} less than yesterday"
-                else -> "Same as yesterday"
-            }
-        } catch (e: Exception) {
-            return "vs yesterday unavailable"
-        }
-    }
-
     private fun categorizeApp(packageName: String, appName: String): AppCategory {
         val lowerPackage = packageName.lowercase()
         val lowerName = appName.lowercase()
 
-        // Check for distractive keywords in package name or app name
         if (distractiveKeywords.any { keyword ->
             lowerPackage.contains(keyword) || lowerName.contains(keyword)
         }) {
             return AppCategory.DISTRACTIVE
         }
 
-        // Check for productive keywords
         if (productiveKeywords.any { keyword ->
             lowerPackage.contains(keyword) || lowerName.contains(keyword)
         }) {
             return AppCategory.PRODUCTIVE
         }
 
-        // Default to neutral
         return AppCategory.NEUTRAL
-    }
-
-    private fun isSystemApp(packageName: String): Boolean {
-        return try {
-            val appInfo = application.packageManager.getApplicationInfo(packageName, 0)
-            (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-        } catch (e: PackageManager.NameNotFoundException) {
-            true
-        }
-    }
-
-    private fun isLauncherOrSystemUI(packageName: String): Boolean {
-        val systemPackages = setOf(
-            "com.android.launcher",
-            "com.android.systemui",
-            "com.android.settings",
-            "com.android.vending",
-            "com.google.android.gms",
-            "com.google.android.gsf",
-            "com.samsung.android",
-            "com.sec.android",
-            "com.android.providers",
-            "com.android.inputmethod",
-            "com.google.android.inputmethod",
-            "com.samsung.android.honeyboard",
-            "com.google.android.permissioncontroller"
-        )
-        return systemPackages.any { packageName.startsWith(it) }
     }
 
     private fun getAppName(packageName: String): String {
@@ -439,3 +609,11 @@ class InsightsViewModel @Inject constructor(
         }
     }
 }
+
+// Data class to hold usage information per app
+private data class AppUsageData(
+    val packageName: String,
+    val totalTime: Long,
+    val sessionCount: Int,
+    val hourlyUsage: MutableMap<Int, Long> = mutableMapOf()
+)

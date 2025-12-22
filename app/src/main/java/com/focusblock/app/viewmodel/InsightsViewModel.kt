@@ -351,12 +351,12 @@ class InsightsViewModel @Inject constructor(
             }
         }
 
-        // Store pickup count and hourly data in a special entry
+        // Store pickup count in a special entry
         usageMap["__metadata__"] = AppUsageData(
             "__metadata__",
             pickupCount.toLong(),
             pickupCount,
-            hourlyUsageMap.mapValues { it.value.toMap() }.toMutableMap()
+            mutableMapOf() // No hourly data for metadata
         )
 
         // Add hourly data to each app

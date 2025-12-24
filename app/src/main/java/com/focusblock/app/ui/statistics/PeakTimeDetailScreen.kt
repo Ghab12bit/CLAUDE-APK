@@ -503,7 +503,7 @@ fun SessionsListCard(sessions: List<PeakSession>) {
                     SessionRow(session)
                     if (index < sessions.size - 1 && index < 9) {
                         Spacer(modifier = Modifier.height(8.dp))
-                        HorizontalDivider(color = Color(0xFFE2E8F0))
+                        Divider(color = Color(0xFFE2E8F0))
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                 }

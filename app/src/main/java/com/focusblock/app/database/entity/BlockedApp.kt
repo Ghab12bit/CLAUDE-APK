@@ -46,7 +46,10 @@ data class QuickBlockSession(
     val isActive: Boolean = true,
     val isPomodoroSession: Boolean = false,
     val pomodoroWorkMinutes: Int = 25,
-    val pomodoroBreakMinutes: Int = 5
+    val pomodoroBreakMinutes: Int = 5,
+    // Track which apps were ALREADY blocked before Quick Block started
+    // These apps should NOT be unblocked when Quick Block stops
+    val previouslyBlockedPackages: String = ""
 )
 
 @Entity(tableName = "block_logs")
@@ -87,6 +90,9 @@ data class AppSettings(
     companion object {
         const val KEY_STRICT_MODE_ENABLED = "strict_mode_enabled"
         const val KEY_STRICT_MODE_END_TIME = "strict_mode_end_time"
+        const val KEY_STRICT_MODE_PAUSED = "strict_mode_paused"
+        const val KEY_STRICT_MODE_REMAINING_ON_PAUSE = "strict_mode_remaining_on_pause"
+        const val KEY_STRICT_MODE_PAUSE_REASON = "strict_mode_pause_reason"
         const val KEY_HARD_MODE_ENABLED = "hard_mode_enabled"
         const val KEY_HARD_MODE_PIN = "hard_mode_pin"
         const val KEY_HARD_MODE_UNLOCK_TIME = "hard_mode_unlock_time"

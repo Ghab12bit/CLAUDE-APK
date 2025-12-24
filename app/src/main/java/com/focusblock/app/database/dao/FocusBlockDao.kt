@@ -44,6 +44,9 @@ interface BlockedAppDao {
 
     @Query("SELECT COUNT(*) FROM blocked_apps WHERE isBlocked = 1")
     fun getBlockedAppsCount(): Flow<Int>
+
+    @Query("SELECT packageName FROM blocked_apps WHERE isBlocked = 1")
+    suspend fun getBlockedPackageNames(): List<String>
 }
 
 @Dao

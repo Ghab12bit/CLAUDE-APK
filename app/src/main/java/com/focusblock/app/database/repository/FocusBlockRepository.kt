@@ -112,6 +112,23 @@ class FocusBlockRepository @Inject constructor(
     fun getHardModeEnabledFlow(): Flow<Boolean> =
         settingsDao.getValueFlow(AppSettings.KEY_HARD_MODE_ENABLED).map { it?.toBooleanStrictOrNull() ?: false }
 
+    // Strict Mode Pause methods
+    suspend fun isStrictModePaused(): Boolean = getSetting(AppSettings.KEY_STRICT_MODE_PAUSED)?.toBooleanStrictOrNull() ?: false
+    suspend fun setStrictModePaused(paused: Boolean) = setSetting(AppSettings.KEY_STRICT_MODE_PAUSED, paused.toString())
+
+    suspend fun getStrictModeRemainingOnPause(): Long? = getSetting(AppSettings.KEY_STRICT_MODE_REMAINING_ON_PAUSE)?.toLongOrNull()
+    suspend fun setStrictModeRemainingOnPause(remainingMs: Long) = setSetting(AppSettings.KEY_STRICT_MODE_REMAINING_ON_PAUSE, remainingMs.toString())
+    suspend fun clearStrictModeRemainingOnPause() = setSetting(AppSettings.KEY_STRICT_MODE_REMAINING_ON_PAUSE, "0")
+
+    suspend fun setStrictModePauseReason(reason: String) = setSetting(AppSettings.KEY_STRICT_MODE_PAUSE_REASON, reason)
+    suspend fun getStrictModePauseReason(): String? = getSetting(AppSettings.KEY_STRICT_MODE_PAUSE_REASON)
+
+    fun getStrictModePausedFlow(): Flow<Boolean> =
+        settingsDao.getValueFlow(AppSettings.KEY_STRICT_MODE_PAUSED).map { it?.toBooleanStrictOrNull() ?: false }
+
+    // Get list of currently blocked packages
+    suspend fun getBlockedPackageNames(): List<String> = blockedAppDao.getBlockedPackageNames()
+
     // Pomodoro
     fun getPomodoroSessionsForDate(date: String): Flow<List<PomodoroSession>> =
         pomodoroSessionDao.getSessionsForDate(date)

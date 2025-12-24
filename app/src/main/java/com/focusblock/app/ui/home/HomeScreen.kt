@@ -57,6 +57,7 @@ fun HomeScreen(
     var showUnlockPinDialog by remember { mutableStateOf(false) }
     var showStrictModeUnlockDialog by remember { mutableStateOf(false) }
     var showStrictModeSetupDialog by remember { mutableStateOf(false) }
+    var showPauseMotivationDialog by remember { mutableStateOf(false) }
     var selectedApps by remember { mutableStateOf<List<String>>(emptyList()) }
     var timerDurationMinutes by remember { mutableStateOf<Int?>(null) }
     var isEditingApps by remember { mutableStateOf(false) }
@@ -215,6 +216,7 @@ fun HomeScreen(
             StrictModeCard(
                 isEnabled = uiState.isStrictModeEnabled,
                 isLocked = uiState.isStrictModeLocked,
+                isPaused = uiState.isStrictModePaused,
                 remainingTime = uiState.strictModeRemainingTime,
                 isHardModeEnabled = uiState.isHardModeEnabled,
                 onToggle = { enabled ->
@@ -226,7 +228,10 @@ fun HomeScreen(
                         viewModel.setStrictMode(false)
                     }
                 },
-                onHardModeClick = { showHardModeDialog = true }
+                onHardModeClick = { showHardModeDialog = true },
+                onAddTime = { minutes -> viewModel.addStrictModeTime(minutes) },
+                onPauseClick = { showPauseMotivationDialog = true },
+                onResumeClick = { viewModel.resumeStrictMode() }
             )
         }
     }
@@ -332,6 +337,161 @@ fun HomeScreen(
             }
         )
     }
+
+    // Pause Motivation Dialog
+    if (showPauseMotivationDialog) {
+        PauseMotivationDialog(
+            onDismiss = { showPauseMotivationDialog = false },
+            onKeepFocused = { showPauseMotivationDialog = false },
+            onPauseAnyway = {
+                viewModel.pauseStrictMode()
+                showPauseMotivationDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun PauseMotivationDialog(
+    onDismiss: () -> Unit,
+    onKeepFocused: () -> Unit,
+    onPauseAnyway: () -> Unit
+) {
+    val motivationalTips = listOf(
+        "📚 Read for 10 minutes - it'll refresh your mind!",
+        "🚶 Take a 5-minute walk to boost creativity",
+        "🧘 Try 3 minutes of deep breathing",
+        "💧 Grab some water and stretch",
+        "🎵 Listen to one calming song",
+        "✍️ Write down 3 things you're grateful for"
+    )
+    val currentTip = remember { motivationalTips.random() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardDarkElevated,
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(Primary.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Psychology,
+                        contentDescription = null,
+                        tint = Primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Stay focused a little longer?",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "You're doing great! Taking a break now might break your momentum.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Motivational suggestion card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = AccentGreen.copy(alpha = 0.1f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Instead, try this:",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = AccentGreen,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = currentTip,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Stats encouragement
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Primary.copy(alpha = 0.08f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.LocalFireDepartment,
+                            contentDescription = null,
+                            tint = AccentOrange,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Keep your focus streak going!",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onKeepFocused,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Primary)
+            ) {
+                Icon(Icons.Filled.Shield, null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Keep Strict Mode", fontWeight = FontWeight.Medium)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onPauseAnyway,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "Pause anyway",
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+    )
 }
 
 @Composable
@@ -1011,10 +1171,14 @@ fun FocusTipsCard() {
 fun StrictModeCard(
     isEnabled: Boolean,
     isLocked: Boolean,
+    isPaused: Boolean = false,
     remainingTime: Long,
     isHardModeEnabled: Boolean,
     onToggle: (Boolean) -> Unit,
-    onHardModeClick: () -> Unit
+    onHardModeClick: () -> Unit,
+    onAddTime: (Int) -> Unit = {},
+    onPauseClick: () -> Unit = {},
+    onResumeClick: () -> Unit = {}
 ) {
     // Format remaining time
     val remainingTimeText = if (remainingTime > 0) {
@@ -1122,32 +1286,173 @@ fun StrictModeCard(
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = Primary.copy(alpha = 0.12f))
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Timer,
-                            contentDescription = null,
-                            tint = Primary,
-                            modifier = Modifier.size(24.dp)
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Timer,
+                                contentDescription = null,
+                                tint = Primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "Unlocks in",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = TextSecondary
+                                )
+                                Text(
+                                    text = remainingTimeText,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = Primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Add Time buttons
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Add more time",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = TextSecondary
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "Unlocks in",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = TextSecondary
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { onAddTime(30) },
+                                shape = RoundedCornerShape(10.dp),
+                                color = AccentGreen.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "+30m",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = AccentGreen,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 10.dp)
+                                )
+                            }
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { onAddTime(60) },
+                                shape = RoundedCornerShape(10.dp),
+                                color = AccentGreen.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "+1h",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = AccentGreen,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 10.dp)
+                                )
+                            }
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { onAddTime(120) },
+                                shape = RoundedCornerShape(10.dp),
+                                color = AccentGreen.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "+2h",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = AccentGreen,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 10.dp)
+                                )
+                            }
+                        }
+
+                        // Pause button
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedButton(
+                            onClick = onPauseClick,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, AccentOrange.copy(alpha = 0.5f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = AccentOrange
                             )
-                            Text(
-                                text = remainingTimeText,
-                                style = MaterialTheme.typography.headlineMedium,
-                                color = Primary,
-                                fontWeight = FontWeight.Bold
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Pause,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
                             )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Pause Strict Mode", fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            }
+
+            // Show paused state with resume button
+            if (isPaused) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = AccentOrange.copy(alpha = 0.12f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.PauseCircle,
+                                contentDescription = null,
+                                tint = AccentOrange,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Strict Mode Paused",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = AccentOrange,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = onResumeClick,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AccentOrange
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Resume", fontWeight = FontWeight.Medium)
                         }
                     }
                 }

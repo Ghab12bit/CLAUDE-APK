@@ -1,6 +1,7 @@
 package com.focusblock.app.viewmodel
 
 import android.app.Application
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.focusblock.app.database.entity.*
@@ -26,6 +27,7 @@ data class HomeUiState(
     val focusStreak: Int = 0,
     val isStrictModeEnabled: Boolean = false,
     val isStrictModeLocked: Boolean = false,
+    val isStrictModePaused: Boolean = false,
     val strictModeEndTime: Long? = null,
     val strictModeRemainingTime: Long = 0,
     val isHardModeEnabled: Boolean = false,
@@ -138,6 +140,13 @@ class HomeViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            // Load strict mode pause status
+            repository.getStrictModePausedFlow().collect { paused ->
+                _uiState.update { it.copy(isStrictModePaused = paused) }
+            }
+        }
+
+        viewModelScope.launch {
             // Load hard mode status
             repository.getHardModeEnabledFlow().collect { enabled ->
                 _uiState.update { it.copy(isHardModeEnabled = enabled) }
@@ -178,6 +187,9 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun updateStrictModeRemainingTime() {
+        // Don't update if paused
+        if (_uiState.value.isStrictModePaused) return
+
         val endTime = _uiState.value.strictModeEndTime ?: return
         val now = System.currentTimeMillis()
         val remaining = endTime - now
@@ -192,6 +204,7 @@ class HomeViewModel @Inject constructor(
                     strictModeRemainingTime = 0,
                     isStrictModeEnabled = false
                 )}
+                showToast("Strict Mode completed!")
             }
         } else if (remaining > 0) {
             _uiState.update { it.copy(
@@ -210,6 +223,9 @@ class HomeViewModel @Inject constructor(
 
     fun startQuickBlock(selectedPackages: List<String>, durationMinutes: Int? = null) {
         viewModelScope.launch {
+            // Get currently blocked packages BEFORE making any changes
+            val previouslyBlocked = repository.getBlockedPackageNames().toSet()
+
             // First, ensure all selected apps are in the database and marked as blocked
             selectedPackages.forEach { packageName ->
                 val existingApp = repository.getBlockedApp(packageName)
@@ -228,39 +244,60 @@ class HomeViewModel @Inject constructor(
                 }
             }
 
-            // Create quick block session
+            // Create quick block session with previously blocked packages tracked
             val session = QuickBlockSession(
                 startTime = System.currentTimeMillis(),
                 endTime = durationMinutes?.let { System.currentTimeMillis() + it * 60 * 1000L },
                 blockedPackages = selectedPackages.joinToString(","),
                 isActive = true,
-                isPomodoroSession = false
+                isPomodoroSession = false,
+                previouslyBlockedPackages = previouslyBlocked.intersect(selectedPackages.toSet()).joinToString(",")
             )
             repository.insertQuickBlockSession(session)
 
             // Start blocking service
             AppBlockingService.start(application)
+
+            val newAppsCount = selectedPackages.count { !previouslyBlocked.contains(it) }
+            showToast("Quick Block started. $newAppsCount apps blocked.")
         }
     }
 
-    fun stopQuickBlock(forceStop: Boolean = false) {
+    fun stopQuickBlock(forceStop: Boolean = false): StopQuickBlockResult {
+        var result = StopQuickBlockResult.SUCCESS
+
         viewModelScope.launch {
             // Check if strict mode is time-locked - cannot be bypassed
             if (_uiState.value.isStrictModeLocked) {
-                // Strict mode is time-locked - absolutely cannot stop until timer expires
+                result = StopQuickBlockResult.STRICT_MODE_LOCKED
                 return@launch
             }
 
             // Check if strict mode or hard mode prevents stopping (unless force stop with PIN)
             if (!forceStop && (_uiState.value.isStrictModeEnabled || _uiState.value.isHardModeEnabled)) {
-                // Can't stop - needs PIN or wait for timer
+                result = StopQuickBlockResult.NEEDS_PIN
                 return@launch
             }
 
             val session = _uiState.value.quickBlockSession
             if (session != null) {
+                // Get the apps that Quick Block added (not previously blocked)
+                val blockedBySession = session.blockedPackages.split(",").filter { it.isNotBlank() }
+                val previouslyBlocked = session.previouslyBlockedPackages.split(",").filter { it.isNotBlank() }.toSet()
+
+                // Unblock only apps that were NOT previously blocked
+                val appsToUnblock = blockedBySession.filter { !previouslyBlocked.contains(it) }
+                var unblockCount = 0
+
+                appsToUnblock.forEach { packageName ->
+                    repository.setAppBlocked(packageName, false)
+                    unblockCount++
+                }
+
                 repository.deactivateQuickBlockSession(session.id)
+                showToast("Quick Block stopped. $unblockCount apps unblocked.")
             }
+
             repository.deactivateAllQuickBlockSessions()
 
             // Also update UI state immediately for responsive feedback
@@ -271,6 +308,14 @@ class HomeViewModel @Inject constructor(
                 isPomodoroMode = false
             )}
         }
+
+        return result
+    }
+
+    enum class StopQuickBlockResult {
+        SUCCESS,
+        STRICT_MODE_LOCKED,
+        NEEDS_PIN
     }
 
     fun verifyPinAndStop(pin: String): Boolean {
@@ -297,6 +342,9 @@ class HomeViewModel @Inject constructor(
 
     fun startPomodoroSession(selectedPackages: List<String>, workMinutes: Int = 25, breakMinutes: Int = 5) {
         viewModelScope.launch {
+            // Get currently blocked packages BEFORE making any changes
+            val previouslyBlocked = repository.getBlockedPackageNames().toSet()
+
             // Ensure all selected apps are in the database
             selectedPackages.forEach { packageName ->
                 val existingApp = repository.getBlockedApp(packageName)
@@ -320,7 +368,8 @@ class HomeViewModel @Inject constructor(
                 isActive = true,
                 isPomodoroSession = true,
                 pomodoroWorkMinutes = workMinutes,
-                pomodoroBreakMinutes = breakMinutes
+                pomodoroBreakMinutes = breakMinutes,
+                previouslyBlockedPackages = previouslyBlocked.intersect(selectedPackages.toSet()).joinToString(",")
             )
             repository.insertQuickBlockSession(session)
 
@@ -355,19 +404,107 @@ class HomeViewModel @Inject constructor(
                 // Set the end time for strict mode lock
                 val endTime = System.currentTimeMillis() + durationMinutes * 60 * 1000L
                 repository.setStrictModeEndTime(endTime)
+                repository.setStrictModePaused(false) // Clear any pause state
                 _uiState.update { it.copy(
                     isStrictModeLocked = true,
+                    isStrictModePaused = false,
                     strictModeEndTime = endTime,
                     strictModeRemainingTime = durationMinutes * 60 * 1000L
                 )}
+                showToast("Strict Mode enabled for ${formatDuration(durationMinutes * 60 * 1000L)}")
             } else if (!enabled) {
                 repository.clearStrictModeEndTime()
+                repository.setStrictModePaused(false)
                 _uiState.update { it.copy(
                     isStrictModeLocked = false,
+                    isStrictModePaused = false,
                     strictModeEndTime = null,
                     strictModeRemainingTime = 0
                 )}
             }
+        }
+    }
+
+    /**
+     * Add time to Strict Mode - extends the end timestamp
+     */
+    fun addStrictModeTime(additionalMinutes: Int) {
+        viewModelScope.launch {
+            val currentEndTime = _uiState.value.strictModeEndTime
+            if (currentEndTime == null || !_uiState.value.isStrictModeLocked) {
+                // If no current end time, start fresh with this duration
+                setStrictMode(true, additionalMinutes)
+                return@launch
+            }
+
+            // Extend the end time
+            val newEndTime = currentEndTime + (additionalMinutes * 60 * 1000L)
+            repository.setStrictModeEndTime(newEndTime)
+
+            val now = System.currentTimeMillis()
+            _uiState.update { it.copy(
+                strictModeEndTime = newEndTime,
+                strictModeRemainingTime = newEndTime - now
+            )}
+
+            showToast("Added ${additionalMinutes}min. Total: ${formatDuration(newEndTime - now)}")
+        }
+    }
+
+    /**
+     * Pause Strict Mode - stores remaining time for later resume
+     * Returns false if cannot pause (not active), true if pause initiated
+     */
+    fun pauseStrictMode(): Boolean {
+        if (!_uiState.value.isStrictModeLocked || _uiState.value.isStrictModePaused) {
+            return false
+        }
+
+        viewModelScope.launch {
+            val remainingTime = _uiState.value.strictModeRemainingTime
+            repository.setStrictModeRemainingOnPause(remainingTime)
+            repository.setStrictModePaused(true)
+            repository.setStrictModePauseReason("user_paused")
+
+            // Clear the end time while paused
+            repository.clearStrictModeEndTime()
+
+            _uiState.update { it.copy(
+                isStrictModePaused = true,
+                isStrictModeLocked = false
+            )}
+
+            showToast("Strict Mode paused. ${formatDuration(remainingTime)} remaining.")
+        }
+
+        return true
+    }
+
+    /**
+     * Resume Strict Mode from pause
+     */
+    fun resumeStrictMode() {
+        viewModelScope.launch {
+            val remainingOnPause = repository.getStrictModeRemainingOnPause() ?: 0L
+            if (remainingOnPause <= 0) {
+                showToast("No paused session to resume")
+                return@launch
+            }
+
+            // Set new end time based on remaining time
+            val newEndTime = System.currentTimeMillis() + remainingOnPause
+            repository.setStrictModeEndTime(newEndTime)
+            repository.setStrictModePaused(false)
+            repository.clearStrictModeRemainingOnPause()
+
+            _uiState.update { it.copy(
+                isStrictModePaused = false,
+                isStrictModeLocked = true,
+                strictModeEndTime = newEndTime,
+                strictModeRemainingTime = remainingOnPause
+            )}
+
+            showToast("Strict Mode resumed. ${formatDuration(remainingOnPause)} remaining.")
         }
     }
 
@@ -394,5 +531,21 @@ class HomeViewModel @Inject constructor(
 
     fun refreshPermissions() {
         updatePermissionStatus()
+    }
+
+    private fun showToast(message: String) {
+        Toast.makeText(application, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun formatDuration(millis: Long): String {
+        val totalMinutes = (millis / 60000).toInt()
+        val hours = totalMinutes / 60
+        val minutes = totalMinutes % 60
+
+        return when {
+            hours > 0 && minutes > 0 -> "${hours}h ${minutes}m"
+            hours > 0 -> "${hours}h"
+            else -> "${minutes}m"
+        }
     }
 }

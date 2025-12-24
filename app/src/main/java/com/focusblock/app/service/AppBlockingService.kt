@@ -11,6 +11,7 @@ import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.focusblock.app.FocusBlockApp
 import com.focusblock.app.R
@@ -25,6 +26,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
+
+private const val TAG = "AppBlockingService"
 
 @AndroidEntryPoint
 class AppBlockingService : Service() {
@@ -187,10 +190,19 @@ class AppBlockingService : Service() {
     }
 
     private suspend fun blockApp(packageName: String) {
+        // If accessibility service is running, let it handle blocking
+        // This avoids duplicate blocking attempts
+        if (FocusBlockAccessibilityService.isServiceRunning) {
+            Log.d(TAG, "Accessibility service running, skipping blocking for: $packageName")
+            return
+        }
+
+        Log.i(TAG, "blockApp() called for: $packageName")
         val appName = AppUtils.getAppName(this, packageName)
 
         // Log the block
         val blockedByType = determineBlockedByType(packageName)
+        Log.d(TAG, "Block type: $blockedByType")
         repository.insertBlockLog(
             BlockLog(
                 packageName = packageName,
@@ -205,8 +217,19 @@ class AppBlockingService : Service() {
         // Vibrate
         vibrateDevice()
 
+        // First go to home
+        Log.d(TAG, "Going to home before showing blocking screen")
+        withContext(Dispatchers.Main) {
+            AppUtils.goToHome(this@AppBlockingService)
+        }
+
+        // Small delay
+        delay(150)
+
         // Show blocking screen
-        showBlockingScreen(packageName, appName, blockedByType)
+        withContext(Dispatchers.Main) {
+            showBlockingScreen(packageName, appName, blockedByType)
+        }
     }
 
     private suspend fun determineBlockedByType(packageName: String): BlockedByType {
@@ -233,15 +256,23 @@ class AppBlockingService : Service() {
     }
 
     private fun showBlockingScreen(packageName: String, appName: String, blockedByType: BlockedByType) {
-        val intent = Intent(this, BlockedAppActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra(BlockedAppActivity.EXTRA_PACKAGE_NAME, packageName)
-            putExtra(BlockedAppActivity.EXTRA_APP_NAME, appName)
-            putExtra(BlockedAppActivity.EXTRA_BLOCKED_BY, blockedByType.name)
+        try {
+            val intent = Intent(this, BlockedAppActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                        Intent.FLAG_ACTIVITY_NO_ANIMATION
+                putExtra(BlockedAppActivity.EXTRA_PACKAGE_NAME, packageName)
+                putExtra(BlockedAppActivity.EXTRA_APP_NAME, appName)
+                putExtra(BlockedAppActivity.EXTRA_BLOCKED_BY, blockedByType.name)
+            }
+            Log.d(TAG, "Starting BlockedAppActivity for: $appName")
+            startActivity(intent)
+            Log.i(TAG, "BlockedAppActivity started successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start BlockedAppActivity", e)
         }
-        startActivity(intent)
     }
 
     private fun vibrateDevice() {

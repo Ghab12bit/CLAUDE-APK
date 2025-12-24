@@ -1,6 +1,8 @@
 package com.focusblock.app.ui.overlay
 
 import android.os.Bundle
+import android.util.Log
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -36,8 +38,24 @@ import kotlinx.coroutines.launch
 
 class BlockedAppActivity : ComponentActivity() {
 
+    companion object {
+        private const val TAG = "BlockedAppActivity"
+        const val EXTRA_PACKAGE_NAME = "package_name"
+        const val EXTRA_APP_NAME = "app_name"
+        const val EXTRA_BLOCKED_BY = "blocked_by"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        Log.d(TAG, "onCreate() called")
         super.onCreate(savedInstanceState)
+
+        // Ensure this activity stays on top
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        )
+
         enableEdgeToEdge()
 
         val packageName = intent.getStringExtra(EXTRA_PACKAGE_NAME) ?: ""
@@ -49,6 +67,8 @@ class BlockedAppActivity : ComponentActivity() {
             BlockedByType.QUICK_BLOCK
         }
 
+        Log.i(TAG, "Blocking: $appName ($packageName) by $blockedBy")
+
         setContent {
             FocusBlockTheme {
                 BlockedAppScreen(
@@ -56,6 +76,7 @@ class BlockedAppActivity : ComponentActivity() {
                     appName = appName,
                     blockedBy = blockedBy,
                     onClose = {
+                        Log.d(TAG, "Close button pressed, going to home")
                         AppUtils.goToHome(this)
                         finish()
                     }
@@ -64,15 +85,26 @@ class BlockedAppActivity : ComponentActivity() {
         }
     }
 
-    override fun onBackPressed() {
-        AppUtils.goToHome(this)
-        super.onBackPressed()
+    override fun onResume() {
+        super.onResume()
+        Log.d(TAG, "onResume() called")
     }
 
-    companion object {
-        const val EXTRA_PACKAGE_NAME = "package_name"
-        const val EXTRA_APP_NAME = "app_name"
-        const val EXTRA_BLOCKED_BY = "blocked_by"
+    override fun onPause() {
+        super.onPause()
+        Log.d(TAG, "onPause() called")
+    }
+
+    override fun onDestroy() {
+        Log.d(TAG, "onDestroy() called")
+        super.onDestroy()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        Log.d(TAG, "onBackPressed() - going to home")
+        AppUtils.goToHome(this)
+        super.onBackPressed()
     }
 }
 

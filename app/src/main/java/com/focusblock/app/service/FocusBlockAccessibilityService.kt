@@ -3,6 +3,13 @@ package com.focusblock.app.service
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Intent
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.BlockLog
@@ -14,13 +21,24 @@ import kotlinx.coroutines.*
 
 class FocusBlockAccessibilityService : AccessibilityService() {
 
+    companion object {
+        private const val TAG = "FocusBlockA11y"
+        private const val BLOCK_COOLDOWN = 2000L
+        var isServiceRunning = false
+            private set
+    }
+
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var lastBlockedPackage: String? = null
     private var lastBlockTime = 0L
+    private var isBlockingInProgress = false
     private val database by lazy { FocusBlockDatabase.getDatabase(applicationContext) }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        Log.d(TAG, "Accessibility service connected")
+
         val info = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
                     AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
@@ -32,6 +50,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         serviceInfo = info
 
         isServiceRunning = true
+        Log.i(TAG, "FocusBlock Accessibility Service is now running")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -42,14 +61,22 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Don't block our own app or system components
         if (shouldIgnorePackage(packageName)) return
 
+        // Don't process if we're already blocking
+        if (isBlockingInProgress) {
+            Log.d(TAG, "Block already in progress, ignoring: $packageName")
+            return
+        }
+
         // Debounce
         if (packageName == lastBlockedPackage &&
             System.currentTimeMillis() - lastBlockTime < BLOCK_COOLDOWN) {
+            Log.d(TAG, "Cooldown active for: $packageName")
             return
         }
 
         serviceScope.launch {
             if (shouldBlockApp(packageName)) {
+                Log.i(TAG, "Blocking app detected: $packageName at ${System.currentTimeMillis()}")
                 lastBlockedPackage = packageName
                 lastBlockTime = System.currentTimeMillis()
                 blockApp(packageName)
@@ -119,26 +146,69 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     private suspend fun blockApp(packageName: String) {
-        val appName = AppUtils.getAppName(this, packageName)
+        isBlockingInProgress = true
+        Log.d(TAG, "blockApp() called for: $packageName")
 
-        // Determine block type
-        val blockedByType = determineBlockedByType(packageName)
+        try {
+            val appName = AppUtils.getAppName(this, packageName)
 
-        // Log the block
-        database.blockLogDao().insert(
-            BlockLog(
-                packageName = packageName,
-                appName = appName,
-                blockedBy = blockedByType
+            // Determine block type
+            val blockedByType = determineBlockedByType(packageName)
+            Log.d(TAG, "Block type: $blockedByType")
+
+            // Log the block
+            database.blockLogDao().insert(
+                BlockLog(
+                    packageName = packageName,
+                    appName = appName,
+                    blockedBy = blockedByType
+                )
             )
-        )
 
-        // Update block count
-        database.blockedAppDao().incrementBlockCount(packageName)
+            // Update block count
+            database.blockedAppDao().incrementBlockCount(packageName)
 
-        // Show blocking screen
-        withContext(Dispatchers.Main) {
-            showBlockingScreen(packageName, appName, blockedByType)
+            // Vibrate to give feedback
+            vibrateDevice()
+
+            // CRITICAL: First go to home screen to dismiss the blocked app
+            withContext(Dispatchers.Main) {
+                Log.d(TAG, "Performing GLOBAL_ACTION_HOME")
+                val homeSuccess = performGlobalAction(GLOBAL_ACTION_HOME)
+                Log.d(TAG, "GLOBAL_ACTION_HOME result: $homeSuccess")
+            }
+
+            // Small delay to let the home action complete
+            delay(150)
+
+            // Now show blocking screen
+            withContext(Dispatchers.Main) {
+                Log.d(TAG, "Launching BlockedAppActivity for: $appName")
+                showBlockingScreen(packageName, appName, blockedByType)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error blocking app: $packageName", e)
+        } finally {
+            // Reset blocking flag after a short delay
+            delay(500)
+            isBlockingInProgress = false
+        }
+    }
+
+    private fun vibrateDevice() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vibratorManager = getSystemService(VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vibratorManager?.defaultVibrator?.vibrate(
+                    VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                val vibrator = getSystemService(VIBRATOR_SERVICE) as? Vibrator
+                vibrator?.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Vibration failed", e)
         }
     }
 
@@ -171,20 +241,23 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     private fun showBlockingScreen(packageName: String, appName: String, blockedByType: BlockedByType) {
-        val intent = Intent(this, BlockedAppActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra(BlockedAppActivity.EXTRA_PACKAGE_NAME, packageName)
-            putExtra(BlockedAppActivity.EXTRA_APP_NAME, appName)
-            putExtra(BlockedAppActivity.EXTRA_BLOCKED_BY, blockedByType.name)
+        try {
+            val intent = Intent(this, BlockedAppActivity::class.java).apply {
+                // Critical flags for launching from accessibility service
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                        Intent.FLAG_ACTIVITY_NO_ANIMATION
+                putExtra(BlockedAppActivity.EXTRA_PACKAGE_NAME, packageName)
+                putExtra(BlockedAppActivity.EXTRA_APP_NAME, appName)
+                putExtra(BlockedAppActivity.EXTRA_BLOCKED_BY, blockedByType.name)
+            }
+            Log.d(TAG, "Starting BlockedAppActivity with intent: $intent")
+            startActivity(intent)
+            Log.i(TAG, "BlockedAppActivity started successfully for: $appName")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start BlockedAppActivity", e)
         }
-        startActivity(intent)
-    }
-
-    companion object {
-        private const val BLOCK_COOLDOWN = 2000L
-        var isServiceRunning = false
-            private set
     }
 }

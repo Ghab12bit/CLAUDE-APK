@@ -74,24 +74,58 @@ fun StatisticsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Date indicator
-            item {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.ChevronLeft,
-                        contentDescription = "Previous",
-                        tint = Color(0xFF64748B),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = uiState.dateLabel,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Primary,
-                        fontWeight = FontWeight.Medium
-                    )
+            // Date Navigator (only for Day tab)
+            if (uiState.selectedTab == InsightsTab.DAY) {
+                item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        // Previous day button
+                        Surface(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable { viewModel.goToPreviousDay() },
+                            shape = CircleShape,
+                            color = Color.White
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.ChevronLeft,
+                                contentDescription = "Previous day",
+                                tint = Primary,
+                                modifier = Modifier
+                                    .padding(8.dp)
+                                    .size(24.dp)
+                            )
+                        }
+
+                        // Date label
+                        Text(
+                            text = uiState.dateLabel,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        // Next day button (disabled if viewing today)
+                        Surface(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable(enabled = uiState.canGoForward) { viewModel.goToNextDay() },
+                            shape = CircleShape,
+                            color = if (uiState.canGoForward) Color.White else Color.Transparent
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.ChevronRight,
+                                contentDescription = "Next day",
+                                tint = if (uiState.canGoForward) Primary else Color(0xFFCBD5E1),
+                                modifier = Modifier
+                                    .padding(8.dp)
+                                    .size(24.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -143,7 +177,8 @@ fun StatisticsScreen(
             item {
                 PeakTimeCard(
                     peakTimeRange = uiState.peakTimeRange,
-                    hourlyUsage = uiState.hourlyUsage
+                    hourlyUsage = uiState.hourlyUsage,
+                    hasRisk = uiState.peakTimeRisk
                 )
             }
 
@@ -190,7 +225,8 @@ fun StatisticsScreen(
                         title = "CONTINUOUS USE",
                         value = uiState.longestContinuousUse,
                         icon = Icons.Outlined.Smartphone,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        hasWarning = uiState.longestSessionWarning
                     )
                 }
             }
@@ -683,7 +719,8 @@ fun BalanceCard(
 @Composable
 fun PeakTimeCard(
     peakTimeRange: String,
-    hourlyUsage: Map<Int, Triple<Int, Int, Int>>
+    hourlyUsage: Map<Int, Triple<Int, Int, Int>>,
+    hasRisk: Boolean = false
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -699,16 +736,36 @@ fun PeakTimeCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Peak time",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color(0xFF1E293B),
-                    fontWeight = FontWeight.SemiBold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Peak time",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color(0xFF1E293B),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (hasRisk) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(
+                            imageVector = Icons.Filled.Warning,
+                            contentDescription = "High usage warning",
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
                 Text(
                     text = peakTimeRange,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Primary
+                    color = if (hasRisk) Color(0xFFEF4444) else Primary
+                )
+            }
+
+            if (hasRisk) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "High usage detected (>45min/hour)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFEF4444)
                 )
             }
 
@@ -727,13 +784,20 @@ fun PeakTimeCard(
                     val total = d + n + p
                     val maxMinutes = 60f
                     val height = (36 * (total / maxMinutes).coerceAtMost(1f)).dp.coerceAtLeast(2.dp)
+                    val barHasRisk = total > 45
 
                     Box(
                         modifier = Modifier
                             .width(8.dp)
                             .height(height)
                             .clip(RoundedCornerShape(2.dp))
-                            .background(if (total > 0) Primary.copy(alpha = 0.6f) else Color(0xFFE2E8F0))
+                            .background(
+                                when {
+                                    total == 0 -> Color(0xFFE2E8F0)
+                                    barHasRisk -> Color(0xFFEF4444).copy(alpha = 0.8f)
+                                    else -> Primary.copy(alpha = 0.6f)
+                                }
+                            )
                     )
                 }
             }
@@ -844,8 +908,11 @@ fun FocusMetricCard(
     title: String,
     value: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    hasWarning: Boolean = false
 ) {
+    val warningColor = Color(0xFFEF4444)
+
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(20.dp),
@@ -862,13 +929,13 @@ fun FocusMetricCard(
                 modifier = Modifier
                     .size(48.dp)
                     .clip(CircleShape)
-                    .background(Primary.copy(alpha = 0.1f)),
+                    .background(if (hasWarning) warningColor.copy(alpha = 0.1f) else Primary.copy(alpha = 0.1f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = icon,
+                    imageVector = if (hasWarning) Icons.Filled.Warning else icon,
                     contentDescription = null,
-                    tint = Primary,
+                    tint = if (hasWarning) warningColor else Primary,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -878,7 +945,7 @@ fun FocusMetricCard(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF94A3B8),
+                color = if (hasWarning) warningColor else Color(0xFF94A3B8),
                 letterSpacing = 0.5.sp
             )
 
@@ -887,9 +954,18 @@ fun FocusMetricCard(
             Text(
                 text = value,
                 style = MaterialTheme.typography.titleMedium,
-                color = Color(0xFF1E293B),
+                color = if (hasWarning) warningColor else Color(0xFF1E293B),
                 fontWeight = FontWeight.SemiBold
             )
+
+            if (hasWarning) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = ">45min session",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = warningColor.copy(alpha = 0.8f)
+                )
+            }
         }
     }
 }

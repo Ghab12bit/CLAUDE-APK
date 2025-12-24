@@ -37,7 +37,9 @@ enum class AppCategory(val label: String) {
 
 data class InsightsUiState(
     val selectedTab: InsightsTab = InsightsTab.DAY,
+    val selectedDate: Long = System.currentTimeMillis(), // Current selected date
     val dateLabel: String = "Today",
+    val canGoForward: Boolean = false, // Can't go beyond today
     val totalScreenTime: String = "0m",
     val screenTimeChange: String = "No data available",
     val isChangePositive: Boolean = true,
@@ -47,13 +49,16 @@ data class InsightsUiState(
     val awakeTime: String = "16h",
     val balancePercentage: Int = 0,
     val peakTimeRange: String = "No data",
+    val peakTimeRisk: Boolean = false, // True if peak session was too long
     val distractivePercent: Int = 0,
     val neutralPercent: Int = 0,
     val productivePercent: Int = 0,
     val longestFocus: String = "0m",
     val longestContinuousUse: String = "0m",
+    val longestSessionWarning: Boolean = false, // True if longest session > 45min
     val pickupCount: Int = 0,
-    val isPickupEstimated: Boolean = false
+    val isPickupEstimated: Boolean = true, // Pickups are inferred from events
+    val pickupNote: String = "Estimated from app open events"
 )
 
 // Data class to track app session
@@ -181,7 +186,11 @@ class InsightsViewModel @Inject constructor(
     }
 
     fun setTab(tab: InsightsTab) {
-        _uiState.update { it.copy(selectedTab = tab) }
+        // Reset to today when changing tabs
+        _uiState.update { it.copy(
+            selectedTab = tab,
+            selectedDate = System.currentTimeMillis()
+        )}
         loadUsageData()
     }
 
@@ -189,18 +198,99 @@ class InsightsViewModel @Inject constructor(
         _uiState.update { it.copy(appsExpanded = !it.appsExpanded) }
     }
 
+    /**
+     * Navigate to previous day
+     */
+    fun goToPreviousDay() {
+        val calendar = Calendar.getInstance().apply {
+            timeInMillis = _uiState.value.selectedDate
+            add(Calendar.DAY_OF_YEAR, -1)
+        }
+        _uiState.update { it.copy(selectedDate = calendar.timeInMillis) }
+        loadUsageData()
+    }
+
+    /**
+     * Navigate to next day (limited to today)
+     */
+    fun goToNextDay() {
+        val calendar = Calendar.getInstance().apply {
+            timeInMillis = _uiState.value.selectedDate
+            add(Calendar.DAY_OF_YEAR, 1)
+        }
+
+        // Don't go beyond today
+        val today = Calendar.getInstance()
+        if (calendar.get(Calendar.YEAR) == today.get(Calendar.YEAR) &&
+            calendar.get(Calendar.DAY_OF_YEAR) <= today.get(Calendar.DAY_OF_YEAR)) {
+            _uiState.update { it.copy(selectedDate = calendar.timeInMillis) }
+            loadUsageData()
+        }
+    }
+
+    /**
+     * Go to a specific date
+     */
+    fun goToDate(timestamp: Long) {
+        // Don't go beyond today
+        if (timestamp <= System.currentTimeMillis()) {
+            _uiState.update { it.copy(selectedDate = timestamp) }
+            loadUsageData()
+        }
+    }
+
+    /**
+     * Check if selected date is today
+     */
+    private fun isToday(timestamp: Long): Boolean {
+        val selected = Calendar.getInstance().apply { timeInMillis = timestamp }
+        val today = Calendar.getInstance()
+        return selected.get(Calendar.YEAR) == today.get(Calendar.YEAR) &&
+               selected.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR)
+    }
+
+    /**
+     * Format date label based on selected date
+     */
+    private fun formatDateLabel(timestamp: Long): String {
+        val selected = Calendar.getInstance().apply { timeInMillis = timestamp }
+        val today = Calendar.getInstance()
+        val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
+
+        return when {
+            selected.get(Calendar.YEAR) == today.get(Calendar.YEAR) &&
+            selected.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR) -> "Today"
+
+            selected.get(Calendar.YEAR) == yesterday.get(Calendar.YEAR) &&
+            selected.get(Calendar.DAY_OF_YEAR) == yesterday.get(Calendar.DAY_OF_YEAR) -> "Yesterday"
+
+            else -> SimpleDateFormat("EEEE, MMM d", Locale.getDefault()).format(Date(timestamp))
+        }
+    }
+
     private fun loadUsageData() {
         viewModelScope.launch {
             val tab = _uiState.value.selectedTab
-            val calendar = Calendar.getInstance()
+            val selectedDate = _uiState.value.selectedDate
+            val calendar = Calendar.getInstance().apply { timeInMillis = selectedDate }
 
             val (startTime, endTime, dateLabel) = when (tab) {
                 InsightsTab.DAY -> {
+                    // Use selected date for Day view
                     calendar.set(Calendar.HOUR_OF_DAY, 0)
                     calendar.set(Calendar.MINUTE, 0)
                     calendar.set(Calendar.SECOND, 0)
                     calendar.set(Calendar.MILLISECOND, 0)
-                    Triple(calendar.timeInMillis, System.currentTimeMillis(), "Today")
+                    val dayStart = calendar.timeInMillis
+
+                    calendar.add(Calendar.DAY_OF_YEAR, 1)
+                    val dayEnd = if (isToday(selectedDate)) {
+                        System.currentTimeMillis()
+                    } else {
+                        calendar.timeInMillis
+                    }
+
+                    Triple(dayStart, dayEnd, formatDateLabel(selectedDate))
                 }
                 InsightsTab.WEEK -> {
                     calendar.set(Calendar.DAY_OF_WEEK, calendar.firstDayOfWeek)
@@ -221,22 +311,26 @@ class InsightsViewModel @Inject constructor(
                 }
             }
 
+            // Check if can go forward (only if not today)
+            val canGoForward = !isToday(selectedDate) && tab == InsightsTab.DAY
+
             withContext(Dispatchers.IO) {
                 try {
                     // Use UsageEvents API for accurate tracking
                     val usageData = getAccurateUsageFromEvents(startTime, endTime)
-                    val yesterdayData = if (tab == InsightsTab.DAY) {
+                    val previousData = if (tab == InsightsTab.DAY) {
                         getAccurateUsageFromEvents(startTime - 86400000, startTime)
                     } else null
 
                     withContext(Dispatchers.Main) {
-                        processUsageData(usageData, yesterdayData, dateLabel)
+                        processUsageData(usageData, previousData, dateLabel, canGoForward)
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
                         _uiState.update {
                             it.copy(
                                 dateLabel = dateLabel,
+                                canGoForward = canGoForward,
                                 screenTimeChange = "Grant usage access permission"
                             )
                         }
@@ -409,8 +503,9 @@ class InsightsViewModel @Inject constructor(
 
     private fun processUsageData(
         usageData: Map<String, AppUsageData>,
-        yesterdayData: Map<String, AppUsageData>?,
-        dateLabel: String
+        previousDayData: Map<String, AppUsageData>?,
+        dateLabel: String,
+        canGoForward: Boolean = false
     ) {
         // Extract metadata
         val metadata = usageData["__metadata__"]
@@ -473,18 +568,18 @@ class InsightsViewModel @Inject constructor(
         val awakeMinutes = 16 * 60
         val balancePercentage = ((totalMinutes * 100) / awakeMinutes).coerceIn(0, 100)
 
-        // Calculate change from yesterday
-        val changeText = if (yesterdayData != null) {
-            val yesterdayMs = yesterdayData
+        // Calculate change from previous day
+        val changeText = if (previousDayData != null) {
+            val previousMs = previousDayData
                 .filter { it.key != "__metadata__" && it.value.totalTime > 60000 }
                 .values.sumOf { it.totalTime }
-            val yesterdayMinutes = (yesterdayMs / 60000).toInt()
-            val diff = totalMinutes - yesterdayMinutes
+            val previousMinutes = (previousMs / 60000).toInt()
+            val diff = totalMinutes - previousMinutes
 
             when {
-                diff > 0 -> "${formatDuration(diff)} more than yesterday"
-                diff < 0 -> "${formatDuration(-diff)} less than yesterday"
-                else -> "Same as yesterday"
+                diff > 0 -> "${formatDuration(diff)} more than previous day"
+                diff < 0 -> "${formatDuration(-diff)} less than previous day"
+                else -> "Same as previous day"
             }
         } else {
             "No comparison data"
@@ -501,9 +596,15 @@ class InsightsViewModel @Inject constructor(
             else -> 15
         }
 
+        // Calculate risk warnings
+        val peakHourUsage = hourlyUsage[peakHour]?.let { it.first + it.second + it.third } ?: 0
+        val peakTimeRisk = peakHourUsage > 45 // More than 45 min in one hour is risky
+        val longestSessionWarning = longestAppMinutes > 45 // More than 45 min continuous use
+
         _uiState.update {
             it.copy(
                 dateLabel = dateLabel,
+                canGoForward = canGoForward,
                 totalScreenTime = totalScreenTime,
                 screenTimeChange = changeText,
                 isChangePositive = changeText.contains("less"),
@@ -511,13 +612,16 @@ class InsightsViewModel @Inject constructor(
                 mostUsedApps = appUsageList,
                 balancePercentage = balancePercentage,
                 peakTimeRange = peakTimeRange,
+                peakTimeRisk = peakTimeRisk,
                 distractivePercent = distractivePercent,
                 neutralPercent = neutralPercent,
                 productivePercent = productivePercent,
                 pickupCount = pickupCount,
-                isPickupEstimated = false,
+                isPickupEstimated = true,
+                pickupNote = "Estimated from app open events",
                 longestFocus = formatDuration(focusEstimate),
-                longestContinuousUse = formatDuration(longestAppMinutes)
+                longestContinuousUse = formatDuration(longestAppMinutes),
+                longestSessionWarning = longestSessionWarning
             )
         }
     }

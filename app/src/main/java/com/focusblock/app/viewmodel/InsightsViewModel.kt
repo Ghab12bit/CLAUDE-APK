@@ -58,7 +58,41 @@ data class InsightsUiState(
     val longestSessionWarning: Boolean = false, // True if longest session > 45min
     val pickupCount: Int = 0,
     val isPickupEstimated: Boolean = true, // Pickups are inferred from events
-    val pickupNote: String = "Estimated from app open events"
+    val pickupNote: String = "Estimated from app open events",
+    val peakTimeDetails: PeakTimeDetails? = null // Peak time drilldown data
+)
+
+// Data class for Peak Time detail view
+data class PeakTimeDetails(
+    val peakWindowRange: String = "",
+    val peakStartHour: Int = 0,
+    val peakEndHour: Int = 0,
+    val totalMinutes: Int = 0,
+    val isHighRisk: Boolean = false,
+    val distractiveMinutes: Int = 0,
+    val neutralMinutes: Int = 0,
+    val productiveMinutes: Int = 0,
+    val hourlyBreakdown: Map<Int, Triple<Int, Int, Int>> = emptyMap(), // Hours within peak window
+    val topApps: List<PeakAppUsage> = emptyList(),
+    val sessions: List<PeakSession> = emptyList(),
+    val pickupCount: Int = 0,
+    val isPickupEstimated: Boolean = true
+)
+
+// App usage during peak time
+data class PeakAppUsage(
+    val packageName: String,
+    val appName: String,
+    val durationMinutes: Int,
+    val category: AppCategory
+)
+
+// Individual session during peak time
+data class PeakSession(
+    val appName: String,
+    val startTime: String,
+    val endTime: String,
+    val durationMinutes: Int
 )
 
 // Data class to track app session
@@ -601,6 +635,9 @@ class InsightsViewModel @Inject constructor(
         val peakTimeRisk = peakHourUsage > 45 // More than 45 min in one hour is risky
         val longestSessionWarning = longestAppMinutes > 45 // More than 45 min continuous use
 
+        // Build peak time details for drilldown
+        val peakTimeDetails = buildPeakTimeDetails(appData, hourlyUsage, pickupCount)
+
         _uiState.update {
             it.copy(
                 dateLabel = dateLabel,
@@ -621,7 +658,8 @@ class InsightsViewModel @Inject constructor(
                 pickupNote = "Estimated from app open events",
                 longestFocus = formatDuration(focusEstimate),
                 longestContinuousUse = formatDuration(longestAppMinutes),
-                longestSessionWarning = longestSessionWarning
+                longestSessionWarning = longestSessionWarning,
+                peakTimeDetails = peakTimeDetails
             )
         }
     }
@@ -712,6 +750,110 @@ class InsightsViewModel @Inject constructor(
             else -> "${normalizedHour - 12} PM"
         }
     }
+
+    private fun buildPeakTimeDetails(
+        appData: Map<String, AppUsageData>,
+        hourlyUsage: Map<Int, Triple<Int, Int, Int>>,
+        pickupCount: Int
+    ): PeakTimeDetails {
+        // Find peak hour (hour with most usage)
+        val peakHour = hourlyUsage.maxByOrNull { (_, v) -> v.first + v.second + v.third }?.key ?: 12
+
+        // Get peak window (peak hour and adjacent hours with significant usage)
+        val peakStartHour = (peakHour - 1).coerceAtLeast(0)
+        val peakEndHour = (peakHour + 1).coerceAtMost(23)
+
+        // Calculate usage in peak window
+        var distractiveMinutes = 0
+        var neutralMinutes = 0
+        var productiveMinutes = 0
+        val peakHourlyBreakdown = mutableMapOf<Int, Triple<Int, Int, Int>>()
+
+        for (hour in peakStartHour..peakEndHour) {
+            hourlyUsage[hour]?.let { (d, n, p) ->
+                distractiveMinutes += d
+                neutralMinutes += n
+                productiveMinutes += p
+                peakHourlyBreakdown[hour] = Triple(d, n, p)
+            }
+        }
+
+        val totalMinutes = distractiveMinutes + neutralMinutes + productiveMinutes
+        val isHighRisk = totalMinutes > 90 || // More than 1.5h in 3-hour window
+                         hourlyUsage[peakHour]?.let { it.first + it.second + it.third > 45 } == true
+
+        // Get top apps during peak hours
+        val topApps = appData
+            .filter { it.key != "__metadata__" }
+            .mapNotNull { (packageName, data) ->
+                // Calculate usage in peak hours
+                var peakUsageMs = 0L
+                for (hour in peakStartHour..peakEndHour) {
+                    peakUsageMs += data.hourlyUsage[hour] ?: 0L
+                }
+
+                if (peakUsageMs > 60000) { // At least 1 minute
+                    val appName = getAppName(packageName)
+                    val category = categorizeApp(packageName, appName)
+                    PeakAppUsage(
+                        packageName = packageName,
+                        appName = appName,
+                        durationMinutes = (peakUsageMs / 60000).toInt(),
+                        category = category
+                    )
+                } else null
+            }
+            .sortedByDescending { it.durationMinutes }
+            .take(5)
+
+        // Build session list from app data
+        val sessions = appData
+            .filter { it.key != "__metadata__" }
+            .flatMap { (packageName, data) ->
+                data.sessions
+                    .filter { session ->
+                        // Check if session overlaps with peak window
+                        val sessionHour = Calendar.getInstance().apply {
+                            timeInMillis = session.startTime
+                        }.get(Calendar.HOUR_OF_DAY)
+                        sessionHour in peakStartHour..peakEndHour
+                    }
+                    .map { session ->
+                        val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
+                        PeakSession(
+                            appName = getAppName(packageName),
+                            startTime = timeFormat.format(Date(session.startTime)),
+                            endTime = timeFormat.format(Date(session.endTime)),
+                            durationMinutes = (session.duration / 60000).toInt()
+                        )
+                    }
+            }
+            .filter { it.durationMinutes >= 1 } // At least 1 minute
+            .sortedByDescending { it.durationMinutes }
+            .take(10)
+
+        // Estimate pickups during peak (roughly proportional)
+        val totalHours = hourlyUsage.values.sumOf { it.first + it.second + it.third }
+        val peakPickups = if (totalHours > 0 && totalMinutes > 0) {
+            ((pickupCount.toFloat() * totalMinutes) / totalHours.coerceAtLeast(1)).toInt()
+        } else 0
+
+        return PeakTimeDetails(
+            peakWindowRange = "${formatHour(peakStartHour)} – ${formatHour(peakEndHour + 1)}",
+            peakStartHour = peakStartHour,
+            peakEndHour = peakEndHour,
+            totalMinutes = totalMinutes,
+            isHighRisk = isHighRisk,
+            distractiveMinutes = distractiveMinutes,
+            neutralMinutes = neutralMinutes,
+            productiveMinutes = productiveMinutes,
+            hourlyBreakdown = peakHourlyBreakdown,
+            topApps = topApps,
+            sessions = sessions,
+            pickupCount = peakPickups,
+            isPickupEstimated = true
+        )
+    }
 }
 
 // Data class to hold usage information per app
@@ -719,5 +861,13 @@ private data class AppUsageData(
     val packageName: String,
     val totalTime: Long,
     val sessionCount: Int,
-    val hourlyUsage: MutableMap<Int, Long> = mutableMapOf()
+    val hourlyUsage: MutableMap<Int, Long> = mutableMapOf(),
+    val sessions: List<SessionInfo> = emptyList()
+)
+
+// Data class for individual sessions
+private data class SessionInfo(
+    val startTime: Long,
+    val endTime: Long,
+    val duration: Long
 )

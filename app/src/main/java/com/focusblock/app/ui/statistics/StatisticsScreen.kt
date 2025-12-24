@@ -47,9 +47,21 @@ fun StatisticsScreen(
     val pagerState = rememberPagerState(pageCount = { InsightsTab.values().size })
     val coroutineScope = rememberCoroutineScope()
 
+    // State for showing peak time detail screen
+    var showPeakTimeDetail by remember { mutableStateOf(false) }
+
     // Sync pager with viewmodel
     LaunchedEffect(pagerState.currentPage) {
         viewModel.setTab(InsightsTab.values()[pagerState.currentPage])
+    }
+
+    // Show Peak Time Detail screen if requested
+    if (showPeakTimeDetail && uiState.peakTimeDetails != null) {
+        PeakTimeDetailScreen(
+            details = uiState.peakTimeDetails!!,
+            onBackClick = { showPeakTimeDetail = false }
+        )
+        return
     }
 
     Column(
@@ -178,7 +190,8 @@ fun StatisticsScreen(
                 PeakTimeCard(
                     peakTimeRange = uiState.peakTimeRange,
                     hourlyUsage = uiState.hourlyUsage,
-                    hasRisk = uiState.peakTimeRisk
+                    hasRisk = uiState.peakTimeRisk,
+                    onClick = { showPeakTimeDetail = true }
                 )
             }
 
@@ -720,10 +733,13 @@ fun BalanceCard(
 fun PeakTimeCard(
     peakTimeRange: String,
     hourlyUsage: Map<Int, Triple<Int, Int, Int>>,
-    hasRisk: Boolean = false
+    hasRisk: Boolean = false,
+    onClick: () -> Unit = {}
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -753,11 +769,20 @@ fun PeakTimeCard(
                         )
                     }
                 }
-                Text(
-                    text = peakTimeRange,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (hasRisk) Color(0xFFEF4444) else Primary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = peakTimeRange,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (hasRisk) Color(0xFFEF4444) else Primary
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Filled.ChevronRight,
+                        contentDescription = "View details",
+                        tint = Color(0xFF94A3B8),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
 
             if (hasRisk) {

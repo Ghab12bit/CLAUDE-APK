@@ -1,12 +1,21 @@
 package com.focusblock.app.viewmodel
 
 import android.app.Application
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.focusblock.app.FocusBlockApp
+import com.focusblock.app.R
 import com.focusblock.app.database.entity.*
 import com.focusblock.app.database.repository.FocusBlockRepository
 import com.focusblock.app.service.AppBlockingService
+import com.focusblock.app.ui.MainActivity
 import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.PermissionUtils
 import com.focusblock.app.utils.TimeUtils
@@ -73,6 +82,10 @@ class HomeViewModel @Inject constructor(
     private val application: Application,
     private val repository: FocusBlockRepository
 ) : AndroidViewModel(application) {
+
+    companion object {
+        private const val FOCUS_CYCLE_NOTIFICATION_ID = 3001
+    }
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -706,6 +719,9 @@ class HomeViewModel @Inject constructor(
             // Schedule peak-time reminder for mindful breaks
             PeakTimeReminderWorker.schedule(application)
 
+            // Show the initial notification
+            showFocusCycleNotification(focusCycle)
+
             showToast("Focus Cycle armed. Open a tracked app to start.")
         }
     }
@@ -719,8 +735,75 @@ class HomeViewModel @Inject constructor(
             if (cycle != null) {
                 repository.updateFocusCycle(cycle.copy(isEnabled = false, isActive = false))
             }
+            // Cancel the notification
+            cancelFocusCycleNotification()
             showToast("Focus Cycle stopped")
         }
+    }
+
+    /**
+     * Show Focus Cycle notification
+     */
+    private fun showFocusCycleNotification(cycle: FocusCycle) {
+        val notificationManager = application.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        val (title, content) = when {
+            cycle.isArmed -> {
+                Pair(
+                    "Focus Cycle - Ready",
+                    "Open a tracked app to start your ${cycle.usageWindowMinutes}min usage window"
+                )
+            }
+            cycle.breakStartTime != null -> {
+                val now = System.currentTimeMillis()
+                val breakEnd = cycle.breakStartTime + (cycle.breakDurationMinutes * 60 * 1000L)
+                val remainingMinutes = maxOf(0, (breakEnd - now) / 60000).toInt()
+                Pair(
+                    "Break Time",
+                    "$remainingMinutes min remaining before apps unlock"
+                )
+            }
+            cycle.cycleStartTime != null -> {
+                val usageWindowMillis = cycle.usageWindowMinutes * 60 * 1000L
+                val remainingMillis = maxOf(0, usageWindowMillis - cycle.accumulatedUsageMillis)
+                val remainingMinutes = (remainingMillis / 60000).toInt()
+                val pausedText = if (cycle.isPaused) " (Paused)" else ""
+                Pair(
+                    "Focus Cycle - Usage Window$pausedText",
+                    "$remainingMinutes min remaining in usage window"
+                )
+            }
+            else -> return
+        }
+
+        val intent = Intent(application, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(application, 0, intent, pendingIntentFlags)
+
+        val builder = NotificationCompat.Builder(application, FocusBlockApp.CHANNEL_BLOCKING)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(content)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOnlyAlertOnce(true)
+
+        notificationManager.notify(FOCUS_CYCLE_NOTIFICATION_ID, builder.build())
+    }
+
+    /**
+     * Cancel Focus Cycle notification
+     */
+    private fun cancelFocusCycleNotification() {
+        val notificationManager = application.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancel(FOCUS_CYCLE_NOTIFICATION_ID)
     }
 
     /**

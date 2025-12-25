@@ -109,21 +109,39 @@ class FocusBlockAccessibilityService : AccessibilityService() {
      */
     private suspend fun handleFocusCycleStateTransition(packageName: String) {
         val focusCycleDao = database.focusCycleDao()
+        val blockedAppDao = database.blockedAppDao()
         val quickBlockSessionDao = database.quickBlockSessionDao()
 
         val activeFocusCycle = focusCycleDao.getActiveFocusCycleSync() ?: return
         if (!activeFocusCycle.isEnabled) return
 
         // Get list of apps in Focus Cycle
-        val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
+        // If useQuickBlockApps is true, get apps from blocked_apps table (apps marked as blocked)
+        // Otherwise, use the selectedPackages from the Focus Cycle itself
         val focusCyclePackages = if (activeFocusCycle.useQuickBlockApps) {
-            quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+            // First try to get from active Quick Block session
+            val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
+            if (quickBlockSession != null) {
+                quickBlockSession.blockedPackages.split(",").filter { it.isNotBlank() }
+            } else {
+                // Fall back to blocked apps in the database
+                blockedAppDao.getBlockedPackageNames()
+            }
         } else {
             activeFocusCycle.selectedPackages.split(",").filter { it.isNotBlank() }
         }
 
+        Log.d(TAG, "Focus Cycle tracking packages: $focusCyclePackages")
+
+        if (focusCyclePackages.isEmpty()) {
+            Log.w(TAG, "Focus Cycle has no apps to track!")
+            return
+        }
+
         val isSelectedApp = focusCyclePackages.contains(packageName)
         val now = System.currentTimeMillis()
+
+        Log.d(TAG, "Focus Cycle: package=$packageName, isSelectedApp=$isSelectedApp, isArmed=${activeFocusCycle.isArmed}, isPaused=${activeFocusCycle.isPaused}")
 
         when {
             // Case 1: Cycle is armed (waiting for first app open)
@@ -364,7 +382,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 if (isInBreak) {
                     // Check if this app is in the Focus Cycle's app list
                     val focusCyclePackages = if (activeFocusCycle.useQuickBlockApps) {
-                        quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                        if (quickBlockSession != null) {
+                            quickBlockSession.blockedPackages.split(",").filter { it.isNotBlank() }
+                        } else {
+                            blockedAppDao.getBlockedPackageNames()
+                        }
                     } else {
                         activeFocusCycle.selectedPackages.split(",").filter { it.isNotBlank() }
                     }
@@ -483,11 +505,16 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
 
         // Check Focus Cycle (soft-nudge mode, third priority)
+        val blockedAppDao = database.blockedAppDao()
         val activeFocusCycle = focusCycleDao.getActiveFocusCycleSync()
         if (activeFocusCycle != null && activeFocusCycle.isEnabled) {
             val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
             val focusCyclePackages = if (activeFocusCycle.useQuickBlockApps) {
-                quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                if (quickBlockSession != null) {
+                    quickBlockSession.blockedPackages.split(",").filter { it.isNotBlank() }
+                } else {
+                    blockedAppDao.getBlockedPackageNames()
+                }
             } else {
                 activeFocusCycle.selectedPackages.split(",").filter { it.isNotBlank() }
             }

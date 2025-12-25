@@ -18,9 +18,11 @@ import com.focusblock.app.database.entity.*
         PomodoroSession::class,
         AppTimeLimit::class,
         DailyUsage::class,
-        ExcludedApp::class
+        ExcludedApp::class,
+        FocusCycle::class,
+        FocusCycleOverride::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class FocusBlockDatabase : RoomDatabase() {
@@ -35,6 +37,8 @@ abstract class FocusBlockDatabase : RoomDatabase() {
     abstract fun appTimeLimitDao(): AppTimeLimitDao
     abstract fun dailyUsageDao(): DailyUsageDao
     abstract fun excludedAppDao(): ExcludedAppDao
+    abstract fun focusCycleDao(): FocusCycleDao
+    abstract fun focusCycleOverrideDao(): FocusCycleOverrideDao
 
     companion object {
         @Volatile

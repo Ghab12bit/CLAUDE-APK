@@ -2260,3 +2260,601 @@ fun DigitalDetoxDialog(
         }
     }
 }
+
+/**
+ * Focus Cycle Setup Dialog - Configure usage window and break duration
+ */
+@Composable
+fun FocusCycleSetupDialog(
+    apps: List<AppUtils.AppInfo>,
+    quickBlockApps: List<String>,
+    onDismiss: () -> Unit,
+    onConfirm: (usageWindowMinutes: Int, breakDurationMinutes: Int, selectedPackages: List<String>, useQuickBlockApps: Boolean) -> Unit
+) {
+    var usageWindowMinutes by remember { mutableStateOf(10) }
+    var breakDurationMinutes by remember { mutableStateOf(30) }
+    var useQuickBlockApps by remember { mutableStateOf(true) }
+    var selectedApps by remember { mutableStateOf(quickBlockApps.toSet()) }
+    var showAppSelection by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = CardDark)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Icon
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF9C27B0).copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Loop,
+                        contentDescription = null,
+                        tint = Color(0xFF9C27B0),
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
+                    text = "Focus Cycles",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "Mindful usage with gentle breaks.\nNo hard blocking - just reminders.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Usage Window Duration
+                Text(
+                    text = "Usage Window",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "How long you can use apps",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    listOf(5, 10, 15, 20, 30).forEach { minutes ->
+                        FilterChip(
+                            selected = usageWindowMinutes == minutes,
+                            onClick = { usageWindowMinutes = minutes },
+                            label = { Text("${minutes}m") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF9C27B0),
+                                selectedLabelColor = TextPrimary
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Break Duration
+                Text(
+                    text = "Break Duration",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "Soft block period (you can override)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    listOf(15, 30, 45, 60, 90).forEach { minutes ->
+                        FilterChip(
+                            selected = breakDurationMinutes == minutes,
+                            onClick = { breakDurationMinutes = minutes },
+                            label = { Text("${minutes}m") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = AccentGreen,
+                                selectedLabelColor = TextPrimary
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // App Selection
+                Text(
+                    text = "Apps to Monitor",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Toggle for using Quick Block apps
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Use Quick Block apps",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (useQuickBlockApps) TextPrimary else TextSecondary
+                    )
+                    Switch(
+                        checked = useQuickBlockApps,
+                        onCheckedChange = { useQuickBlockApps = it },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = TextPrimary,
+                            checkedTrackColor = Color(0xFF9C27B0)
+                        )
+                    )
+                }
+
+                if (!useQuickBlockApps) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { showAppSelection = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFF9C27B0).copy(alpha = 0.5f))
+                    ) {
+                        Icon(Icons.Outlined.Apps, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (selectedApps.isEmpty()) "Select Apps" else "${selectedApps.size} apps selected",
+                            color = Color(0xFF9C27B0)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Info card
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF9C27B0).copy(alpha = 0.1f)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = null,
+                            tint = Color(0xFF9C27B0),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "During breaks, you can still override and continue. This is soft-nudge, not hard blocking.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                        border = BorderStroke(1.dp, Divider)
+                    ) {
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = {
+                            val appsToUse = if (useQuickBlockApps) quickBlockApps else selectedApps.toList()
+                            onConfirm(usageWindowMinutes, breakDurationMinutes, appsToUse, useQuickBlockApps)
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9C27B0)),
+                        enabled = useQuickBlockApps || selectedApps.isNotEmpty()
+                    ) {
+                        Icon(Icons.Filled.Loop, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Start")
+                    }
+                }
+            }
+        }
+    }
+
+    // App selection dialog
+    if (showAppSelection) {
+        AppSelectionDialog(
+            apps = apps,
+            selectedApps = selectedApps.toList(),
+            onDismiss = { showAppSelection = false },
+            onConfirm = { selected ->
+                selectedApps = selected.toSet()
+                showAppSelection = false
+            }
+        )
+    }
+}
+
+/**
+ * Focus Cycle Soft-Nudge Override Dialog
+ * Shows during break period when user tries to open a blocked app
+ */
+@Composable
+fun FocusCycleOverrideDialog(
+    appName: String,
+    remainingBreakTime: Long,
+    onDismiss: () -> Unit,
+    onTakeBreak: () -> Unit,
+    onContinueAnyway: () -> Unit
+) {
+    var canContinue by remember { mutableStateOf(false) }
+
+    // Enable "Continue Anyway" after 2-3 second delay
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(2500) // 2.5 second delay
+        canContinue = true
+    }
+
+    val motivationalMessages = listOf(
+        "A short break now means better focus later.",
+        "Your future self will thank you for this pause.",
+        "Taking breaks actually improves productivity.",
+        "Rest is part of the process, not a break from it.",
+        "Small pauses lead to big achievements."
+    )
+    val currentMessage = remember { motivationalMessages.random() }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = CardDark)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Friendly icon
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF9C27B0).copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.SelfImprovement,
+                        contentDescription = null,
+                        tint = Color(0xFF9C27B0),
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
+                    text = "Taking a break?",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "$appName is in break mode",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Remaining time
+                val minutes = (remainingBreakTime / 60000).toInt()
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = AccentGreen.copy(alpha = 0.1f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Timer,
+                            contentDescription = null,
+                            tint = AccentGreen,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "${minutes}m break remaining",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = AccentGreen
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Motivational message
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF9C27B0).copy(alpha = 0.1f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.LightMode,
+                            contentDescription = null,
+                            tint = Color(0xFF9C27B0),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = currentMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Primary action - Take Break
+                Button(
+                    onClick = onTakeBreak,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentGreen)
+                ) {
+                    Icon(Icons.Filled.SelfImprovement, null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Take a Break", fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Secondary action - Continue Anyway (with delay)
+                TextButton(
+                    onClick = {
+                        if (canContinue) {
+                            onContinueAnyway()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = canContinue
+                ) {
+                    Text(
+                        text = if (canContinue) "Continue Anyway" else "Wait...",
+                        color = if (canContinue) TextSecondary else TextSecondary.copy(alpha = 0.4f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Strict Mode Intentional Pause Dialog - Refined with reason selection
+ */
+@Composable
+fun StrictModePauseDialog(
+    onDismiss: () -> Unit,
+    onKeepFocused: () -> Unit,
+    onPauseWithReason: (String) -> Unit
+) {
+    var selectedReason by remember { mutableStateOf<String?>(null) }
+    var canPause by remember { mutableStateOf(false) }
+
+    // Add delay before pause becomes available
+    LaunchedEffect(selectedReason) {
+        if (selectedReason != null) {
+            canPause = false
+            kotlinx.coroutines.delay(2000) // 2 second delay after selecting reason
+            canPause = true
+        }
+    }
+
+    val pauseReasons = listOf(
+        "Emergency" to Icons.Filled.Warning,
+        "Work call" to Icons.Filled.Phone,
+        "Important message" to Icons.Filled.Email,
+        "Quick task" to Icons.Filled.Task,
+        "Other" to Icons.Filled.MoreHoriz
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = CardDark)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Icon
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(AccentOrange.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PauseCircle,
+                        contentDescription = null,
+                        tint = AccentOrange,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
+                    text = "Pause Strict Mode?",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "You're doing great! Pausing now will interrupt your focus session.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Reason selection
+                Text(
+                    text = "Why do you need to pause?",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    pauseReasons.forEach { (reason, icon) ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { selectedReason = reason },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (selectedReason == reason) AccentOrange.copy(alpha = 0.15f) else BackgroundDark,
+                            border = if (selectedReason == reason)
+                                BorderStroke(1.dp, AccentOrange.copy(alpha = 0.5f))
+                            else
+                                BorderStroke(1.dp, Divider)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = if (selectedReason == reason) AccentOrange else TextSecondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = reason,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (selectedReason == reason) TextPrimary else TextSecondary
+                                )
+                                Spacer(modifier = Modifier.weight(1f))
+                                if (selectedReason == reason) {
+                                    Icon(
+                                        imageVector = Icons.Filled.CheckCircle,
+                                        contentDescription = null,
+                                        tint = AccentOrange,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Keep Focused button (primary)
+                Button(
+                    onClick = onKeepFocused,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Primary)
+                ) {
+                    Icon(Icons.Filled.Shield, null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Keep Focused", fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Pause button (secondary, requires reason and delay)
+                OutlinedButton(
+                    onClick = {
+                        if (canPause && selectedReason != null) {
+                            onPauseWithReason(selectedReason!!)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = canPause && selectedReason != null,
+                    border = BorderStroke(
+                        1.dp,
+                        if (canPause && selectedReason != null) AccentOrange.copy(alpha = 0.5f)
+                        else Divider
+                    ),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = if (canPause && selectedReason != null) AccentOrange else TextSecondary
+                    )
+                ) {
+                    Text(
+                        text = when {
+                            selectedReason == null -> "Select a reason first"
+                            !canPause -> "Wait..."
+                            else -> "Pause Anyway"
+                        }
+                    )
+                }
+            }
+        }
+    }
+}

@@ -79,4 +79,16 @@ object AppModule {
     fun provideExcludedAppDao(database: FocusBlockDatabase): ExcludedAppDao {
         return database.excludedAppDao()
     }
+
+    @Provides
+    @Singleton
+    fun provideFocusCycleDao(database: FocusBlockDatabase): FocusCycleDao {
+        return database.focusCycleDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideFocusCycleOverrideDao(database: FocusBlockDatabase): FocusCycleOverrideDao {
+        return database.focusCycleOverrideDao()
+    }
 }

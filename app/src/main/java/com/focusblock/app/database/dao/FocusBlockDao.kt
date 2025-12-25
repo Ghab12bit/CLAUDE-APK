@@ -300,3 +300,54 @@ interface ExcludedAppDao {
     @Query("DELETE FROM excluded_apps WHERE packageName = :packageName")
     suspend fun deleteByPackage(packageName: String)
 }
+
+@Dao
+interface FocusCycleDao {
+    @Query("SELECT * FROM focus_cycles ORDER BY createdAt DESC")
+    fun getAllFocusCycles(): Flow<List<FocusCycle>>
+
+    @Query("SELECT * FROM focus_cycles WHERE isEnabled = 1 ORDER BY createdAt DESC LIMIT 1")
+    fun getActiveFocusCycle(): Flow<FocusCycle?>
+
+    @Query("SELECT * FROM focus_cycles WHERE isEnabled = 1 ORDER BY createdAt DESC LIMIT 1")
+    suspend fun getActiveFocusCycleSync(): FocusCycle?
+
+    @Query("SELECT * FROM focus_cycles WHERE id = :id")
+    suspend fun getFocusCycle(id: Long): FocusCycle?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(focusCycle: FocusCycle): Long
+
+    @Update
+    suspend fun update(focusCycle: FocusCycle)
+
+    @Delete
+    suspend fun delete(focusCycle: FocusCycle)
+
+    @Query("UPDATE focus_cycles SET isEnabled = :enabled WHERE id = :id")
+    suspend fun setEnabled(id: Long, enabled: Boolean)
+
+    @Query("UPDATE focus_cycles SET isActive = :active, cycleStartTime = :startTime WHERE id = :id")
+    suspend fun setCycleActive(id: Long, active: Boolean, startTime: Long?)
+
+    @Query("UPDATE focus_cycles SET breakStartTime = :breakStartTime WHERE id = :id")
+    suspend fun setBreakStartTime(id: Long, breakStartTime: Long?)
+
+    @Query("UPDATE focus_cycles SET isEnabled = 0")
+    suspend fun disableAll()
+}
+
+@Dao
+interface FocusCycleOverrideDao {
+    @Query("SELECT * FROM focus_cycle_overrides WHERE focusCycleId = :cycleId ORDER BY timestamp DESC")
+    fun getOverridesForCycle(cycleId: Long): Flow<List<FocusCycleOverride>>
+
+    @Query("SELECT COUNT(*) FROM focus_cycle_overrides WHERE focusCycleId = :cycleId AND timestamp >= :since")
+    suspend fun getOverrideCountSince(cycleId: Long, since: Long): Int
+
+    @Insert
+    suspend fun insert(override: FocusCycleOverride)
+
+    @Query("DELETE FROM focus_cycle_overrides WHERE timestamp < :beforeTime")
+    suspend fun deleteOldOverrides(beforeTime: Long)
+}

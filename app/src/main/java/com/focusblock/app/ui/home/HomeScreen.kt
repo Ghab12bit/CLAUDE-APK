@@ -38,9 +38,12 @@ import com.focusblock.app.ui.components.PermissionCard
 import com.focusblock.app.ui.components.TimerPickerDialog
 import com.focusblock.app.ui.components.PomodoroSetupDialog
 import com.focusblock.app.ui.components.StrictModeSetupDialog
+import com.focusblock.app.ui.components.FocusCycleSetupDialog
+import com.focusblock.app.ui.components.StrictModePauseDialog
 import com.focusblock.app.ui.theme.*
 import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.TimeUtils
+import com.focusblock.app.viewmodel.FocusCyclePhase
 import com.focusblock.app.viewmodel.HomeViewModel
 
 @Composable
@@ -60,6 +63,8 @@ fun HomeScreen(
     var showStrictModeUnlockDialog by remember { mutableStateOf(false) }
     var showStrictModeSetupDialog by remember { mutableStateOf(false) }
     var showPauseMotivationDialog by remember { mutableStateOf(false) }
+    var showFocusCycleSetupDialog by remember { mutableStateOf(false) }
+    var showStrictModePauseDialog by remember { mutableStateOf(false) }
     var selectedApps by remember { mutableStateOf<List<String>>(emptyList()) }
     var timerDurationMinutes by remember { mutableStateOf<Int?>(null) }
     var isEditingApps by remember { mutableStateOf(false) }
@@ -138,6 +143,14 @@ fun HomeScreen(
             }
         }
 
+        // ========== BLOCKING SECTION ==========
+        item {
+            SectionHeader(
+                title = "Quick Block",
+                subtitle = "Instantly block distracting apps"
+            )
+        }
+
         // Quick Block Card
         item {
             QuickBlockCard(
@@ -213,6 +226,14 @@ fun HomeScreen(
             }
         }
 
+        // ========== FOCUS MODES SECTION ==========
+        item {
+            SectionHeader(
+                title = "Focus Modes",
+                subtitle = "Control your digital habits"
+            )
+        }
+
         // Strict Mode Card
         item {
             StrictModeCard(
@@ -232,8 +253,21 @@ fun HomeScreen(
                 },
                 onHardModeClick = { showHardModeDialog = true },
                 onAddTime = { minutes -> viewModel.addStrictModeTime(minutes) },
-                onPauseClick = { showPauseMotivationDialog = true },
+                onPauseClick = { showStrictModePauseDialog = true },
                 onResumeClick = { viewModel.resumeStrictMode() }
+            )
+        }
+
+        // Focus Cycles Card (Soft-Nudge Mode)
+        item {
+            FocusCycleCard(
+                isEnabled = uiState.isFocusCycleEnabled,
+                phase = uiState.focusCyclePhase,
+                remainingTime = uiState.focusCycleRemainingTime,
+                usageWindowMinutes = uiState.focusCycle?.usageWindowMinutes ?: 10,
+                breakDurationMinutes = uiState.focusCycle?.breakDurationMinutes ?: 30,
+                onStartClick = { showFocusCycleSetupDialog = true },
+                onStopClick = { viewModel.disableFocusCycle() }
             )
         }
     }
@@ -340,7 +374,7 @@ fun HomeScreen(
         )
     }
 
-    // Pause Motivation Dialog
+    // Pause Motivation Dialog (legacy)
     if (showPauseMotivationDialog) {
         PauseMotivationDialog(
             onDismiss = { showPauseMotivationDialog = false },
@@ -348,6 +382,36 @@ fun HomeScreen(
             onPauseAnyway = {
                 viewModel.pauseStrictMode()
                 showPauseMotivationDialog = false
+            }
+        )
+    }
+
+    // Strict Mode Pause Dialog (new intentional flow)
+    if (showStrictModePauseDialog) {
+        StrictModePauseDialog(
+            onDismiss = { showStrictModePauseDialog = false },
+            onKeepFocused = { showStrictModePauseDialog = false },
+            onPauseWithReason = { reason ->
+                viewModel.pauseStrictMode()
+                showStrictModePauseDialog = false
+            }
+        )
+    }
+
+    // Focus Cycle Setup Dialog
+    if (showFocusCycleSetupDialog) {
+        val quickBlockApps = uiState.quickBlockSession?.blockedPackages
+            ?.split(",")
+            ?.filter { it.isNotEmpty() }
+            ?: emptyList()
+
+        FocusCycleSetupDialog(
+            apps = viewModel.getInstalledApps(),
+            quickBlockApps = quickBlockApps,
+            onDismiss = { showFocusCycleSetupDialog = false },
+            onConfirm = { usageWindow, breakDuration, selectedPackages, useQuickBlockApps ->
+                viewModel.enableFocusCycle(usageWindow, breakDuration, selectedPackages, useQuickBlockApps)
+                showFocusCycleSetupDialog = false
             }
         )
     }
@@ -1972,4 +2036,303 @@ fun StrictModeUnlockDialog(
             }
         }
     )
+}
+
+/**
+ * Section Header for UX clarity
+ */
+@Composable
+fun SectionHeader(
+    title: String,
+    subtitle: String
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 4.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = TextPrimary,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary
+        )
+    }
+}
+
+/**
+ * Focus Cycle Card - Soft-nudge mode for mindful app usage
+ */
+@Composable
+fun FocusCycleCard(
+    isEnabled: Boolean,
+    phase: FocusCyclePhase,
+    remainingTime: Long,
+    usageWindowMinutes: Int,
+    breakDurationMinutes: Int,
+    onStartClick: () -> Unit,
+    onStopClick: () -> Unit
+) {
+    val cycleColor = Color(0xFF9C27B0) // Purple
+
+    // Format remaining time
+    val remainingTimeText = if (remainingTime > 0) {
+        val minutes = ((remainingTime / (1000 * 60)) % 60).toInt()
+        val seconds = ((remainingTime / 1000) % 60).toInt()
+        String.format("%02d:%02d", minutes, seconds)
+    } else ""
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            ),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isEnabled) cycleColor.copy(alpha = 0.08f) else CardDark
+        ),
+        border = if (isEnabled) BorderStroke(1.dp, cycleColor.copy(alpha = 0.3f)) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isEnabled) cycleColor.copy(alpha = 0.15f) else SurfaceElevated),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Loop,
+                            contentDescription = null,
+                            tint = if (isEnabled) cycleColor else TextSecondary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Focus Cycles",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Medium
+                            )
+                            if (isEnabled) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = when (phase) {
+                                        FocusCyclePhase.USAGE_WINDOW -> AccentGreen.copy(alpha = 0.2f)
+                                        FocusCyclePhase.BREAK -> cycleColor.copy(alpha = 0.2f)
+                                        else -> Color.Transparent
+                                    }
+                                ) {
+                                    Text(
+                                        text = when (phase) {
+                                            FocusCyclePhase.USAGE_WINDOW -> "ACTIVE"
+                                            FocusCyclePhase.BREAK -> "BREAK"
+                                            else -> ""
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = when (phase) {
+                                            FocusCyclePhase.USAGE_WINDOW -> AccentGreen
+                                            FocusCyclePhase.BREAK -> cycleColor
+                                            else -> TextSecondary
+                                        },
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (isEnabled) {
+                                when (phase) {
+                                    FocusCyclePhase.USAGE_WINDOW -> "Using apps freely"
+                                    FocusCyclePhase.BREAK -> "Take a mindful break"
+                                    else -> "Soft-nudge for mindful usage"
+                                }
+                            } else "Soft-nudge for mindful usage",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+
+                if (!isEnabled) {
+                    Button(
+                        onClick = onStartClick,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = cycleColor),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text("Start", fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+
+            // Show cycle status when enabled
+            if (isEnabled) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = when (phase) {
+                            FocusCyclePhase.USAGE_WINDOW -> AccentGreen.copy(alpha = 0.12f)
+                            FocusCyclePhase.BREAK -> cycleColor.copy(alpha = 0.12f)
+                            else -> SurfaceElevated
+                        }
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = when (phase) {
+                                    FocusCyclePhase.USAGE_WINDOW -> Icons.Filled.PlayCircle
+                                    FocusCyclePhase.BREAK -> Icons.Filled.SelfImprovement
+                                    else -> Icons.Filled.Timer
+                                },
+                                contentDescription = null,
+                                tint = when (phase) {
+                                    FocusCyclePhase.USAGE_WINDOW -> AccentGreen
+                                    FocusCyclePhase.BREAK -> cycleColor
+                                    else -> TextSecondary
+                                },
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = when (phase) {
+                                        FocusCyclePhase.USAGE_WINDOW -> "Usage ends in"
+                                        FocusCyclePhase.BREAK -> "Break ends in"
+                                        else -> "Cycle"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = TextSecondary
+                                )
+                                Text(
+                                    text = remainingTimeText,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = when (phase) {
+                                        FocusCyclePhase.USAGE_WINDOW -> AccentGreen
+                                        FocusCyclePhase.BREAK -> cycleColor
+                                        else -> TextPrimary
+                                    },
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Cycle info
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "${usageWindowMinutes}m",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = AccentGreen,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "Usage",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "${breakDurationMinutes}m",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = cycleColor,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "Break",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Info note about soft-nudge
+                if (phase == FocusCyclePhase.BREAK) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        color = cycleColor.copy(alpha = 0.08f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Info,
+                                contentDescription = null,
+                                tint = cycleColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "You can override if needed - this is soft-nudge mode",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                // Stop button
+                OutlinedButton(
+                    onClick = onStopClick,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, cycleColor.copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = cycleColor)
+                ) {
+                    Text("Stop Focus Cycles")
+                }
+            }
+        }
+    }
 }

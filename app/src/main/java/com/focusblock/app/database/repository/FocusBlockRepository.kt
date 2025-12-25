@@ -18,7 +18,9 @@ class FocusBlockRepository @Inject constructor(
     private val pomodoroSessionDao: PomodoroSessionDao,
     private val appTimeLimitDao: AppTimeLimitDao,
     private val dailyUsageDao: DailyUsageDao,
-    private val excludedAppDao: ExcludedAppDao
+    private val excludedAppDao: ExcludedAppDao,
+    private val focusCycleDao: FocusCycleDao,
+    private val focusCycleOverrideDao: FocusCycleOverrideDao
 ) {
     // Blocked Apps
     fun getAllBlockedApps(): Flow<List<BlockedApp>> = blockedAppDao.getAllBlockedApps()
@@ -182,4 +184,23 @@ class FocusBlockRepository @Inject constructor(
     suspend fun insertExcludedApp(excludedApp: ExcludedApp) = excludedAppDao.insert(excludedApp)
     suspend fun deleteExcludedApp(excludedApp: ExcludedApp) = excludedAppDao.delete(excludedApp)
     suspend fun deleteExcludedAppByPackage(packageName: String) = excludedAppDao.deleteByPackage(packageName)
+
+    // Focus Cycles
+    fun getAllFocusCycles(): Flow<List<FocusCycle>> = focusCycleDao.getAllFocusCycles()
+    fun getActiveFocusCycle(): Flow<FocusCycle?> = focusCycleDao.getActiveFocusCycle()
+    suspend fun getActiveFocusCycleSync(): FocusCycle? = focusCycleDao.getActiveFocusCycleSync()
+    suspend fun getFocusCycle(id: Long): FocusCycle? = focusCycleDao.getFocusCycle(id)
+    suspend fun insertFocusCycle(focusCycle: FocusCycle): Long = focusCycleDao.insert(focusCycle)
+    suspend fun updateFocusCycle(focusCycle: FocusCycle) = focusCycleDao.update(focusCycle)
+    suspend fun deleteFocusCycle(focusCycle: FocusCycle) = focusCycleDao.delete(focusCycle)
+    suspend fun setFocusCycleEnabled(id: Long, enabled: Boolean) = focusCycleDao.setEnabled(id, enabled)
+    suspend fun setCycleActive(id: Long, active: Boolean, startTime: Long?) = focusCycleDao.setCycleActive(id, active, startTime)
+    suspend fun setBreakStartTime(id: Long, breakStartTime: Long?) = focusCycleDao.setBreakStartTime(id, breakStartTime)
+    suspend fun disableAllFocusCycles() = focusCycleDao.disableAll()
+
+    // Focus Cycle Overrides
+    fun getOverridesForCycle(cycleId: Long): Flow<List<FocusCycleOverride>> = focusCycleOverrideDao.getOverridesForCycle(cycleId)
+    suspend fun getOverrideCountSince(cycleId: Long, since: Long): Int = focusCycleOverrideDao.getOverrideCountSince(cycleId, since)
+    suspend fun insertFocusCycleOverride(override: FocusCycleOverride) = focusCycleOverrideDao.insert(override)
+    suspend fun deleteOldOverrides(beforeTime: Long) = focusCycleOverrideDao.deleteOldOverrides(beforeTime)
 }

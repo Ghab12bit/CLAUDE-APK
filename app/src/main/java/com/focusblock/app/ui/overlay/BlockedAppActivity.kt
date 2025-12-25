@@ -35,6 +35,7 @@ import com.focusblock.app.database.entity.BlockedByType
 import com.focusblock.app.ui.theme.*
 import com.focusblock.app.utils.AppUtils
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 class BlockedAppActivity : ComponentActivity() {
 
@@ -119,15 +120,41 @@ fun BlockedAppScreen(
     val context = LocalContext.current
     val appIcon = remember(packageName) { AppUtils.getAppIcon(context, packageName) }
     val database = remember { FocusBlockDatabase.getDatabase(context) }
+    val coroutineScope = rememberCoroutineScope()
 
     var todayCount by remember { mutableStateOf(0) }
     var totalCount by remember { mutableStateOf(0) }
+    var showFocusCycleOverride by remember { mutableStateOf(false) }
+    var focusCycleRemainingBreak by remember { mutableStateOf(0L) }
+    var canContinueAnyway by remember { mutableStateOf(false) }
 
-    // Load block counts
+    // Load block counts and Focus Cycle state
     LaunchedEffect(packageName) {
         val app = database.blockedAppDao().getBlockedApp(packageName)
         todayCount = app?.blockedCount ?: 0
         totalCount = app?.totalBlockedCount ?: 0
+
+        // For Focus Cycle, show override option automatically
+        if (blockedBy == BlockedByType.FOCUS_CYCLE) {
+            val activeCycle = database.focusCycleDao().getActiveFocusCycleSync()
+            if (activeCycle != null) {
+                val now = System.currentTimeMillis()
+                val breakStart = activeCycle.breakStartTime
+                if (breakStart != null) {
+                    val breakEnd = breakStart + (activeCycle.breakDurationMinutes * 60 * 1000L)
+                    focusCycleRemainingBreak = maxOf(0, breakEnd - now)
+                }
+            }
+            showFocusCycleOverride = true
+        }
+    }
+
+    // Enable "Continue Anyway" after 2.5 second delay for Focus Cycle
+    LaunchedEffect(showFocusCycleOverride) {
+        if (showFocusCycleOverride) {
+            kotlinx.coroutines.delay(2500)
+            canContinueAnyway = true
+        }
     }
 
     // Animations
@@ -262,6 +289,7 @@ fun BlockedAppScreen(
                     BlockedByType.SCHEDULE -> "by Schedule"
                     BlockedByType.STRICT_MODE -> "by Strict Mode"
                     BlockedByType.HARD_MODE -> "by Hard Mode"
+                    BlockedByType.FOCUS_CYCLE -> "by Focus Cycle (Break Time)"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
@@ -358,22 +386,121 @@ fun BlockedAppScreen(
 
             Spacer(modifier = Modifier.height(48.dp))
 
-            // Close button
-            Button(
-                onClick = onClose,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Primary
-                )
-            ) {
-                Text(
-                    text = "Close",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
+            // Focus Cycle override section
+            if (blockedBy == BlockedByType.FOCUS_CYCLE && showFocusCycleOverride) {
+                // Soft-nudge info
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF9C27B0).copy(alpha = 0.1f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.SelfImprovement,
+                                contentDescription = null,
+                                tint = Color(0xFF9C27B0),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Break Time",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color(0xFF9C27B0),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "${(focusCycleRemainingBreak / 60000).toInt()} min remaining",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "A short break now means better focus later.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Take Break button (primary)
+                Button(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentGreen)
+                ) {
+                    Icon(Icons.Filled.SelfImprovement, null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Take a Break",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Continue Anyway button (secondary, with delay)
+                TextButton(
+                    onClick = {
+                        if (canContinueAnyway) {
+                            // Record the override
+                            coroutineScope.launch {
+                                val activeCycle = database.focusCycleDao().getActiveFocusCycleSync()
+                                if (activeCycle != null) {
+                                    database.focusCycleOverrideDao().insert(
+                                        com.focusblock.app.database.entity.FocusCycleOverride(
+                                            focusCycleId = activeCycle.id,
+                                            packageName = packageName,
+                                            appName = appName
+                                        )
+                                    )
+                                }
+                            }
+                            // Go back (allow the app)
+                            (context as? ComponentActivity)?.finish()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = canContinueAnyway
+                ) {
+                    Text(
+                        text = if (canContinueAnyway) "Continue Anyway" else "Wait...",
+                        color = if (canContinueAnyway) TextSecondary else TextSecondary.copy(alpha = 0.4f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            } else {
+                // Regular close button for other block types
+                Button(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Primary
+                    )
+                ) {
+                    Text(
+                        text = "Close",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
     }

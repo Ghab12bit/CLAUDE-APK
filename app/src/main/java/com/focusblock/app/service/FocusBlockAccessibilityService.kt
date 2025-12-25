@@ -109,6 +109,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         val scheduleDao = database.scheduleDao()
         val quickBlockSessionDao = database.quickBlockSessionDao()
         val settingsDao = database.settingsDao()
+        val focusCycleDao = database.focusCycleDao()
 
         // Check if in allowlist
         val blockedApp = blockedAppDao.getBlockedApp(packageName)
@@ -116,12 +117,57 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             return false
         }
 
-        // Check Quick Block
+        // ============ MODE PRIORITY RULES ============
+        // Priority: Strict Mode > Focus Cycles > Quick Block
+        //
+        // If Strict Mode is active, it takes precedence
+        // Focus Cycles cannot override or weaken Strict Mode enforcement
+
+        val strictModeEnabled = settingsDao.getValue("strict_mode_enabled")?.toBooleanStrictOrNull() ?: false
+
+        // Check Quick Block (always enforced if active)
         val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
         if (quickBlockSession != null) {
             val blockedPackages = quickBlockSession.blockedPackages.split(",")
             if (blockedPackages.contains(packageName)) {
                 return true
+            }
+        }
+
+        // Check Focus Cycles (soft-nudge, only blocks during break phase)
+        // Note: If Strict Mode is active, Focus Cycles cannot override it
+        if (!strictModeEnabled) {
+            val activeFocusCycle = focusCycleDao.getActiveFocusCycleSync()
+            if (activeFocusCycle != null && activeFocusCycle.isEnabled) {
+                val now = System.currentTimeMillis()
+                val breakStart = activeFocusCycle.breakStartTime
+                val cycleStart = activeFocusCycle.cycleStartTime
+
+                // Check if we're in break phase
+                val isInBreak = if (breakStart != null) {
+                    val breakEnd = breakStart + (activeFocusCycle.breakDurationMinutes * 60 * 1000L)
+                    now < breakEnd
+                } else if (cycleStart != null) {
+                    val usageEnd = cycleStart + (activeFocusCycle.usageWindowMinutes * 60 * 1000L)
+                    now >= usageEnd
+                } else {
+                    false
+                }
+
+                if (isInBreak) {
+                    // Check if this app is in the Focus Cycle's app list
+                    val focusCyclePackages = if (activeFocusCycle.useQuickBlockApps) {
+                        quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+                    } else {
+                        activeFocusCycle.selectedPackages.split(",").filter { it.isNotBlank() }
+                    }
+
+                    if (focusCyclePackages.contains(packageName)) {
+                        // Focus Cycle blocking - this is soft-nudge, can be overridden
+                        Log.d(TAG, "Focus Cycle blocking (soft-nudge): $packageName")
+                        return true
+                    }
+                }
             }
         }
 
@@ -215,17 +261,50 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private suspend fun determineBlockedByType(packageName: String): BlockedByType {
         val settingsDao = database.settingsDao()
         val quickBlockSessionDao = database.quickBlockSessionDao()
+        val focusCycleDao = database.focusCycleDao()
 
-        // Check if Hard Mode is enabled
+        // Check if Hard Mode is enabled (highest priority)
         val hardModeEnabled = settingsDao.getValue("hard_mode_enabled")?.toBooleanStrictOrNull() ?: false
         if (hardModeEnabled) {
             return BlockedByType.HARD_MODE
         }
 
-        // Check if Strict Mode is enabled
+        // Check if Strict Mode is enabled (second highest priority)
         val strictModeEnabled = settingsDao.getValue("strict_mode_enabled")?.toBooleanStrictOrNull() ?: false
         if (strictModeEnabled) {
             return BlockedByType.STRICT_MODE
+        }
+
+        // Check Focus Cycle (soft-nudge mode, third priority)
+        val activeFocusCycle = focusCycleDao.getActiveFocusCycleSync()
+        if (activeFocusCycle != null && activeFocusCycle.isEnabled) {
+            val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
+            val focusCyclePackages = if (activeFocusCycle.useQuickBlockApps) {
+                quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+            } else {
+                activeFocusCycle.selectedPackages.split(",").filter { it.isNotBlank() }
+            }
+
+            if (focusCyclePackages.contains(packageName)) {
+                val now = System.currentTimeMillis()
+                val breakStart = activeFocusCycle.breakStartTime
+                val cycleStart = activeFocusCycle.cycleStartTime
+
+                // Check if we're in break phase
+                val isInBreak = if (breakStart != null) {
+                    val breakEnd = breakStart + (activeFocusCycle.breakDurationMinutes * 60 * 1000L)
+                    now < breakEnd
+                } else if (cycleStart != null) {
+                    val usageEnd = cycleStart + (activeFocusCycle.usageWindowMinutes * 60 * 1000L)
+                    now >= usageEnd
+                } else {
+                    false
+                }
+
+                if (isInBreak) {
+                    return BlockedByType.FOCUS_CYCLE
+                }
+            }
         }
 
         // Check Quick Block

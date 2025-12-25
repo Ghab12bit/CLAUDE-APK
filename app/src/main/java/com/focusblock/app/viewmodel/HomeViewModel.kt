@@ -10,6 +10,7 @@ import com.focusblock.app.service.AppBlockingService
 import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.PermissionUtils
 import com.focusblock.app.utils.TimeUtils
+import com.focusblock.app.worker.PeakTimeReminderWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -39,8 +40,20 @@ data class HomeUiState(
         isIgnoringBattery = false
     ),
     val isPomodoroMode: Boolean = false,
-    val pomodoroState: PomodoroState = PomodoroState()
+    val pomodoroState: PomodoroState = PomodoroState(),
+    // Focus Cycles state
+    val focusCycle: FocusCycle? = null,
+    val isFocusCycleEnabled: Boolean = false,
+    val isFocusCycleInBreak: Boolean = false,
+    val focusCycleRemainingTime: Long = 0,
+    val focusCyclePhase: FocusCyclePhase = FocusCyclePhase.INACTIVE
 )
+
+enum class FocusCyclePhase {
+    INACTIVE,      // Focus Cycle not enabled
+    USAGE_WINDOW,  // During allowed usage time
+    BREAK          // During break (apps blocked)
+}
 
 data class PomodoroState(
     val isActive: Boolean = false,
@@ -66,6 +79,7 @@ class HomeViewModel @Inject constructor(
 
     init {
         loadData()
+        loadFocusCycleData()
         loadInstalledApps()
         startTimerUpdates()
     }
@@ -154,6 +168,78 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    private fun loadFocusCycleData() {
+        viewModelScope.launch {
+            repository.getActiveFocusCycle().collect { cycle ->
+                if (cycle != null) {
+                    val phase = calculateFocusCyclePhase(cycle)
+                    val remaining = calculateFocusCycleRemainingTime(cycle, phase)
+                    _uiState.update { it.copy(
+                        focusCycle = cycle,
+                        isFocusCycleEnabled = cycle.isEnabled,
+                        focusCyclePhase = phase,
+                        isFocusCycleInBreak = phase == FocusCyclePhase.BREAK,
+                        focusCycleRemainingTime = remaining
+                    )}
+                } else {
+                    _uiState.update { it.copy(
+                        focusCycle = null,
+                        isFocusCycleEnabled = false,
+                        focusCyclePhase = FocusCyclePhase.INACTIVE,
+                        isFocusCycleInBreak = false,
+                        focusCycleRemainingTime = 0
+                    )}
+                }
+            }
+        }
+    }
+
+    private fun calculateFocusCyclePhase(cycle: FocusCycle): FocusCyclePhase {
+        if (!cycle.isEnabled) return FocusCyclePhase.INACTIVE
+
+        val now = System.currentTimeMillis()
+        val cycleStart = cycle.cycleStartTime ?: return FocusCyclePhase.USAGE_WINDOW
+        val breakStart = cycle.breakStartTime
+
+        return if (breakStart != null) {
+            // We're in break mode
+            val breakEnd = breakStart + (cycle.breakDurationMinutes * 60 * 1000L)
+            if (now >= breakEnd) {
+                // Break is over, start new usage window
+                FocusCyclePhase.USAGE_WINDOW
+            } else {
+                FocusCyclePhase.BREAK
+            }
+        } else {
+            // We're in usage window
+            val usageEnd = cycleStart + (cycle.usageWindowMinutes * 60 * 1000L)
+            if (now >= usageEnd) {
+                // Usage window is over, start break
+                FocusCyclePhase.BREAK
+            } else {
+                FocusCyclePhase.USAGE_WINDOW
+            }
+        }
+    }
+
+    private fun calculateFocusCycleRemainingTime(cycle: FocusCycle, phase: FocusCyclePhase): Long {
+        val now = System.currentTimeMillis()
+
+        return when (phase) {
+            FocusCyclePhase.INACTIVE -> 0L
+            FocusCyclePhase.USAGE_WINDOW -> {
+                val cycleStart = cycle.cycleStartTime ?: now
+                val usageEnd = cycleStart + (cycle.usageWindowMinutes * 60 * 1000L)
+                maxOf(0, usageEnd - now)
+            }
+            FocusCyclePhase.BREAK -> {
+                val breakStart = cycle.breakStartTime ?: now
+                val breakEnd = breakStart + (cycle.breakDurationMinutes * 60 * 1000L)
+                maxOf(0, breakEnd - now)
+            }
+        }
+    }
+
     private fun loadInstalledApps() {
         viewModelScope.launch {
             val apps = AppUtils.getInstalledApps(application, includeSystemApps = false)
@@ -166,10 +252,48 @@ class HomeViewModel @Inject constructor(
             while (true) {
                 updateRemainingTime()
                 updateStrictModeRemainingTime()
+                updateFocusCycleState()
                 updatePermissionStatus()
                 kotlinx.coroutines.delay(1000)
             }
         }
+    }
+
+    private fun updateFocusCycleState() {
+        val cycle = _uiState.value.focusCycle ?: return
+        if (!cycle.isEnabled) return
+
+        val phase = calculateFocusCyclePhase(cycle)
+        val remaining = calculateFocusCycleRemainingTime(cycle, phase)
+        val currentPhase = _uiState.value.focusCyclePhase
+
+        // Handle phase transitions
+        if (phase != currentPhase) {
+            viewModelScope.launch {
+                when (phase) {
+                    FocusCyclePhase.BREAK -> {
+                        // Transition to break - set break start time
+                        val updatedCycle = cycle.copy(breakStartTime = System.currentTimeMillis())
+                        repository.updateFocusCycle(updatedCycle)
+                    }
+                    FocusCyclePhase.USAGE_WINDOW -> {
+                        // Transition to usage window - reset cycle
+                        val updatedCycle = cycle.copy(
+                            cycleStartTime = System.currentTimeMillis(),
+                            breakStartTime = null
+                        )
+                        repository.updateFocusCycle(updatedCycle)
+                    }
+                    else -> {}
+                }
+            }
+        }
+
+        _uiState.update { it.copy(
+            focusCyclePhase = phase,
+            isFocusCycleInBreak = phase == FocusCyclePhase.BREAK,
+            focusCycleRemainingTime = remaining
+        )}
     }
 
     private fun updateRemainingTime() {
@@ -257,6 +381,9 @@ class HomeViewModel @Inject constructor(
 
             // Start blocking service
             AppBlockingService.start(application)
+
+            // Schedule peak-time reminder for mindful breaks
+            PeakTimeReminderWorker.schedule(application)
 
             val newAppsCount = selectedPackages.count { !previouslyBlocked.contains(it) }
             showToast("Quick Block started. $newAppsCount apps blocked.")
@@ -547,5 +674,93 @@ class HomeViewModel @Inject constructor(
             hours > 0 -> "${hours}h"
             else -> "${minutes}m"
         }
+    }
+
+    // ========== Focus Cycle Methods ==========
+
+    /**
+     * Enable Focus Cycle with the specified settings
+     */
+    fun enableFocusCycle(
+        usageWindowMinutes: Int,
+        breakDurationMinutes: Int,
+        selectedPackages: List<String>,
+        useQuickBlockApps: Boolean
+    ) {
+        viewModelScope.launch {
+            // Disable any existing focus cycles first
+            repository.disableAllFocusCycles()
+
+            val focusCycle = FocusCycle(
+                usageWindowMinutes = usageWindowMinutes,
+                breakDurationMinutes = breakDurationMinutes,
+                isEnabled = true,
+                isActive = true,
+                selectedPackages = selectedPackages.joinToString(","),
+                useQuickBlockApps = useQuickBlockApps,
+                cycleStartTime = System.currentTimeMillis(),
+                breakStartTime = null
+            )
+            repository.insertFocusCycle(focusCycle)
+
+            // Schedule peak-time reminder for mindful breaks
+            PeakTimeReminderWorker.schedule(application)
+
+            showToast("Focus Cycle started: ${usageWindowMinutes}m usage, ${breakDurationMinutes}m breaks")
+        }
+    }
+
+    /**
+     * Disable Focus Cycle
+     */
+    fun disableFocusCycle() {
+        viewModelScope.launch {
+            val cycle = _uiState.value.focusCycle
+            if (cycle != null) {
+                repository.updateFocusCycle(cycle.copy(isEnabled = false, isActive = false))
+            }
+            showToast("Focus Cycle stopped")
+        }
+    }
+
+    /**
+     * Get packages that should be blocked by Focus Cycle
+     */
+    fun getFocusCycleBlockedPackages(): List<String> {
+        val cycle = _uiState.value.focusCycle ?: return emptyList()
+
+        return if (cycle.useQuickBlockApps) {
+            // Use apps from current Quick Block session
+            _uiState.value.quickBlockSession?.blockedPackages
+                ?.split(",")
+                ?.filter { it.isNotBlank() }
+                ?: emptyList()
+        } else {
+            cycle.selectedPackages.split(",").filter { it.isNotBlank() }
+        }
+    }
+
+    /**
+     * Record a Focus Cycle override (user chose to continue anyway)
+     */
+    fun recordFocusCycleOverride(packageName: String) {
+        viewModelScope.launch {
+            val cycle = _uiState.value.focusCycle ?: return@launch
+            val appName = AppUtils.getAppName(application, packageName)
+            repository.insertFocusCycleOverride(
+                FocusCycleOverride(
+                    focusCycleId = cycle.id,
+                    packageName = packageName,
+                    appName = appName
+                )
+            )
+        }
+    }
+
+    /**
+     * Check if Focus Cycle is currently blocking (in break phase)
+     */
+    fun isFocusCycleBlocking(): Boolean {
+        return _uiState.value.focusCyclePhase == FocusCyclePhase.BREAK
     }
 }

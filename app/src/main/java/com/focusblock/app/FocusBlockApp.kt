@@ -47,8 +47,20 @@ class FocusBlockApp : Application() {
             setShowBadge(true)
         }
 
+        // Mindful Reminder Channel (gentle, non-intrusive)
+        val reminderChannel = NotificationChannel(
+            CHANNEL_MINDFUL_REMINDER,
+            "Mindful Reminders",
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            description = "Gentle reminders for screen time awareness"
+            setShowBadge(false)
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 200) // Short, gentle vibration
+        }
+
         notificationManager.createNotificationChannels(
-            listOf(blockingChannel, alertsChannel, pomodoroChannel)
+            listOf(blockingChannel, alertsChannel, pomodoroChannel, reminderChannel)
         )
     }
 
@@ -56,5 +68,6 @@ class FocusBlockApp : Application() {
         const val CHANNEL_BLOCKING = "blocking_service"
         const val CHANNEL_ALERTS = "alerts"
         const val CHANNEL_POMODORO = "pomodoro"
+        const val CHANNEL_MINDFUL_REMINDER = "mindful_reminder"
     }
 }

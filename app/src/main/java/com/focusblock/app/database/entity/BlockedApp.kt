@@ -65,7 +65,7 @@ data class BlockLog(
 )
 
 enum class BlockedByType {
-    QUICK_BLOCK, SCHEDULE, STRICT_MODE, HARD_MODE
+    QUICK_BLOCK, SCHEDULE, STRICT_MODE, HARD_MODE, FOCUS_CYCLE
 }
 
 @Entity(tableName = "usage_stats")
@@ -160,3 +160,36 @@ enum class ExclusionType {
     SCREEN_TIME_REPORT,
     ALL_REPORTS
 }
+
+/**
+ * Focus Cycle - Soft-nudge mode for mindful app usage
+ * Prevents binge-switching while keeping control user-driven
+ */
+@Entity(tableName = "focus_cycles")
+data class FocusCycle(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val name: String = "Focus Cycle",
+    val usageWindowMinutes: Int = 10, // How long apps are allowed
+    val breakDurationMinutes: Int = 30, // How long break lasts
+    val isEnabled: Boolean = false,
+    val isActive: Boolean = false, // Currently in an active cycle
+    val selectedPackages: String = "", // Comma-separated, empty = use Quick Block apps
+    val useQuickBlockApps: Boolean = true, // Reuse apps from Quick Block
+    val cycleStartTime: Long? = null, // When current cycle started
+    val breakStartTime: Long? = null, // When break started (null if in usage window)
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+/**
+ * Tracks override events for Focus Cycle soft-nudge
+ */
+@Entity(tableName = "focus_cycle_overrides")
+data class FocusCycleOverride(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val focusCycleId: Long,
+    val timestamp: Long = System.currentTimeMillis(),
+    val packageName: String,
+    val appName: String
+)

@@ -8,7 +8,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.*
 import com.focusblock.app.FocusBlockApp
-import com.focusblock.app.MainActivity
+import com.focusblock.app.ui.MainActivity
 import com.focusblock.app.R
 import com.focusblock.app.database.FocusBlockDatabase
 import kotlinx.coroutines.Dispatchers

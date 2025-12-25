@@ -164,6 +164,14 @@ enum class ExclusionType {
 /**
  * Focus Cycle - Soft-nudge mode for mindful app usage
  * Prevents binge-switching while keeping control user-driven
+ *
+ * Lifecycle:
+ * 1. User enables → isEnabled=true, isArmed=true (waiting for app open)
+ * 2. User opens selected app → isArmed=false, cycleStartTime set, timer starts
+ * 3. User switches to non-selected app → isPaused=true, timer pauses
+ * 4. User returns to selected app → isPaused=false, timer resumes
+ * 5. Usage window ends → breakStartTime set, break period begins
+ * 6. Break ends → cycle resets, isArmed=true again
  */
 @Entity(tableName = "focus_cycles")
 data class FocusCycle(
@@ -174,10 +182,14 @@ data class FocusCycle(
     val breakDurationMinutes: Int = 30, // How long break lasts
     val isEnabled: Boolean = false,
     val isActive: Boolean = false, // Currently in an active cycle
+    val isArmed: Boolean = true, // Waiting for first selected app open
+    val isPaused: Boolean = false, // Timer paused (user on non-selected app)
     val selectedPackages: String = "", // Comma-separated, empty = use Quick Block apps
     val useQuickBlockApps: Boolean = true, // Reuse apps from Quick Block
     val cycleStartTime: Long? = null, // When current cycle started
     val breakStartTime: Long? = null, // When break started (null if in usage window)
+    val accumulatedUsageMillis: Long = 0, // Accumulated usage time for pause/resume
+    val lastActiveTime: Long? = null, // Last time user was on a selected app
     val createdAt: Long = System.currentTimeMillis()
 )
 

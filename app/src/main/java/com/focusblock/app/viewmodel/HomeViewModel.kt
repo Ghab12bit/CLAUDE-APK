@@ -51,7 +51,9 @@ data class HomeUiState(
 
 enum class FocusCyclePhase {
     INACTIVE,      // Focus Cycle not enabled
+    ARMED,         // Waiting for user to open a selected app
     USAGE_WINDOW,  // During allowed usage time
+    PAUSED,        // Timer paused (user on non-selected app)
     BREAK          // During break (apps blocked)
 }
 
@@ -197,28 +199,37 @@ class HomeViewModel @Inject constructor(
     private fun calculateFocusCyclePhase(cycle: FocusCycle): FocusCyclePhase {
         if (!cycle.isEnabled) return FocusCyclePhase.INACTIVE
 
+        // Check if armed (waiting for first app open)
+        if (cycle.isArmed) return FocusCyclePhase.ARMED
+
         val now = System.currentTimeMillis()
-        val cycleStart = cycle.cycleStartTime ?: return FocusCyclePhase.USAGE_WINDOW
         val breakStart = cycle.breakStartTime
 
-        return if (breakStart != null) {
-            // We're in break mode
+        // Check if in break period
+        if (breakStart != null) {
             val breakEnd = breakStart + (cycle.breakDurationMinutes * 60 * 1000L)
-            if (now >= breakEnd) {
-                // Break is over, start new usage window
-                FocusCyclePhase.USAGE_WINDOW
+            return if (now >= breakEnd) {
+                // Break is over - should be re-armed (handled by AccessibilityService)
+                FocusCyclePhase.ARMED
             } else {
                 FocusCyclePhase.BREAK
             }
+        }
+
+        // Check if cycle has started
+        if (cycle.cycleStartTime == null) return FocusCyclePhase.ARMED
+
+        // Check if usage window is exhausted based on accumulated time
+        val usageWindowMillis = cycle.usageWindowMinutes * 60 * 1000L
+        if (cycle.accumulatedUsageMillis >= usageWindowMillis) {
+            return FocusCyclePhase.BREAK
+        }
+
+        // We're in usage window - check if paused
+        return if (cycle.isPaused) {
+            FocusCyclePhase.PAUSED
         } else {
-            // We're in usage window
-            val usageEnd = cycleStart + (cycle.usageWindowMinutes * 60 * 1000L)
-            if (now >= usageEnd) {
-                // Usage window is over, start break
-                FocusCyclePhase.BREAK
-            } else {
-                FocusCyclePhase.USAGE_WINDOW
-            }
+            FocusCyclePhase.USAGE_WINDOW
         }
     }
 
@@ -227,10 +238,14 @@ class HomeViewModel @Inject constructor(
 
         return when (phase) {
             FocusCyclePhase.INACTIVE -> 0L
-            FocusCyclePhase.USAGE_WINDOW -> {
-                val cycleStart = cycle.cycleStartTime ?: now
-                val usageEnd = cycleStart + (cycle.usageWindowMinutes * 60 * 1000L)
-                maxOf(0, usageEnd - now)
+            FocusCyclePhase.ARMED -> {
+                // Full usage window available when armed
+                cycle.usageWindowMinutes * 60 * 1000L
+            }
+            FocusCyclePhase.USAGE_WINDOW, FocusCyclePhase.PAUSED -> {
+                // Calculate remaining based on accumulated usage
+                val usageWindowMillis = cycle.usageWindowMinutes * 60 * 1000L
+                maxOf(0, usageWindowMillis - cycle.accumulatedUsageMillis)
             }
             FocusCyclePhase.BREAK -> {
                 val breakStart = cycle.breakStartTime ?: now
@@ -265,29 +280,9 @@ class HomeViewModel @Inject constructor(
 
         val phase = calculateFocusCyclePhase(cycle)
         val remaining = calculateFocusCycleRemainingTime(cycle, phase)
-        val currentPhase = _uiState.value.focusCyclePhase
 
-        // Handle phase transitions
-        if (phase != currentPhase) {
-            viewModelScope.launch {
-                when (phase) {
-                    FocusCyclePhase.BREAK -> {
-                        // Transition to break - set break start time
-                        val updatedCycle = cycle.copy(breakStartTime = System.currentTimeMillis())
-                        repository.updateFocusCycle(updatedCycle)
-                    }
-                    FocusCyclePhase.USAGE_WINDOW -> {
-                        // Transition to usage window - reset cycle
-                        val updatedCycle = cycle.copy(
-                            cycleStartTime = System.currentTimeMillis(),
-                            breakStartTime = null
-                        )
-                        repository.updateFocusCycle(updatedCycle)
-                    }
-                    else -> {}
-                }
-            }
-        }
+        // Phase transitions are now handled by AccessibilityService
+        // ViewModel just reads the current state
 
         _uiState.update { it.copy(
             focusCyclePhase = phase,
@@ -680,6 +675,7 @@ class HomeViewModel @Inject constructor(
 
     /**
      * Enable Focus Cycle with the specified settings
+     * The cycle starts in ARMED state, waiting for user to open a tracked app
      */
     fun enableFocusCycle(
         usageWindowMinutes: Int,
@@ -696,17 +692,21 @@ class HomeViewModel @Inject constructor(
                 breakDurationMinutes = breakDurationMinutes,
                 isEnabled = true,
                 isActive = true,
+                isArmed = true,  // Start in armed state - waiting for app open
+                isPaused = false,
                 selectedPackages = selectedPackages.joinToString(","),
                 useQuickBlockApps = useQuickBlockApps,
-                cycleStartTime = System.currentTimeMillis(),
-                breakStartTime = null
+                cycleStartTime = null,  // Not started yet
+                breakStartTime = null,
+                accumulatedUsageMillis = 0,
+                lastActiveTime = null
             )
             repository.insertFocusCycle(focusCycle)
 
             // Schedule peak-time reminder for mindful breaks
             PeakTimeReminderWorker.schedule(application)
 
-            showToast("Focus Cycle started: ${usageWindowMinutes}m usage, ${breakDurationMinutes}m breaks")
+            showToast("Focus Cycle armed. Open a tracked app to start.")
         }
     }
 

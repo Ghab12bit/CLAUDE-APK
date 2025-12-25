@@ -22,7 +22,7 @@ import com.focusblock.app.database.entity.*
         FocusCycle::class,
         FocusCycleOverride::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class FocusBlockDatabase : RoomDatabase() {

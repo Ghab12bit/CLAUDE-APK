@@ -2143,20 +2143,26 @@ fun FocusCycleCard(
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = when (phase) {
+                                        FocusCyclePhase.ARMED -> Color(0xFFFF9800).copy(alpha = 0.2f) // Orange
                                         FocusCyclePhase.USAGE_WINDOW -> AccentGreen.copy(alpha = 0.2f)
+                                        FocusCyclePhase.PAUSED -> Color(0xFFFFEB3B).copy(alpha = 0.2f) // Yellow
                                         FocusCyclePhase.BREAK -> cycleColor.copy(alpha = 0.2f)
                                         else -> Color.Transparent
                                     }
                                 ) {
                                     Text(
                                         text = when (phase) {
+                                            FocusCyclePhase.ARMED -> "READY"
                                             FocusCyclePhase.USAGE_WINDOW -> "ACTIVE"
+                                            FocusCyclePhase.PAUSED -> "PAUSED"
                                             FocusCyclePhase.BREAK -> "BREAK"
                                             else -> ""
                                         },
                                         style = MaterialTheme.typography.labelSmall,
                                         color = when (phase) {
+                                            FocusCyclePhase.ARMED -> Color(0xFFFF9800)
                                             FocusCyclePhase.USAGE_WINDOW -> AccentGreen
+                                            FocusCyclePhase.PAUSED -> Color(0xFFFFC107)
                                             FocusCyclePhase.BREAK -> cycleColor
                                             else -> TextSecondary
                                         },
@@ -2170,7 +2176,9 @@ fun FocusCycleCard(
                         Text(
                             text = if (isEnabled) {
                                 when (phase) {
-                                    FocusCyclePhase.USAGE_WINDOW -> "Using apps freely"
+                                    FocusCyclePhase.ARMED -> "Open a tracked app to start timer"
+                                    FocusCyclePhase.USAGE_WINDOW -> "Timer running while using apps"
+                                    FocusCyclePhase.PAUSED -> "Timer paused - not on tracked app"
                                     FocusCyclePhase.BREAK -> "Take a mindful break"
                                     else -> "Soft-nudge for mindful usage"
                                 }
@@ -2201,7 +2209,9 @@ fun FocusCycleCard(
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = when (phase) {
+                            FocusCyclePhase.ARMED -> Color(0xFFFF9800).copy(alpha = 0.12f)
                             FocusCyclePhase.USAGE_WINDOW -> AccentGreen.copy(alpha = 0.12f)
+                            FocusCyclePhase.PAUSED -> Color(0xFFFFC107).copy(alpha = 0.12f)
                             FocusCyclePhase.BREAK -> cycleColor.copy(alpha = 0.12f)
                             else -> SurfaceElevated
                         }
@@ -2219,13 +2229,17 @@ fun FocusCycleCard(
                         ) {
                             Icon(
                                 imageVector = when (phase) {
+                                    FocusCyclePhase.ARMED -> Icons.Filled.TouchApp
                                     FocusCyclePhase.USAGE_WINDOW -> Icons.Filled.PlayCircle
+                                    FocusCyclePhase.PAUSED -> Icons.Filled.Pause
                                     FocusCyclePhase.BREAK -> Icons.Filled.SelfImprovement
                                     else -> Icons.Filled.Timer
                                 },
                                 contentDescription = null,
                                 tint = when (phase) {
+                                    FocusCyclePhase.ARMED -> Color(0xFFFF9800)
                                     FocusCyclePhase.USAGE_WINDOW -> AccentGreen
+                                    FocusCyclePhase.PAUSED -> Color(0xFFFFC107)
                                     FocusCyclePhase.BREAK -> cycleColor
                                     else -> TextSecondary
                                 },
@@ -2235,7 +2249,9 @@ fun FocusCycleCard(
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
                                     text = when (phase) {
-                                        FocusCyclePhase.USAGE_WINDOW -> "Usage ends in"
+                                        FocusCyclePhase.ARMED -> "Waiting for app"
+                                        FocusCyclePhase.USAGE_WINDOW -> "Usage remaining"
+                                        FocusCyclePhase.PAUSED -> "Paused - remaining"
                                         FocusCyclePhase.BREAK -> "Break ends in"
                                         else -> "Cycle"
                                     },
@@ -2243,10 +2259,12 @@ fun FocusCycleCard(
                                     color = TextSecondary
                                 )
                                 Text(
-                                    text = remainingTimeText,
+                                    text = if (phase == FocusCyclePhase.ARMED) "${usageWindowMinutes}:00" else remainingTimeText,
                                     style = MaterialTheme.typography.headlineMedium,
                                     color = when (phase) {
+                                        FocusCyclePhase.ARMED -> Color(0xFFFF9800)
                                         FocusCyclePhase.USAGE_WINDOW -> AccentGreen
+                                        FocusCyclePhase.PAUSED -> Color(0xFFFFC107)
                                         FocusCyclePhase.BREAK -> cycleColor
                                         else -> TextPrimary
                                     },
@@ -2294,12 +2312,24 @@ fun FocusCycleCard(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Info note about soft-nudge
-                if (phase == FocusCyclePhase.BREAK) {
+                // Info note based on phase
+                val infoNote = when (phase) {
+                    FocusCyclePhase.ARMED -> "Open any tracked app to begin counting usage time"
+                    FocusCyclePhase.PAUSED -> "Timer will resume when you return to a tracked app"
+                    FocusCyclePhase.BREAK -> "You can override if needed - this is soft-nudge mode"
+                    else -> null
+                }
+                if (infoNote != null) {
+                    val infoColor = when (phase) {
+                        FocusCyclePhase.ARMED -> Color(0xFFFF9800)
+                        FocusCyclePhase.PAUSED -> Color(0xFFFFC107)
+                        FocusCyclePhase.BREAK -> cycleColor
+                        else -> TextSecondary
+                    }
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
-                        color = cycleColor.copy(alpha = 0.08f)
+                        color = infoColor.copy(alpha = 0.08f)
                     ) {
                         Row(
                             modifier = Modifier.padding(12.dp),
@@ -2308,12 +2338,12 @@ fun FocusCycleCard(
                             Icon(
                                 imageVector = Icons.Outlined.Info,
                                 contentDescription = null,
-                                tint = cycleColor,
+                                tint = infoColor,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "You can override if needed - this is soft-nudge mode",
+                                text = infoNote,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary
                             )

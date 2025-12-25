@@ -2,6 +2,9 @@ package com.focusblock.app.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Handler
@@ -11,9 +14,14 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import androidx.core.app.NotificationCompat
+import com.focusblock.app.FocusBlockApp
+import com.focusblock.app.R
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.BlockLog
 import com.focusblock.app.database.entity.BlockedByType
+import com.focusblock.app.database.entity.FocusCycle
+import com.focusblock.app.ui.MainActivity
 import com.focusblock.app.ui.overlay.BlockedAppActivity
 import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.TimeUtils
@@ -24,6 +32,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "FocusBlockA11y"
         private const val BLOCK_COOLDOWN = 2000L
+        private const val FOCUS_CYCLE_NOTIFICATION_ID = 3001
         var isServiceRunning = false
             private set
     }
@@ -34,6 +43,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private var lastBlockTime = 0L
     private var isBlockingInProgress = false
     private val database by lazy { FocusBlockDatabase.getDatabase(applicationContext) }
+    private var lastForegroundPackage: String? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -61,6 +71,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Don't block our own app or system components
         if (shouldIgnorePackage(packageName)) return
 
+        // Track Focus Cycle state transitions (always, before blocking check)
+        serviceScope.launch {
+            handleFocusCycleStateTransition(packageName)
+        }
+
         // Don't process if we're already blocking
         if (isBlockingInProgress) {
             Log.d(TAG, "Block already in progress, ignoring: $packageName")
@@ -82,6 +97,198 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 blockApp(packageName)
             }
         }
+
+        lastForegroundPackage = packageName
+    }
+
+    /**
+     * Handle Focus Cycle state transitions based on foreground app
+     * - If armed and selected app opens → start cycle
+     * - If in usage window and non-selected app opens → pause timer
+     * - If paused and selected app opens → resume timer
+     */
+    private suspend fun handleFocusCycleStateTransition(packageName: String) {
+        val focusCycleDao = database.focusCycleDao()
+        val quickBlockSessionDao = database.quickBlockSessionDao()
+
+        val activeFocusCycle = focusCycleDao.getActiveFocusCycleSync() ?: return
+        if (!activeFocusCycle.isEnabled) return
+
+        // Get list of apps in Focus Cycle
+        val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
+        val focusCyclePackages = if (activeFocusCycle.useQuickBlockApps) {
+            quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+        } else {
+            activeFocusCycle.selectedPackages.split(",").filter { it.isNotBlank() }
+        }
+
+        val isSelectedApp = focusCyclePackages.contains(packageName)
+        val now = System.currentTimeMillis()
+
+        when {
+            // Case 1: Cycle is armed (waiting for first app open)
+            activeFocusCycle.isArmed -> {
+                if (isSelectedApp) {
+                    // User opened a selected app - START the cycle
+                    Log.i(TAG, "Focus Cycle: Starting cycle - user opened $packageName")
+                    val updatedCycle = activeFocusCycle.copy(
+                        isArmed = false,
+                        isPaused = false,
+                        cycleStartTime = now,
+                        lastActiveTime = now,
+                        accumulatedUsageMillis = 0,
+                        breakStartTime = null
+                    )
+                    focusCycleDao.update(updatedCycle)
+                    updateFocusCycleNotification(updatedCycle)
+                }
+                // If not a selected app, stay armed - do nothing
+            }
+
+            // Case 2: In break period - check if break is over
+            activeFocusCycle.breakStartTime != null -> {
+                val breakEnd = activeFocusCycle.breakStartTime + (activeFocusCycle.breakDurationMinutes * 60 * 1000L)
+                if (now >= breakEnd) {
+                    // Break is over - re-arm the cycle
+                    Log.i(TAG, "Focus Cycle: Break ended - re-arming cycle")
+                    val updatedCycle = activeFocusCycle.copy(
+                        isArmed = true,
+                        isPaused = false,
+                        cycleStartTime = null,
+                        breakStartTime = null,
+                        accumulatedUsageMillis = 0,
+                        lastActiveTime = null
+                    )
+                    focusCycleDao.update(updatedCycle)
+                    updateFocusCycleNotification(updatedCycle)
+                }
+                // During break - blocking is handled by shouldBlockApp
+            }
+
+            // Case 3: In usage window
+            activeFocusCycle.cycleStartTime != null -> {
+                // Calculate current accumulated time
+                val previousAccumulated = activeFocusCycle.accumulatedUsageMillis
+                val lastActive = activeFocusCycle.lastActiveTime ?: activeFocusCycle.cycleStartTime!!
+
+                // Add time if we were on a selected app
+                val wasOnSelectedApp = lastForegroundPackage?.let { focusCyclePackages.contains(it) } ?: false
+                val additionalTime = if (wasOnSelectedApp && !activeFocusCycle.isPaused) {
+                    now - lastActive
+                } else {
+                    0L
+                }
+                val totalAccumulated = previousAccumulated + additionalTime
+                val usageWindowMillis = activeFocusCycle.usageWindowMinutes * 60 * 1000L
+
+                // Check if usage window is exhausted
+                if (totalAccumulated >= usageWindowMillis) {
+                    // Start break period
+                    Log.i(TAG, "Focus Cycle: Usage window exhausted - starting break")
+                    val updatedCycle = activeFocusCycle.copy(
+                        isPaused = false,
+                        breakStartTime = now,
+                        accumulatedUsageMillis = totalAccumulated,
+                        lastActiveTime = now
+                    )
+                    focusCycleDao.update(updatedCycle)
+                    updateFocusCycleNotification(updatedCycle)
+                } else if (isSelectedApp) {
+                    // User is on a selected app - resume/continue timer
+                    if (activeFocusCycle.isPaused) {
+                        Log.d(TAG, "Focus Cycle: Resuming timer - user returned to $packageName")
+                    }
+                    val updatedCycle = activeFocusCycle.copy(
+                        isPaused = false,
+                        accumulatedUsageMillis = totalAccumulated,
+                        lastActiveTime = now
+                    )
+                    focusCycleDao.update(updatedCycle)
+                    updateFocusCycleNotification(updatedCycle)
+                } else {
+                    // User switched to non-selected app - pause timer
+                    if (!activeFocusCycle.isPaused) {
+                        Log.d(TAG, "Focus Cycle: Pausing timer - user left to $packageName")
+                    }
+                    val updatedCycle = activeFocusCycle.copy(
+                        isPaused = true,
+                        accumulatedUsageMillis = totalAccumulated,
+                        lastActiveTime = now
+                    )
+                    focusCycleDao.update(updatedCycle)
+                    updateFocusCycleNotification(updatedCycle)
+                }
+            }
+        }
+    }
+
+    /**
+     * Update the persistent Focus Cycle notification
+     */
+    private fun updateFocusCycleNotification(cycle: FocusCycle) {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        if (!cycle.isEnabled) {
+            notificationManager.cancel(FOCUS_CYCLE_NOTIFICATION_ID)
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val (title, content, progress) = when {
+            cycle.isArmed -> {
+                Triple(
+                    "Focus Cycle - Ready",
+                    "Open a tracked app to start your usage window",
+                    -1 // No progress bar
+                )
+            }
+            cycle.breakStartTime != null -> {
+                val breakEnd = cycle.breakStartTime + (cycle.breakDurationMinutes * 60 * 1000L)
+                val remainingMinutes = maxOf(0, (breakEnd - now) / 60000).toInt()
+                Triple(
+                    "Break Time",
+                    "$remainingMinutes min remaining before apps unlock",
+                    ((now - cycle.breakStartTime) * 100 / (cycle.breakDurationMinutes * 60 * 1000L)).toInt()
+                )
+            }
+            cycle.cycleStartTime != null -> {
+                val usageWindowMillis = cycle.usageWindowMinutes * 60 * 1000L
+                val remainingMillis = maxOf(0, usageWindowMillis - cycle.accumulatedUsageMillis)
+                val remainingMinutes = (remainingMillis / 60000).toInt()
+                val pausedText = if (cycle.isPaused) " (Paused)" else ""
+                Triple(
+                    "Focus Cycle - Usage Window$pausedText",
+                    "$remainingMinutes min remaining in usage window",
+                    ((cycle.accumulatedUsageMillis * 100) / usageWindowMillis).toInt()
+                )
+            }
+            else -> return
+        }
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        val builder = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_BLOCKING)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(content)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOnlyAlertOnce(true)
+
+        if (progress >= 0) {
+            builder.setProgress(100, progress.coerceIn(0, 100), false)
+        }
+
+        notificationManager.notify(FOCUS_CYCLE_NOTIFICATION_ID, builder.build())
     }
 
     override fun onInterrupt() {

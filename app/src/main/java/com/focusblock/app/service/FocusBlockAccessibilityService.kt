@@ -61,6 +61,15 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
         isServiceRunning = true
         Log.i(TAG, "FocusBlock Accessibility Service is now running")
+
+        // Show toast to confirm service is running
+        mainHandler.post {
+            android.widget.Toast.makeText(
+                applicationContext,
+                "FocusBlock Accessibility Service enabled",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -73,7 +82,18 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
         // Track Focus Cycle state transitions (always, before blocking check)
         serviceScope.launch {
-            handleFocusCycleStateTransition(packageName)
+            try {
+                handleFocusCycleStateTransition(packageName)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in handleFocusCycleStateTransition", e)
+                mainHandler.post {
+                    android.widget.Toast.makeText(
+                        applicationContext,
+                        "Focus Cycle Error: ${e.message}",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
         }
 
         // Don't process if we're already blocking
@@ -147,6 +167,15 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     )
                     focusCycleDao.update(updatedCycle)
                     updateFocusCycleNotification(updatedCycle)
+
+                    // Show visible feedback that cycle started
+                    mainHandler.post {
+                        android.widget.Toast.makeText(
+                            applicationContext,
+                            "Focus Cycle started! Timer running.",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
                 // If not a selected app, stay armed - do nothing
             }

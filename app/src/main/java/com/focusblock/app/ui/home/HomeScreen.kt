@@ -400,10 +400,10 @@ fun HomeScreen(
 
     // Focus Cycle Setup Dialog
     if (showFocusCycleSetupDialog) {
-        val quickBlockApps = uiState.quickBlockSession?.blockedPackages
-            ?.split(",")
-            ?.filter { it.isNotEmpty() }
-            ?: emptyList()
+        // Get blocked apps from database (apps marked as blocked), not from active Quick Block session
+        val quickBlockApps = uiState.blockedApps
+            .filter { it.isBlocked }
+            .map { it.packageName }
 
         FocusCycleSetupDialog(
             apps = viewModel.getInstalledApps(),

@@ -83,8 +83,16 @@ class PeakTimeReminderWorker(
             val activeFocusCycle = database.focusCycleDao().getActiveFocusCycleSync()
 
             // Check for continuous screen time
-            if (activeSession != null || activeFocusCycle != null) {
-                val sessionStart = activeSession?.startTime ?: (activeFocusCycle?.cycleStartTime ?: 0L)
+            val sessionStart: Long? = when {
+                activeSession != null -> activeSession.startTime
+                activeFocusCycle != null && activeFocusCycle.isEnabled -> {
+                    // For Focus Cycle, use cycleStartTime if active, or createdAt if armed
+                    activeFocusCycle.cycleStartTime ?: activeFocusCycle.createdAt
+                }
+                else -> null
+            }
+
+            if (sessionStart != null && sessionStart > 0) {
                 val sessionDuration = now - sessionStart
                 val sessionMinutes = sessionDuration / (60 * 1000)
 

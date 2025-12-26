@@ -786,13 +786,13 @@ class HomeViewModel @Inject constructor(
         }
         val pendingIntent = PendingIntent.getActivity(application, 0, intent, pendingIntentFlags)
 
-        val builder = NotificationCompat.Builder(application, FocusBlockApp.CHANNEL_BLOCKING)
+        val builder = NotificationCompat.Builder(application, FocusBlockApp.CHANNEL_MINDFUL_REMINDER)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(content)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setOnlyAlertOnce(true)
 
         notificationManager.notify(FOCUS_CYCLE_NOTIFICATION_ID, builder.build())

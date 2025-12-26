@@ -293,13 +293,13 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
 
-        val builder = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_BLOCKING)
+        val builder = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_MINDFUL_REMINDER)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(content)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setOnlyAlertOnce(true)
 
         if (progress >= 0) {

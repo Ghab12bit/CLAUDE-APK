@@ -15,6 +15,7 @@ import com.focusblock.app.R
 import com.focusblock.app.database.entity.*
 import com.focusblock.app.database.repository.FocusBlockRepository
 import com.focusblock.app.service.AppBlockingService
+import com.focusblock.app.service.FocusCycleOverlayService
 import com.focusblock.app.ui.MainActivity
 import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.PermissionUtils
@@ -722,6 +723,9 @@ class HomeViewModel @Inject constructor(
             // Show the initial notification
             showFocusCycleNotification(focusCycle)
 
+            // Start floating overlay timer
+            FocusCycleOverlayService.start(application)
+
             showToast("Focus Cycle armed. Open a tracked app to start.")
         }
     }
@@ -737,6 +741,10 @@ class HomeViewModel @Inject constructor(
             }
             // Cancel the notification
             cancelFocusCycleNotification()
+
+            // Stop floating overlay timer
+            FocusCycleOverlayService.stop(application)
+
             showToast("Focus Cycle stopped")
         }
     }

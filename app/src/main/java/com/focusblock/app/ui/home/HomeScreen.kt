@@ -260,12 +260,20 @@ fun HomeScreen(
 
         // Focus Cycles Card (Soft-Nudge Mode)
         item {
+            val trackedAppsCount = uiState.focusCycle?.selectedPackages
+                ?.split(",")
+                ?.filter { it.isNotBlank() }
+                ?.size ?: 0
+            val useQuickBlockApps = uiState.focusCycle?.useQuickBlockApps ?: true
+
             FocusCycleCard(
                 isEnabled = uiState.isFocusCycleEnabled,
                 phase = uiState.focusCyclePhase,
                 remainingTime = uiState.focusCycleRemainingTime,
                 usageWindowMinutes = uiState.focusCycle?.usageWindowMinutes ?: 10,
                 breakDurationMinutes = uiState.focusCycle?.breakDurationMinutes ?: 30,
+                trackedAppsCount = trackedAppsCount,
+                useQuickBlockApps = useQuickBlockApps,
                 onStartClick = { showFocusCycleSetupDialog = true },
                 onStopClick = { viewModel.disableFocusCycle() }
             )
@@ -2075,6 +2083,8 @@ fun FocusCycleCard(
     remainingTime: Long,
     usageWindowMinutes: Int,
     breakDurationMinutes: Int,
+    trackedAppsCount: Int = 0,
+    useQuickBlockApps: Boolean = true,
     onStartClick: () -> Unit,
     onStopClick: () -> Unit
 ) {
@@ -2086,6 +2096,13 @@ fun FocusCycleCard(
         val seconds = ((remainingTime / 1000) % 60).toInt()
         String.format("%02d:%02d", minutes, seconds)
     } else ""
+
+    // App source label
+    val appSourceLabel = if (useQuickBlockApps) {
+        "Using blocked apps list"
+    } else {
+        "Using custom Focus Cycle list"
+    }
 
     Card(
         modifier = Modifier
@@ -2306,7 +2323,28 @@ fun FocusCycleCard(
                                     color = TextSecondary
                                 )
                             }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "$trackedAppsCount",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "Apps",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary
+                                )
+                            }
                         }
+
+                        // Show app source
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = appSourceLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary.copy(alpha = 0.7f)
+                        )
                     }
                 }
 

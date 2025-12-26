@@ -109,32 +109,20 @@ class FocusBlockAccessibilityService : AccessibilityService() {
      */
     private suspend fun handleFocusCycleStateTransition(packageName: String) {
         val focusCycleDao = database.focusCycleDao()
-        val blockedAppDao = database.blockedAppDao()
-        val quickBlockSessionDao = database.quickBlockSessionDao()
 
         val activeFocusCycle = focusCycleDao.getActiveFocusCycleSync() ?: return
         if (!activeFocusCycle.isEnabled) return
 
-        // Get list of apps in Focus Cycle
-        // If useQuickBlockApps is true, get apps from blocked_apps table (apps marked as blocked)
-        // Otherwise, use the selectedPackages from the Focus Cycle itself
-        val focusCyclePackages = if (activeFocusCycle.useQuickBlockApps) {
-            // First try to get from active Quick Block session
-            val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
-            if (quickBlockSession != null) {
-                quickBlockSession.blockedPackages.split(",").filter { it.isNotBlank() }
-            } else {
-                // Fall back to blocked apps in the database
-                blockedAppDao.getBlockedPackageNames()
-            }
-        } else {
-            activeFocusCycle.selectedPackages.split(",").filter { it.isNotBlank() }
-        }
+        // Get list of apps in Focus Cycle - always use selectedPackages
+        // This field is populated by the dialog with either Quick Block apps or custom selection
+        val focusCyclePackages = activeFocusCycle.selectedPackages
+            .split(",")
+            .filter { it.isNotBlank() }
 
         Log.d(TAG, "Focus Cycle tracking packages: $focusCyclePackages")
 
         if (focusCyclePackages.isEmpty()) {
-            Log.w(TAG, "Focus Cycle has no apps to track!")
+            Log.w(TAG, "Focus Cycle has no apps to track! selectedPackages is empty.")
             return
         }
 
@@ -381,15 +369,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
                 if (isInBreak) {
                     // Check if this app is in the Focus Cycle's app list
-                    val focusCyclePackages = if (activeFocusCycle.useQuickBlockApps) {
-                        if (quickBlockSession != null) {
-                            quickBlockSession.blockedPackages.split(",").filter { it.isNotBlank() }
-                        } else {
-                            blockedAppDao.getBlockedPackageNames()
-                        }
-                    } else {
-                        activeFocusCycle.selectedPackages.split(",").filter { it.isNotBlank() }
-                    }
+                    val focusCyclePackages = activeFocusCycle.selectedPackages
+                        .split(",")
+                        .filter { it.isNotBlank() }
 
                     if (focusCyclePackages.contains(packageName)) {
                         // Focus Cycle blocking - this is soft-nudge, can be overridden
@@ -505,19 +487,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
 
         // Check Focus Cycle (soft-nudge mode, third priority)
-        val blockedAppDao = database.blockedAppDao()
         val activeFocusCycle = focusCycleDao.getActiveFocusCycleSync()
         if (activeFocusCycle != null && activeFocusCycle.isEnabled) {
-            val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
-            val focusCyclePackages = if (activeFocusCycle.useQuickBlockApps) {
-                if (quickBlockSession != null) {
-                    quickBlockSession.blockedPackages.split(",").filter { it.isNotBlank() }
-                } else {
-                    blockedAppDao.getBlockedPackageNames()
-                }
-            } else {
-                activeFocusCycle.selectedPackages.split(",").filter { it.isNotBlank() }
-            }
+            val focusCyclePackages = activeFocusCycle.selectedPackages
+                .split(",")
+                .filter { it.isNotBlank() }
 
             if (focusCyclePackages.contains(packageName)) {
                 val now = System.currentTimeMillis()

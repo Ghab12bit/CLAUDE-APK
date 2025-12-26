@@ -163,4 +163,31 @@ object TimeUtils {
     fun daysOfWeekToString(days: List<Int>): String {
         return days.sorted().joinToString(",")
     }
+
+    /**
+     * Convert time value to milliseconds for Focus Cycle
+     * Negative values = seconds (e.g., -5 = 5 seconds for testing)
+     * Positive values = minutes (normal usage)
+     */
+    fun focusCycleTimeToMillis(value: Int): Long {
+        return if (value < 0) {
+            // Negative value means seconds (for testing)
+            (-value) * 1000L
+        } else {
+            // Positive value means minutes
+            value * 60 * 1000L
+        }
+    }
+
+    /**
+     * Format Focus Cycle time value for display
+     * Negative values = seconds, Positive values = minutes
+     */
+    fun formatFocusCycleTime(value: Int): String {
+        return if (value < 0) {
+            "${-value}s"
+        } else {
+            "${value}m"
+        }
+    }
 }

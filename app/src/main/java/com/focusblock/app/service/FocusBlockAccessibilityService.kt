@@ -35,6 +35,24 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         private const val FOCUS_CYCLE_NOTIFICATION_ID = 3001
         var isServiceRunning = false
             private set
+
+        /**
+         * Wrapper for TimeUtils.focusCycleTimeToMillis
+         */
+        private fun timeToMillis(value: Int): Long = TimeUtils.focusCycleTimeToMillis(value)
+
+        /**
+         * Format remaining time for display
+         * Shows seconds if under 1 minute, otherwise minutes
+         */
+        private fun formatRemainingTime(millis: Long): String {
+            val seconds = (millis / 1000).toInt()
+            return if (seconds < 60) {
+                "$seconds sec"
+            } else {
+                "${seconds / 60} min"
+            }
+        }
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -182,7 +200,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
             // Case 2: In break period - check if break is over
             activeFocusCycle.breakStartTime != null -> {
-                val breakEnd = activeFocusCycle.breakStartTime + (activeFocusCycle.breakDurationMinutes * 60 * 1000L)
+                val breakEnd = activeFocusCycle.breakStartTime + timeToMillis(activeFocusCycle.breakDurationMinutes)
                 if (now >= breakEnd) {
                     // Break is over - re-arm the cycle
                     Log.i(TAG, "Focus Cycle: Break ended - re-arming cycle")
@@ -214,7 +232,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     0L
                 }
                 val totalAccumulated = previousAccumulated + additionalTime
-                val usageWindowMillis = activeFocusCycle.usageWindowMinutes * 60 * 1000L
+                val usageWindowMillis = timeToMillis(activeFocusCycle.usageWindowMinutes)
 
                 // Check if usage window is exhausted
                 if (totalAccumulated >= usageWindowMillis) {
@@ -278,22 +296,24 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 )
             }
             cycle.breakStartTime != null -> {
-                val breakEnd = cycle.breakStartTime + (cycle.breakDurationMinutes * 60 * 1000L)
-                val remainingMinutes = maxOf(0, (breakEnd - now) / 60000).toInt()
+                val breakDurationMillis = timeToMillis(cycle.breakDurationMinutes)
+                val breakEnd = cycle.breakStartTime + breakDurationMillis
+                val remainingMillis = maxOf(0L, breakEnd - now)
+                val remainingText = formatRemainingTime(remainingMillis)
                 Triple(
                     "Break Time",
-                    "$remainingMinutes min remaining before apps unlock",
-                    ((now - cycle.breakStartTime) * 100 / (cycle.breakDurationMinutes * 60 * 1000L)).toInt()
+                    "$remainingText remaining before apps unlock",
+                    ((now - cycle.breakStartTime) * 100 / breakDurationMillis).toInt()
                 )
             }
             cycle.cycleStartTime != null -> {
-                val usageWindowMillis = cycle.usageWindowMinutes * 60 * 1000L
-                val remainingMillis = maxOf(0, usageWindowMillis - cycle.accumulatedUsageMillis)
-                val remainingMinutes = (remainingMillis / 60000).toInt()
+                val usageWindowMillis = timeToMillis(cycle.usageWindowMinutes)
+                val remainingMillis = maxOf(0L, usageWindowMillis - cycle.accumulatedUsageMillis)
+                val remainingText = formatRemainingTime(remainingMillis)
                 val pausedText = if (cycle.isPaused) " (Paused)" else ""
                 Triple(
                     "Focus Cycle - Usage Window$pausedText",
-                    "$remainingMinutes min remaining in usage window",
+                    "$remainingText remaining in usage window",
                     ((cycle.accumulatedUsageMillis * 100) / usageWindowMillis).toInt()
                 )
             }
@@ -387,10 +407,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
                 // Check if we're in break phase
                 val isInBreak = if (breakStart != null) {
-                    val breakEnd = breakStart + (activeFocusCycle.breakDurationMinutes * 60 * 1000L)
+                    val breakEnd = breakStart + timeToMillis(activeFocusCycle.breakDurationMinutes)
                     now < breakEnd
                 } else if (cycleStart != null) {
-                    val usageEnd = cycleStart + (activeFocusCycle.usageWindowMinutes * 60 * 1000L)
+                    val usageEnd = cycleStart + timeToMillis(activeFocusCycle.usageWindowMinutes)
                     now >= usageEnd
                 } else {
                     false
@@ -529,10 +549,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
                 // Check if we're in break phase
                 val isInBreak = if (breakStart != null) {
-                    val breakEnd = breakStart + (activeFocusCycle.breakDurationMinutes * 60 * 1000L)
+                    val breakEnd = breakStart + timeToMillis(activeFocusCycle.breakDurationMinutes)
                     now < breakEnd
                 } else if (cycleStart != null) {
-                    val usageEnd = cycleStart + (activeFocusCycle.usageWindowMinutes * 60 * 1000L)
+                    val usageEnd = cycleStart + timeToMillis(activeFocusCycle.usageWindowMinutes)
                     now >= usageEnd
                 } else {
                     false

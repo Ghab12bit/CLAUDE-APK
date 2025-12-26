@@ -2341,6 +2341,16 @@ fun FocusCycleSetupDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
+                    // -5 = 5 seconds (for testing)
+                    FilterChip(
+                        selected = usageWindowMinutes == -5,
+                        onClick = { usageWindowMinutes = -5 },
+                        label = { Text("5s") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFFFF5722),
+                            selectedLabelColor = TextPrimary
+                        )
+                    )
                     listOf(5, 10, 15, 20, 30).forEach { minutes ->
                         FilterChip(
                             selected = usageWindowMinutes == minutes,
@@ -2373,6 +2383,16 @@ fun FocusCycleSetupDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
+                    // -10 = 10 seconds (for testing)
+                    FilterChip(
+                        selected = breakDurationMinutes == -10,
+                        onClick = { breakDurationMinutes = -10 },
+                        label = { Text("10s") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFFFF5722),
+                            selectedLabelColor = TextPrimary
+                        )
+                    )
                     listOf(15, 30, 45, 60, 90).forEach { minutes ->
                         FilterChip(
                             selected = breakDurationMinutes == minutes,

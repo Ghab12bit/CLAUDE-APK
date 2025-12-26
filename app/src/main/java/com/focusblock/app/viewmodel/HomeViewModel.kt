@@ -220,7 +220,7 @@ class HomeViewModel @Inject constructor(
 
         // Check if in break period
         if (breakStart != null) {
-            val breakEnd = breakStart + (cycle.breakDurationMinutes * 60 * 1000L)
+            val breakEnd = breakStart + TimeUtils.focusCycleTimeToMillis(cycle.breakDurationMinutes)
             return if (now >= breakEnd) {
                 // Break is over - should be re-armed (handled by AccessibilityService)
                 FocusCyclePhase.ARMED
@@ -233,7 +233,7 @@ class HomeViewModel @Inject constructor(
         if (cycle.cycleStartTime == null) return FocusCyclePhase.ARMED
 
         // Check if usage window is exhausted based on accumulated time
-        val usageWindowMillis = cycle.usageWindowMinutes * 60 * 1000L
+        val usageWindowMillis = TimeUtils.focusCycleTimeToMillis(cycle.usageWindowMinutes)
         if (cycle.accumulatedUsageMillis >= usageWindowMillis) {
             return FocusCyclePhase.BREAK
         }
@@ -253,16 +253,16 @@ class HomeViewModel @Inject constructor(
             FocusCyclePhase.INACTIVE -> 0L
             FocusCyclePhase.ARMED -> {
                 // Full usage window available when armed
-                cycle.usageWindowMinutes * 60 * 1000L
+                TimeUtils.focusCycleTimeToMillis(cycle.usageWindowMinutes)
             }
             FocusCyclePhase.USAGE_WINDOW, FocusCyclePhase.PAUSED -> {
                 // Calculate remaining based on accumulated usage
-                val usageWindowMillis = cycle.usageWindowMinutes * 60 * 1000L
+                val usageWindowMillis = TimeUtils.focusCycleTimeToMillis(cycle.usageWindowMinutes)
                 maxOf(0, usageWindowMillis - cycle.accumulatedUsageMillis)
             }
             FocusCyclePhase.BREAK -> {
                 val breakStart = cycle.breakStartTime ?: now
-                val breakEnd = breakStart + (cycle.breakDurationMinutes * 60 * 1000L)
+                val breakEnd = breakStart + TimeUtils.focusCycleTimeToMillis(cycle.breakDurationMinutes)
                 maxOf(0, breakEnd - now)
             }
         }
@@ -742,6 +742,19 @@ class HomeViewModel @Inject constructor(
     }
 
     /**
+     * Format remaining time for display
+     * Shows seconds if under 1 minute, otherwise minutes
+     */
+    private fun formatRemainingTimeText(millis: Long): String {
+        val seconds = (millis / 1000).toInt()
+        return if (seconds < 60) {
+            "$seconds sec"
+        } else {
+            "${seconds / 60} min"
+        }
+    }
+
+    /**
      * Show Focus Cycle notification
      */
     private fun showFocusCycleNotification(cycle: FocusCycle) {
@@ -749,28 +762,30 @@ class HomeViewModel @Inject constructor(
 
         val (title, content) = when {
             cycle.isArmed -> {
+                val windowText = TimeUtils.formatFocusCycleTime(cycle.usageWindowMinutes)
                 Pair(
                     "Focus Cycle - Ready",
-                    "Open a tracked app to start your ${cycle.usageWindowMinutes}min usage window"
+                    "Open a tracked app to start your $windowText usage window"
                 )
             }
             cycle.breakStartTime != null -> {
                 val now = System.currentTimeMillis()
-                val breakEnd = cycle.breakStartTime + (cycle.breakDurationMinutes * 60 * 1000L)
-                val remainingMinutes = maxOf(0, (breakEnd - now) / 60000).toInt()
+                val breakEnd = cycle.breakStartTime + TimeUtils.focusCycleTimeToMillis(cycle.breakDurationMinutes)
+                val remainingMillis = maxOf(0, breakEnd - now)
+                val remainingText = formatRemainingTimeText(remainingMillis)
                 Pair(
                     "Break Time",
-                    "$remainingMinutes min remaining before apps unlock"
+                    "$remainingText remaining before apps unlock"
                 )
             }
             cycle.cycleStartTime != null -> {
-                val usageWindowMillis = cycle.usageWindowMinutes * 60 * 1000L
+                val usageWindowMillis = TimeUtils.focusCycleTimeToMillis(cycle.usageWindowMinutes)
                 val remainingMillis = maxOf(0, usageWindowMillis - cycle.accumulatedUsageMillis)
-                val remainingMinutes = (remainingMillis / 60000).toInt()
+                val remainingText = formatRemainingTimeText(remainingMillis)
                 val pausedText = if (cycle.isPaused) " (Paused)" else ""
                 Pair(
                     "Focus Cycle - Usage Window$pausedText",
-                    "$remainingMinutes min remaining in usage window"
+                    "$remainingText remaining in usage window"
                 )
             }
             else -> return

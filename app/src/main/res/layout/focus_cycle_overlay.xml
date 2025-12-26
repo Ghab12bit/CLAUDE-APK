@@ -1,30 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="8dp"
-    android:gravity="center"
-    android:background="@drawable/overlay_background">
+    android:layout_height="wrap_content">
 
-    <TextView
-        android:id="@+id/status_text"
+    <!-- Expanded View (Full Timer Display) -->
+    <LinearLayout
+        android:id="@+id/expanded_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="ACTIVE"
-        android:textSize="10sp"
-        android:textColor="#FFFFFF"
-        android:textStyle="bold"
-        android:letterSpacing="0.1" />
+        android:orientation="vertical"
+        android:padding="8dp"
+        android:gravity="center"
+        android:background="@drawable/overlay_background"
+        android:visibility="visible">
 
-    <TextView
-        android:id="@+id/timer_text"
+        <TextView
+            android:id="@+id/status_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ACTIVE"
+            android:textSize="10sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:letterSpacing="0.1" />
+
+        <TextView
+            android:id="@+id/timer_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="00:00"
+            android:textSize="18sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:fontFamily="monospace" />
+
+    </LinearLayout>
+
+    <!-- Collapsed View (Small Edge Icon) -->
+    <LinearLayout
+        android:id="@+id/collapsed_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="00:00"
-        android:textSize="18sp"
-        android:textColor="#FFFFFF"
-        android:textStyle="bold"
-        android:fontFamily="monospace" />
+        android:orientation="horizontal"
+        android:paddingStart="6dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:gravity="center_vertical"
+        android:background="@drawable/overlay_collapsed_background"
+        android:visibility="gone">
 
-</LinearLayout>
+        <TextView
+            android:id="@+id/collapsed_timer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0:00"
+            android:textSize="12sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:fontFamily="monospace" />
+
+        <TextView
+            android:id="@+id/collapsed_arrow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=">"
+            android:textSize="12sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:layout_marginStart="2dp" />
+
+    </LinearLayout>
+
+</FrameLayout>

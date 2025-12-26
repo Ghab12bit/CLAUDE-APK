@@ -1,5 +1,6 @@
 package com.focusblock.app.service
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Service
 import android.content.Context
@@ -10,27 +11,35 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
+import android.widget.FrameLayout
 import android.widget.TextView
 import com.focusblock.app.R
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.utils.TimeUtils
 import kotlinx.coroutines.*
+import kotlin.math.abs
 
 /**
  * Floating overlay service that shows Focus Cycle timer
- * This is more reliable than notifications on some devices
+ * Supports expanded (full timer) and collapsed (edge icon) modes
  */
 class FocusCycleOverlayService : Service() {
 
     companion object {
         private const val TAG = "FocusCycleOverlay"
         private const val UPDATE_INTERVAL_MS = 1000L
+        private const val CLICK_THRESHOLD = 10 // pixels - movement under this is a click
+        private const val EDGE_MARGIN = 0 // Snap to edge
+        private const val COLLAPSED_ALPHA = 0.6f
+        private const val EXPANDED_ALPHA = 0.95f
 
         fun start(context: Context) {
             if (!Settings.canDrawOverlays(context)) {
@@ -57,6 +66,21 @@ class FocusCycleOverlayService : Service() {
     private var initialY = 0
     private var initialTouchX = 0f
     private var initialTouchY = 0f
+    private var hasMoved = false
+
+    // ========== COLLAPSE/EXPAND STATE ==========
+    private var isCollapsed = false
+    private var isOnLeftEdge = true
+    private var screenWidth = 0
+    private lateinit var layoutParams: WindowManager.LayoutParams
+
+    // View references
+    private var expandedContainer: View? = null
+    private var collapsedContainer: View? = null
+    private var timerText: TextView? = null
+    private var statusText: TextView? = null
+    private var collapsedTimer: TextView? = null
+    private var collapsedArrow: TextView? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -73,10 +97,24 @@ class FocusCycleOverlayService : Service() {
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        // Create a simple overlay view
+        // Get screen dimensions
+        val displayMetrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager?.defaultDisplay?.getMetrics(displayMetrics)
+        screenWidth = displayMetrics.widthPixels
+
+        // Create the overlay view with both expanded and collapsed layouts
         overlayView = LayoutInflater.from(this).inflate(R.layout.focus_cycle_overlay, null)
 
-        val layoutParams = WindowManager.LayoutParams().apply {
+        // Get view references
+        expandedContainer = overlayView?.findViewById(R.id.expanded_container)
+        collapsedContainer = overlayView?.findViewById(R.id.collapsed_container)
+        timerText = overlayView?.findViewById(R.id.timer_text)
+        statusText = overlayView?.findViewById(R.id.status_text)
+        collapsedTimer = overlayView?.findViewById(R.id.collapsed_timer)
+        collapsedArrow = overlayView?.findViewById(R.id.collapsed_arrow)
+
+        layoutParams = WindowManager.LayoutParams().apply {
             width = WindowManager.LayoutParams.WRAP_CONTENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
             type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -89,14 +127,17 @@ class FocusCycleOverlayService : Service() {
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
             format = PixelFormat.TRANSLUCENT
             gravity = Gravity.TOP or Gravity.START
-            x = 50
-            y = 200
+            x = EDGE_MARGIN
+            y = 300
         }
 
         try {
             windowManager?.addView(overlayView, layoutParams)
-            setupTouchListener(layoutParams)
+            setupTouchListener()
             startUpdating()
+
+            // Start in expanded mode
+            setExpandedMode()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add overlay view", e)
             stopSelf()
@@ -104,25 +145,143 @@ class FocusCycleOverlayService : Service() {
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun setupTouchListener(params: WindowManager.LayoutParams) {
+    private fun setupTouchListener() {
         overlayView?.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    initialX = params.x
-                    initialY = params.y
+                    initialX = layoutParams.x
+                    initialY = layoutParams.y
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
+                    hasMoved = false
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    params.x = initialX + (event.rawX - initialTouchX).toInt()
-                    params.y = initialY + (event.rawY - initialTouchY).toInt()
-                    windowManager?.updateViewLayout(overlayView, params)
+                    val deltaX = event.rawX - initialTouchX
+                    val deltaY = event.rawY - initialTouchY
+
+                    // Check if this is a drag or just a tap
+                    if (abs(deltaX) > CLICK_THRESHOLD || abs(deltaY) > CLICK_THRESHOLD) {
+                        hasMoved = true
+                    }
+
+                    if (hasMoved) {
+                        layoutParams.x = initialX + deltaX.toInt()
+                        layoutParams.y = initialY + deltaY.toInt()
+                        windowManager?.updateViewLayout(overlayView, layoutParams)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!hasMoved) {
+                        // This was a tap - toggle collapsed/expanded
+                        toggleCollapsedMode()
+                    } else {
+                        // Was dragging - snap to nearest edge
+                        snapToEdge()
+                    }
                     true
                 }
                 else -> false
             }
         }
+    }
+
+    /**
+     * Toggle between collapsed and expanded modes
+     */
+    private fun toggleCollapsedMode() {
+        if (isCollapsed) {
+            setExpandedMode()
+        } else {
+            setCollapsedMode()
+        }
+    }
+
+    /**
+     * Set to expanded mode (full timer display)
+     */
+    private fun setExpandedMode() {
+        isCollapsed = false
+
+        expandedContainer?.visibility = View.VISIBLE
+        collapsedContainer?.visibility = View.GONE
+        overlayView?.alpha = EXPANDED_ALPHA
+
+        // Update arrow direction based on edge
+        updateArrowDirection()
+
+        Log.d(TAG, "Overlay expanded")
+    }
+
+    /**
+     * Set to collapsed mode (small edge icon)
+     */
+    private fun setCollapsedMode() {
+        isCollapsed = true
+
+        expandedContainer?.visibility = View.GONE
+        collapsedContainer?.visibility = View.VISIBLE
+        overlayView?.alpha = COLLAPSED_ALPHA
+
+        // Update arrow direction based on edge
+        updateArrowDirection()
+
+        // Snap to nearest edge when collapsing
+        snapToEdge()
+
+        Log.d(TAG, "Overlay collapsed")
+    }
+
+    /**
+     * Update arrow direction based on which edge we're on
+     */
+    private fun updateArrowDirection() {
+        collapsedArrow?.text = if (isOnLeftEdge) ">" else "<"
+    }
+
+    /**
+     * Snap the overlay to the nearest screen edge with animation
+     */
+    private fun snapToEdge() {
+        val currentX = layoutParams.x
+        val overlayWidth = overlayView?.width ?: 100
+
+        // Determine which edge is closer
+        val distanceToLeft = currentX
+        val distanceToRight = screenWidth - currentX - overlayWidth
+
+        val targetX = if (distanceToLeft < distanceToRight) {
+            isOnLeftEdge = true
+            EDGE_MARGIN
+        } else {
+            isOnLeftEdge = false
+            screenWidth - overlayWidth - EDGE_MARGIN
+        }
+
+        // Animate to edge
+        animateToPosition(targetX)
+
+        // Update arrow direction
+        updateArrowDirection()
+    }
+
+    /**
+     * Animate overlay to target X position
+     */
+    private fun animateToPosition(targetX: Int) {
+        val animator = ValueAnimator.ofInt(layoutParams.x, targetX)
+        animator.duration = 200
+        animator.interpolator = DecelerateInterpolator()
+        animator.addUpdateListener { animation ->
+            layoutParams.x = animation.animatedValue as Int
+            try {
+                windowManager?.updateViewLayout(overlayView, layoutParams)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to update layout during animation", e)
+            }
+        }
+        animator.start()
     }
 
     private fun startUpdating() {
@@ -140,42 +299,47 @@ class FocusCycleOverlayService : Service() {
         val focusCycle = database.focusCycleDao().getActiveFocusCycleSync()
 
         withContext(Dispatchers.Main) {
-            val timerText = overlayView?.findViewById<TextView>(R.id.timer_text)
-            val statusText = overlayView?.findViewById<TextView>(R.id.status_text)
-
             if (focusCycle == null || !focusCycle.isEnabled) {
-                // No active Focus Cycle - hide or stop
                 stopSelf()
                 return@withContext
             }
 
             val now = System.currentTimeMillis()
+            var status = ""
+            var timeString = ""
 
             when {
                 focusCycle.isArmed -> {
-                    statusText?.text = "READY"
+                    status = "READY"
                     val windowMillis = TimeUtils.focusCycleTimeToMillis(focusCycle.usageWindowMinutes)
-                    timerText?.text = formatTime(windowMillis)
+                    timeString = formatTime(windowMillis)
                 }
                 focusCycle.breakStartTime != null -> {
-                    statusText?.text = "BREAK"
+                    status = "BREAK"
                     val breakEnd = focusCycle.breakStartTime +
                             TimeUtils.focusCycleTimeToMillis(focusCycle.breakDurationMinutes)
                     val remaining = maxOf(0, breakEnd - now)
-                    timerText?.text = formatTime(remaining)
+                    timeString = formatTime(remaining)
 
-                    // Check if break ended
                     if (remaining <= 0) {
                         stopSelf()
+                        return@withContext
                     }
                 }
                 focusCycle.cycleStartTime != null -> {
-                    statusText?.text = if (focusCycle.isPaused) "PAUSED" else "ACTIVE"
+                    status = if (focusCycle.isPaused) "PAUSED" else "ACTIVE"
                     val windowMillis = TimeUtils.focusCycleTimeToMillis(focusCycle.usageWindowMinutes)
                     val remaining = maxOf(0, windowMillis - focusCycle.accumulatedUsageMillis)
-                    timerText?.text = formatTime(remaining)
+                    timeString = formatTime(remaining)
                 }
             }
+
+            // Update expanded view
+            statusText?.text = status
+            timerText?.text = timeString
+
+            // Update collapsed view
+            collapsedTimer?.text = formatTimeShort(timeString)
         }
     }
 
@@ -184,6 +348,18 @@ class FocusCycleOverlayService : Service() {
         val minutes = totalSeconds / 60
         val seconds = totalSeconds % 60
         return String.format("%02d:%02d", minutes, seconds)
+    }
+
+    /**
+     * Format time for collapsed view (shorter format)
+     */
+    private fun formatTimeShort(fullTime: String): String {
+        // Remove leading zero from minutes if present
+        return if (fullTime.startsWith("0")) {
+            fullTime.substring(1)
+        } else {
+            fullTime
+        }
     }
 
     override fun onDestroy() {

@@ -40,8 +40,10 @@ import com.focusblock.app.ui.components.PomodoroSetupDialog
 import com.focusblock.app.ui.components.StrictModeSetupDialog
 import com.focusblock.app.ui.components.FocusCycleSetupDialog
 import com.focusblock.app.ui.components.StrictModePauseDialog
+import com.focusblock.app.service.FocusBlockAccessibilityService
 import com.focusblock.app.ui.theme.*
 import com.focusblock.app.utils.AppUtils
+import com.focusblock.app.utils.PermissionUtils
 import com.focusblock.app.utils.TimeUtils
 import com.focusblock.app.viewmodel.FocusCyclePhase
 import com.focusblock.app.viewmodel.HomeViewModel
@@ -265,6 +267,7 @@ fun HomeScreen(
                 ?.filter { it.isNotBlank() }
                 ?.size ?: 0
             val useQuickBlockApps = uiState.focusCycle?.useQuickBlockApps ?: true
+            val isAccessibilityEnabled = PermissionUtils.hasAccessibilityServiceEnabled(context)
 
             FocusCycleCard(
                 isEnabled = uiState.isFocusCycleEnabled,
@@ -274,8 +277,14 @@ fun HomeScreen(
                 breakDurationMinutes = uiState.focusCycle?.breakDurationMinutes ?: 30,
                 trackedAppsCount = trackedAppsCount,
                 useQuickBlockApps = useQuickBlockApps,
+                isAccessibilityEnabled = isAccessibilityEnabled,
                 onStartClick = { showFocusCycleSetupDialog = true },
-                onStopClick = { viewModel.disableFocusCycle() }
+                onStopClick = { viewModel.disableFocusCycle() },
+                onEnableAccessibility = {
+                    // Open accessibility settings
+                    val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    context.startActivity(intent)
+                }
             )
         }
     }
@@ -2085,10 +2094,13 @@ fun FocusCycleCard(
     breakDurationMinutes: Int,
     trackedAppsCount: Int = 0,
     useQuickBlockApps: Boolean = true,
+    isAccessibilityEnabled: Boolean = true,
     onStartClick: () -> Unit,
-    onStopClick: () -> Unit
+    onStopClick: () -> Unit,
+    onEnableAccessibility: () -> Unit = {}
 ) {
     val cycleColor = Color(0xFF9C27B0) // Purple
+    val warningColor = Color(0xFFFF5722) // Deep Orange for warning
 
     // Format remaining time
     val remainingTimeText = if (remainingTime > 0) {
@@ -2214,6 +2226,60 @@ fun FocusCycleCard(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         Text("Start", fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+
+            // Show accessibility warning if not enabled
+            if (isEnabled && !isAccessibilityEnabled) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = warningColor.copy(alpha = 0.15f)),
+                    border = BorderStroke(1.dp, warningColor.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Warning,
+                                contentDescription = null,
+                                tint = warningColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Accessibility Service Required",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = warningColor,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Focus Cycle needs Accessibility permission to detect when you open apps and track usage time.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = onEnableAccessibility,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = warningColor)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Settings,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Enable Accessibility Service")
+                        }
                     }
                 }
             }

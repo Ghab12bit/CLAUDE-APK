@@ -19,25 +19,26 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
-import android.widget.FrameLayout
 import android.widget.TextView
 import com.focusblock.app.R
 import com.focusblock.app.database.FocusBlockDatabase
+import com.focusblock.app.database.entity.FocusCycle
 import com.focusblock.app.utils.TimeUtils
 import kotlinx.coroutines.*
 import kotlin.math.abs
 
 /**
  * Floating overlay service that shows Focus Cycle timer
- * Supports expanded (full timer) and collapsed (edge icon) modes
+ * Uses TIMESTAMP-BASED timing - no independent counters
+ * All elapsed time computed as: now - sessionStartTimestamp
  */
 class FocusCycleOverlayService : Service() {
 
     companion object {
         private const val TAG = "FocusCycleOverlay"
-        private const val UPDATE_INTERVAL_MS = 1000L
-        private const val CLICK_THRESHOLD = 10 // pixels - movement under this is a click
-        private const val EDGE_MARGIN = 0 // Snap to edge
+        private const val UPDATE_INTERVAL_MS = 100L // Fast refresh for smooth display
+        private const val CLICK_THRESHOLD = 10
+        private const val EDGE_MARGIN = 0
         private const val COLLAPSED_ALPHA = 0.6f
         private const val EXPANDED_ALPHA = 0.95f
 
@@ -54,6 +55,29 @@ class FocusCycleOverlayService : Service() {
             val intent = Intent(context, FocusCycleOverlayService::class.java)
             context.stopService(intent)
         }
+
+        /**
+         * Compute LIVE elapsed usage time from timestamps
+         * This is the single source of truth for timing
+         */
+        fun computeElapsedUsageMillis(cycle: FocusCycle, now: Long = System.currentTimeMillis()): Long {
+            // If paused or no active session, return accumulated only
+            if (cycle.isPaused || cycle.lastActiveTime == null) {
+                return cycle.accumulatedUsageMillis
+            }
+            // LIVE calculation: accumulated + current session
+            val currentSessionMillis = now - cycle.lastActiveTime
+            return cycle.accumulatedUsageMillis + currentSessionMillis
+        }
+
+        /**
+         * Compute remaining time in usage window
+         */
+        fun computeRemainingMillis(cycle: FocusCycle, now: Long = System.currentTimeMillis()): Long {
+            val usageWindowMillis = TimeUtils.focusCycleTimeToMillis(cycle.usageWindowMinutes)
+            val elapsed = computeElapsedUsageMillis(cycle, now)
+            return maxOf(0L, usageWindowMillis - elapsed)
+        }
     }
 
     private var windowManager: WindowManager? = null
@@ -68,7 +92,7 @@ class FocusCycleOverlayService : Service() {
     private var initialTouchY = 0f
     private var hasMoved = false
 
-    // ========== COLLAPSE/EXPAND STATE ==========
+    // Collapse/expand state
     private var isCollapsed = false
     private var isOnLeftEdge = true
     private var screenWidth = 0
@@ -82,12 +106,17 @@ class FocusCycleOverlayService : Service() {
     private var collapsedTimer: TextView? = null
     private var collapsedArrow: TextView? = null
 
+    // Cached cycle for display (updated from DB periodically)
+    @Volatile private var cachedCycle: FocusCycle? = null
+    private var lastDbFetch: Long = 0
+    private val DB_FETCH_INTERVAL = 2000L // Fetch from DB every 2s
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     @SuppressLint("InflateParams")
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "FocusCycleOverlayService created")
+        Log.d(TAG, "FocusCycleOverlayService created - using timestamp-based timing")
 
         if (!Settings.canDrawOverlays(this)) {
             Log.w(TAG, "No overlay permission")
@@ -97,16 +126,13 @@ class FocusCycleOverlayService : Service() {
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        // Get screen dimensions
         val displayMetrics = DisplayMetrics()
         @Suppress("DEPRECATION")
         windowManager?.defaultDisplay?.getMetrics(displayMetrics)
         screenWidth = displayMetrics.widthPixels
 
-        // Create the overlay view with both expanded and collapsed layouts
         overlayView = LayoutInflater.from(this).inflate(R.layout.focus_cycle_overlay, null)
 
-        // Get view references
         expandedContainer = overlayView?.findViewById(R.id.expanded_container)
         collapsedContainer = overlayView?.findViewById(R.id.collapsed_container)
         timerText = overlayView?.findViewById(R.id.timer_text)
@@ -134,14 +160,113 @@ class FocusCycleOverlayService : Service() {
         try {
             windowManager?.addView(overlayView, layoutParams)
             setupTouchListener()
-            startUpdating()
 
-            // Start in expanded mode
+            // Initial DB fetch
+            fetchCycleFromDb()
+
+            // Start fast UI refresh (100ms for smooth countdown)
+            startDisplayRefresh()
+
             setExpandedMode()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add overlay view", e)
             stopSelf()
         }
+    }
+
+    /**
+     * Fetch cycle from database (runs less frequently)
+     */
+    private fun fetchCycleFromDb() {
+        serviceScope.launch {
+            try {
+                val cycle = database.focusCycleDao().getActiveFocusCycleSync()
+                cachedCycle = cycle
+                lastDbFetch = System.currentTimeMillis()
+
+                if (cycle == null || !cycle.isEnabled) {
+                    withContext(Dispatchers.Main) {
+                        stopSelf()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch cycle from DB", e)
+            }
+        }
+    }
+
+    /**
+     * Start display refresh loop
+     * Runs every 100ms but computes time from LIVE timestamps
+     */
+    private fun startDisplayRefresh() {
+        handler.post(object : Runnable {
+            override fun run() {
+                // Refresh DB periodically
+                val now = System.currentTimeMillis()
+                if (now - lastDbFetch > DB_FETCH_INTERVAL) {
+                    fetchCycleFromDb()
+                }
+
+                // Update display from cached cycle using LIVE timestamps
+                updateDisplayFromTimestamps()
+
+                handler.postDelayed(this, UPDATE_INTERVAL_MS)
+            }
+        })
+    }
+
+    /**
+     * Update display using LIVE timestamp calculations
+     * No counters - always computed from timestamps
+     */
+    private fun updateDisplayFromTimestamps() {
+        val cycle = cachedCycle ?: return
+        if (!cycle.isEnabled) {
+            stopSelf()
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        var status = ""
+        var remainingMillis = 0L
+
+        when {
+            cycle.isArmed -> {
+                status = "READY"
+                remainingMillis = TimeUtils.focusCycleTimeToMillis(cycle.usageWindowMinutes)
+            }
+            cycle.breakStartTime != null -> {
+                status = "BREAK"
+                val breakEnd = cycle.breakStartTime +
+                    TimeUtils.focusCycleTimeToMillis(cycle.breakDurationMinutes)
+                remainingMillis = maxOf(0L, breakEnd - now)
+
+                if (remainingMillis <= 0) {
+                    stopSelf()
+                    return
+                }
+            }
+            cycle.cycleStartTime != null -> {
+                status = if (cycle.isPaused) "PAUSED" else "ACTIVE"
+                // LIVE timestamp calculation
+                remainingMillis = computeRemainingMillis(cycle, now)
+
+                // Log for verification
+                if (!cycle.isPaused) {
+                    val elapsed = computeElapsedUsageMillis(cycle, now)
+                    Log.v(TAG, "LIVE timing: elapsed=${elapsed}ms, remaining=${remainingMillis}ms, " +
+                            "accumulated=${cycle.accumulatedUsageMillis}, lastActive=${cycle.lastActiveTime}")
+                }
+            }
+        }
+
+        val timeString = formatTime(remainingMillis)
+
+        // Update views on main thread
+        statusText?.text = status
+        timerText?.text = timeString
+        collapsedTimer?.text = formatTimeShort(timeString)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -160,7 +285,6 @@ class FocusCycleOverlayService : Service() {
                     val deltaX = event.rawX - initialTouchX
                     val deltaY = event.rawY - initialTouchY
 
-                    // Check if this is a drag or just a tap
                     if (abs(deltaX) > CLICK_THRESHOLD || abs(deltaY) > CLICK_THRESHOLD) {
                         hasMoved = true
                     }
@@ -174,10 +298,8 @@ class FocusCycleOverlayService : Service() {
                 }
                 MotionEvent.ACTION_UP -> {
                     if (!hasMoved) {
-                        // This was a tap - toggle collapsed/expanded
                         toggleCollapsedMode()
                     } else {
-                        // Was dragging - snap to nearest edge
                         snapToEdge()
                     }
                     true
@@ -187,67 +309,36 @@ class FocusCycleOverlayService : Service() {
         }
     }
 
-    /**
-     * Toggle between collapsed and expanded modes
-     */
     private fun toggleCollapsedMode() {
-        if (isCollapsed) {
-            setExpandedMode()
-        } else {
-            setCollapsedMode()
-        }
+        if (isCollapsed) setExpandedMode() else setCollapsedMode()
     }
 
-    /**
-     * Set to expanded mode (full timer display)
-     */
     private fun setExpandedMode() {
         isCollapsed = false
-
         expandedContainer?.visibility = View.VISIBLE
         collapsedContainer?.visibility = View.GONE
         overlayView?.alpha = EXPANDED_ALPHA
-
-        // Update arrow direction based on edge
         updateArrowDirection()
-
         Log.d(TAG, "Overlay expanded")
     }
 
-    /**
-     * Set to collapsed mode (small edge icon)
-     */
     private fun setCollapsedMode() {
         isCollapsed = true
-
         expandedContainer?.visibility = View.GONE
         collapsedContainer?.visibility = View.VISIBLE
         overlayView?.alpha = COLLAPSED_ALPHA
-
-        // Update arrow direction based on edge
         updateArrowDirection()
-
-        // Snap to nearest edge when collapsing
         snapToEdge()
-
         Log.d(TAG, "Overlay collapsed")
     }
 
-    /**
-     * Update arrow direction based on which edge we're on
-     */
     private fun updateArrowDirection() {
         collapsedArrow?.text = if (isOnLeftEdge) ">" else "<"
     }
 
-    /**
-     * Snap the overlay to the nearest screen edge with animation
-     */
     private fun snapToEdge() {
         val currentX = layoutParams.x
         val overlayWidth = overlayView?.width ?: 100
-
-        // Determine which edge is closer
         val distanceToLeft = currentX
         val distanceToRight = screenWidth - currentX - overlayWidth
 
@@ -259,16 +350,10 @@ class FocusCycleOverlayService : Service() {
             screenWidth - overlayWidth - EDGE_MARGIN
         }
 
-        // Animate to edge
         animateToPosition(targetX)
-
-        // Update arrow direction
         updateArrowDirection()
     }
 
-    /**
-     * Animate overlay to target X position
-     */
     private fun animateToPosition(targetX: Int) {
         val animator = ValueAnimator.ofInt(layoutParams.x, targetX)
         animator.duration = 200
@@ -284,65 +369,6 @@ class FocusCycleOverlayService : Service() {
         animator.start()
     }
 
-    private fun startUpdating() {
-        handler.post(object : Runnable {
-            override fun run() {
-                serviceScope.launch {
-                    updateOverlay()
-                }
-                handler.postDelayed(this, UPDATE_INTERVAL_MS)
-            }
-        })
-    }
-
-    private suspend fun updateOverlay() {
-        val focusCycle = database.focusCycleDao().getActiveFocusCycleSync()
-
-        withContext(Dispatchers.Main) {
-            if (focusCycle == null || !focusCycle.isEnabled) {
-                stopSelf()
-                return@withContext
-            }
-
-            val now = System.currentTimeMillis()
-            var status = ""
-            var timeString = ""
-
-            when {
-                focusCycle.isArmed -> {
-                    status = "READY"
-                    val windowMillis = TimeUtils.focusCycleTimeToMillis(focusCycle.usageWindowMinutes)
-                    timeString = formatTime(windowMillis)
-                }
-                focusCycle.breakStartTime != null -> {
-                    status = "BREAK"
-                    val breakEnd = focusCycle.breakStartTime +
-                            TimeUtils.focusCycleTimeToMillis(focusCycle.breakDurationMinutes)
-                    val remaining = maxOf(0, breakEnd - now)
-                    timeString = formatTime(remaining)
-
-                    if (remaining <= 0) {
-                        stopSelf()
-                        return@withContext
-                    }
-                }
-                focusCycle.cycleStartTime != null -> {
-                    status = if (focusCycle.isPaused) "PAUSED" else "ACTIVE"
-                    val windowMillis = TimeUtils.focusCycleTimeToMillis(focusCycle.usageWindowMinutes)
-                    val remaining = maxOf(0, windowMillis - focusCycle.accumulatedUsageMillis)
-                    timeString = formatTime(remaining)
-                }
-            }
-
-            // Update expanded view
-            statusText?.text = status
-            timerText?.text = timeString
-
-            // Update collapsed view
-            collapsedTimer?.text = formatTimeShort(timeString)
-        }
-    }
-
     private fun formatTime(millis: Long): String {
         val totalSeconds = (millis / 1000).toInt()
         val minutes = totalSeconds / 60
@@ -350,16 +376,8 @@ class FocusCycleOverlayService : Service() {
         return String.format("%02d:%02d", minutes, seconds)
     }
 
-    /**
-     * Format time for collapsed view (shorter format)
-     */
     private fun formatTimeShort(fullTime: String): String {
-        // Remove leading zero from minutes if present
-        return if (fullTime.startsWith("0")) {
-            fullTime.substring(1)
-        } else {
-            fullTime
-        }
+        return if (fullTime.startsWith("0")) fullTime.substring(1) else fullTime
     }
 
     override fun onDestroy() {

@@ -233,9 +233,10 @@ class HomeViewModel @Inject constructor(
         // Check if cycle has started
         if (cycle.cycleStartTime == null) return FocusCyclePhase.ARMED
 
-        // Check if usage window is exhausted based on accumulated time
+        // Check if usage window is exhausted using LIVE timestamp calculation
         val usageWindowMillis = TimeUtils.focusCycleTimeToMillis(cycle.usageWindowMinutes)
-        if (cycle.accumulatedUsageMillis >= usageWindowMillis) {
+        val elapsedMillis = computeElapsedUsageMillis(cycle, now)
+        if (elapsedMillis >= usageWindowMillis) {
             return FocusCyclePhase.BREAK
         }
 
@@ -245,6 +246,20 @@ class HomeViewModel @Inject constructor(
         } else {
             FocusCyclePhase.USAGE_WINDOW
         }
+    }
+
+    /**
+     * Compute LIVE elapsed usage time from timestamps
+     * This is the single source of truth for timing
+     */
+    private fun computeElapsedUsageMillis(cycle: FocusCycle, now: Long = System.currentTimeMillis()): Long {
+        // If paused or no active session, return accumulated only
+        if (cycle.isPaused || cycle.lastActiveTime == null) {
+            return cycle.accumulatedUsageMillis
+        }
+        // LIVE calculation: accumulated + current session time
+        val currentSessionMillis = now - cycle.lastActiveTime
+        return cycle.accumulatedUsageMillis + currentSessionMillis
     }
 
     private fun calculateFocusCycleRemainingTime(cycle: FocusCycle, phase: FocusCyclePhase): Long {
@@ -257,9 +272,10 @@ class HomeViewModel @Inject constructor(
                 TimeUtils.focusCycleTimeToMillis(cycle.usageWindowMinutes)
             }
             FocusCyclePhase.USAGE_WINDOW, FocusCyclePhase.PAUSED -> {
-                // Calculate remaining based on accumulated usage
+                // LIVE timestamp calculation
                 val usageWindowMillis = TimeUtils.focusCycleTimeToMillis(cycle.usageWindowMinutes)
-                maxOf(0, usageWindowMillis - cycle.accumulatedUsageMillis)
+                val elapsedMillis = computeElapsedUsageMillis(cycle, now)
+                maxOf(0, usageWindowMillis - elapsedMillis)
             }
             FocusCyclePhase.BREAK -> {
                 val breakStart = cycle.breakStartTime ?: now
@@ -787,8 +803,11 @@ class HomeViewModel @Inject constructor(
                 )
             }
             cycle.cycleStartTime != null -> {
+                val now = System.currentTimeMillis()
                 val usageWindowMillis = TimeUtils.focusCycleTimeToMillis(cycle.usageWindowMinutes)
-                val remainingMillis = maxOf(0, usageWindowMillis - cycle.accumulatedUsageMillis)
+                // LIVE timestamp calculation
+                val elapsedMillis = computeElapsedUsageMillis(cycle, now)
+                val remainingMillis = maxOf(0, usageWindowMillis - elapsedMillis)
                 val remainingText = formatRemainingTimeText(remainingMillis)
                 val pausedText = if (cycle.isPaused) " (Paused)" else ""
                 Pair(

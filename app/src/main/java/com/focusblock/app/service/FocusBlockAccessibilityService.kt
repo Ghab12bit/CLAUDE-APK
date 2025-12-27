@@ -56,6 +56,23 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 "${seconds / 60} min"
             }
         }
+
+        /**
+         * Compute LIVE elapsed usage time from timestamps
+         * This is the single source of truth for timing
+         * @param cycle The Focus Cycle data
+         * @param now Current timestamp
+         * @return Total elapsed usage time in milliseconds
+         */
+        fun computeElapsedUsageMillis(cycle: FocusCycle, now: Long): Long {
+            // If paused or no active session, return accumulated only
+            if (cycle.isPaused || cycle.lastActiveTime == null) {
+                return cycle.accumulatedUsageMillis
+            }
+            // LIVE calculation: accumulated + current session time
+            val currentSessionMillis = now - cycle.lastActiveTime
+            return cycle.accumulatedUsageMillis + currentSessionMillis
+        }
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -361,13 +378,15 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             }
             cycle.cycleStartTime != null -> {
                 val usageWindowMillis = timeToMillis(cycle.usageWindowMinutes)
-                val remainingMillis = maxOf(0L, usageWindowMillis - cycle.accumulatedUsageMillis)
+                // LIVE timestamp calculation - compute elapsed from timestamps
+                val elapsedMillis = computeElapsedUsageMillis(cycle, now)
+                val remainingMillis = maxOf(0L, usageWindowMillis - elapsedMillis)
                 val remainingText = formatRemainingTime(remainingMillis)
                 val pausedText = if (cycle.isPaused) " (Paused)" else ""
                 Triple(
                     "Focus Cycle - Usage Window$pausedText",
                     "$remainingText remaining in usage window",
-                    ((cycle.accumulatedUsageMillis * 100) / usageWindowMillis).toInt()
+                    ((elapsedMillis * 100) / usageWindowMillis).toInt()
                 )
             }
             else -> return

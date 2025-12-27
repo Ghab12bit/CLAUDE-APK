@@ -52,6 +52,8 @@ import com.focusblock.app.viewmodel.InsightsState
 import com.focusblock.app.viewmodel.DistractionInsight
 import com.focusblock.app.viewmodel.HourlyInsight
 import com.focusblock.app.viewmodel.LongSessionRisk
+import com.focusblock.app.viewmodel.ActionSuggestion
+import com.focusblock.app.viewmodel.ActionType
 
 @Composable
 fun HomeScreen(
@@ -2568,6 +2570,15 @@ fun InsightsSection(
             )
         }
 
+        // Context-aware Action Suggestions
+        if (insights.actionSuggestions.isNotEmpty()) {
+            ActionSuggestionsCard(
+                suggestions = insights.actionSuggestions,
+                onStartQuickBlock = onStartQuickBlock,
+                onStartFocusCycle = onStartFocusCycle
+            )
+        }
+
         // Streak & Progress Row
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -2814,6 +2825,150 @@ fun LongSessionRiskCard(
         }
     }
 }
+
+@Composable
+fun ActionSuggestionsCard(
+    suggestions: List<ActionSuggestion>,
+    onStartQuickBlock: (String) -> Unit,
+    onStartFocusCycle: (String, Int?) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Lightbulb,
+                    contentDescription = null,
+                    tint = Primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Suggested Actions",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            suggestions.forEach { suggestion ->
+                ActionSuggestionItem(
+                    suggestion = suggestion,
+                    onStartQuickBlock = onStartQuickBlock,
+                    onStartFocusCycle = onStartFocusCycle
+                )
+                if (suggestion != suggestions.last()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ActionSuggestionItem(
+    suggestion: ActionSuggestion,
+    onStartQuickBlock: (String) -> Unit,
+    onStartFocusCycle: (String, Int?) -> Unit
+) {
+    val (icon, iconColor, buttonText, onClick) = when (suggestion.type) {
+        ActionType.FOCUS_CYCLE_FOR_PEAK_TIME -> {
+            Tuple4(
+                Icons.Filled.Refresh,
+                Color(0xFF4CAF50),
+                "Start Focus Cycle"
+            ) { onStartFocusCycle("", suggestion.peakStartHour) }
+        }
+        ActionType.QUICK_BLOCK_DISTRACTION -> {
+            Tuple4(
+                Icons.Filled.Block,
+                AccentOrange,
+                "Block Now"
+            ) { suggestion.targetPackage?.let { onStartQuickBlock(it) } }
+        }
+        ActionType.SET_TIME_LIMIT -> {
+            Tuple4(
+                Icons.Filled.Timer,
+                Color(0xFF2196F3),
+                "Set Limit"
+            ) { /* Navigate to time limits */ }
+        }
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = SurfaceDark.copy(alpha = 0.5f)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(iconColor.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = iconColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = suggestion.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = suggestion.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Button(
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = iconColor)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(buttonText, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+// Helper data class for destructuring
+private data class Tuple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
 @Composable
 fun StreakTile(

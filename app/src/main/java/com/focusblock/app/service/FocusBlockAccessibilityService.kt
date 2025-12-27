@@ -27,6 +27,7 @@ import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.TimeUtils
 import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentHashMap
 
 class FocusBlockAccessibilityService : AccessibilityService() {
 
@@ -35,6 +36,13 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         private const val BLOCK_COOLDOWN = 2000L
         private const val FOCUS_CYCLE_NOTIFICATION_ID = 3001
         private const val CACHE_REFRESH_INTERVAL_MS = 5000L // Refresh cache every 5 seconds
+
+        // ========== MINDFUL REMINDER THRESHOLDS ==========
+        private const val GENTLE_REMINDER_THRESHOLD_MINUTES = 30 // First gentle nudge at 30 min
+        private const val FIRM_REMINDER_THRESHOLD_MINUTES = 60 // Firm reminder at 60 min
+        private const val SESSION_CHECK_INTERVAL_MS = 60_000L // Check every minute
+        private const val GENTLE_REMINDER_NOTIFICATION_ID = 4001
+        private const val FIRM_REMINDER_NOTIFICATION_ID = 4002
 
         var isServiceRunning = false
             private set
@@ -97,6 +105,19 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     @Volatile private var lastCacheRefresh: Long = 0L
     private val isCacheRefreshing = AtomicBoolean(false)
 
+    // ========== MINDFUL SESSION TRACKING ==========
+    // Track continuous session duration for distracting apps (apps that get blocked)
+    private data class AppSession(
+        val packageName: String,
+        val startTime: Long,
+        var gentleReminderShown: Boolean = false,
+        var firmReminderShown: Boolean = false
+    )
+    private val activeSessions = ConcurrentHashMap<String, AppSession>()
+    private val sessionCheckHandler = Handler(Looper.getMainLooper())
+    private var sessionCheckRunnable: Runnable? = null
+    private var cachedDistractingApps: Set<String> = emptySet() // Apps that are typically blocked/tracked
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.d(TAG, "Accessibility service connected")
@@ -117,9 +138,13 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
         // Initialize cache immediately
         refreshFocusCycleCache()
+        refreshDistractingAppsCache()
 
         // Start Quick Block timer enforcement
         startQuickBlockTimerCheck()
+
+        // Start session duration monitoring for mindful reminders
+        startSessionDurationCheck()
 
         // Show toast to confirm service is running
         mainHandler.post {
@@ -295,6 +320,214 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
     }
 
+    // ========== MINDFUL REMINDER SESSION TRACKING ==========
+
+    /**
+     * Refresh the list of distracting apps (apps that are blocked or tracked)
+     * These are apps we want to monitor for long session reminders
+     */
+    private fun refreshDistractingAppsCache() {
+        immediateScope.launch {
+            try {
+                val blockedApps = database.blockedAppDao().getBlockedPackageNames().toSet()
+
+                val focusCycleApps = cachedFocusCyclePackages
+
+                val quickBlockApps = database.quickBlockSessionDao().getActiveSessionSync()
+                    ?.blockedPackages
+                    ?.split(",")
+                    ?.filter { it.isNotBlank() }
+                    ?.toSet() ?: emptySet()
+
+                cachedDistractingApps = blockedApps + focusCycleApps + quickBlockApps
+                Log.d(TAG, "Distracting apps cache refreshed: ${cachedDistractingApps.size} apps")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to refresh distracting apps cache", e)
+            }
+        }
+    }
+
+    /**
+     * Start periodic session duration check for mindful reminders
+     * Runs every minute to check if any app session has exceeded thresholds
+     */
+    private fun startSessionDurationCheck() {
+        stopSessionDurationCheck()
+
+        sessionCheckRunnable = object : Runnable {
+            override fun run() {
+                checkSessionDurations()
+                sessionCheckHandler.postDelayed(this, SESSION_CHECK_INTERVAL_MS)
+            }
+        }
+        sessionCheckHandler.post(sessionCheckRunnable!!)
+        Log.d(TAG, "Session duration monitoring started")
+    }
+
+    private fun stopSessionDurationCheck() {
+        sessionCheckRunnable?.let {
+            sessionCheckHandler.removeCallbacks(it)
+        }
+        sessionCheckRunnable = null
+    }
+
+    /**
+     * Track app session start/switch
+     * Called when the foreground app changes
+     */
+    private fun trackAppSession(packageName: String, eventTime: Long) {
+        // End previous session for other apps
+        val previousPackage = lastForegroundPackage
+        if (previousPackage != null && previousPackage != packageName) {
+            activeSessions.remove(previousPackage)
+            Log.d(TAG, "Session ended for: $previousPackage")
+        }
+
+        // Check if this is a distracting app we should track
+        if (!cachedDistractingApps.contains(packageName)) {
+            return
+        }
+
+        // Start or continue session for this app
+        if (!activeSessions.containsKey(packageName)) {
+            activeSessions[packageName] = AppSession(
+                packageName = packageName,
+                startTime = eventTime
+            )
+            Log.d(TAG, "Session started for distracting app: $packageName")
+        }
+    }
+
+    /**
+     * Check session durations and show reminders if thresholds exceeded
+     */
+    private fun checkSessionDurations() {
+        val now = System.currentTimeMillis()
+        val currentPackage = lastForegroundPackage ?: return
+
+        // Only check if user is currently on a distracting app
+        val session = activeSessions[currentPackage] ?: return
+
+        val sessionDurationMinutes = (now - session.startTime) / 60_000
+
+        Log.v(TAG, "Session check: $currentPackage duration=${sessionDurationMinutes}min, gentle=${session.gentleReminderShown}, firm=${session.firmReminderShown}")
+
+        when {
+            // Firm reminder at 60+ minutes (if gentle already shown)
+            sessionDurationMinutes >= FIRM_REMINDER_THRESHOLD_MINUTES &&
+                    session.gentleReminderShown && !session.firmReminderShown -> {
+                showFirmReminder(currentPackage, sessionDurationMinutes.toInt())
+                session.firmReminderShown = true
+                activeSessions[currentPackage] = session
+            }
+
+            // Gentle reminder at 30+ minutes
+            sessionDurationMinutes >= GENTLE_REMINDER_THRESHOLD_MINUTES &&
+                    !session.gentleReminderShown -> {
+                showGentleReminder(currentPackage, sessionDurationMinutes.toInt())
+                session.gentleReminderShown = true
+                activeSessions[currentPackage] = session
+            }
+        }
+    }
+
+    /**
+     * Show gentle supportive reminder notification at 30-min threshold
+     */
+    private fun showGentleReminder(packageName: String, durationMinutes: Int) {
+        Log.i(TAG, "Showing gentle reminder for $packageName after $durationMinutes minutes")
+
+        val appName = AppUtils.getAppName(applicationContext, packageName)
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_MINDFUL_REMINDER)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("You've been on $appName for $durationMinutes minutes")
+            .setContentText("Take a moment to check in with yourself. Is this how you want to spend your time?")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("You've been scrolling for a while. A quick stretch or a glass of water might feel good right now. You're doing great by being mindful about your screen time!"))
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(GENTLE_REMINDER_NOTIFICATION_ID, notification)
+
+        // Gentle vibration
+        vibrateGently()
+    }
+
+    /**
+     * Show firm productivity-focused reminder at 60-min threshold
+     */
+    private fun showFirmReminder(packageName: String, durationMinutes: Int) {
+        Log.i(TAG, "Showing firm reminder for $packageName after $durationMinutes minutes")
+
+        val appName = AppUtils.getAppName(applicationContext, packageName)
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_ALERTS)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Extended session: $durationMinutes minutes on $appName")
+            .setContentText("This is a long session. Consider taking a break to stay productive.")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("You've been using $appName for over an hour. Extended screen time can affect your focus and energy. Now might be a good time to step away, take care of something important, or simply rest your eyes."))
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(FIRM_REMINDER_NOTIFICATION_ID, notification)
+
+        // Stronger vibration
+        vibrateDevice()
+    }
+
+    /**
+     * Gentle vibration for mindful reminders
+     */
+    private fun vibrateGently() {
+        try {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                vibratorManager.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // Short, gentle double-tap vibration pattern
+                vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 100, 100, 100), -1))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(200)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to vibrate gently", e)
+        }
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
@@ -307,6 +540,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Log for instant trigger verification
         Log.d(TAG, "cycleTriggeredOnAppOpen($packageName, $eventTime)")
 
+        // ========== MINDFUL SESSION TRACKING ==========
+        // Track app sessions for gentle/firm reminders
+        trackAppSession(packageName, eventTime)
+
         // ========== INSTANT FOCUS CYCLE HANDLING ==========
         // Use cached state for immediate response, then persist async
         handleFocusCycleInstant(packageName, eventTime)
@@ -314,6 +551,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Refresh cache periodically in background
         if (eventTime - lastCacheRefresh > CACHE_REFRESH_INTERVAL_MS) {
             refreshFocusCycleCache()
+            refreshDistractingAppsCache() // Also refresh distracting apps list
         }
 
         // Don't process blocking if we're already blocking
@@ -581,6 +819,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         isServiceRunning = false
         stopQuickBlockTimerCheck() // Clean up Quick Block timer
+        stopSessionDurationCheck() // Clean up session duration timer
+        activeSessions.clear() // Clear session tracking
         serviceScope.cancel()
         immediateScope.cancel()
         super.onDestroy()

@@ -50,13 +50,33 @@ data class LongSessionRisk(
     val endHour: Int
 )
 
+/**
+ * Context-aware action suggestion based on usage patterns
+ */
+data class ActionSuggestion(
+    val type: ActionType,
+    val title: String,
+    val description: String,
+    val targetPackage: String? = null,
+    val targetAppName: String? = null,
+    val peakStartHour: Int? = null,
+    val peakEndHour: Int? = null
+)
+
+enum class ActionType {
+    FOCUS_CYCLE_FOR_PEAK_TIME,  // "You binge most between X-Y PM. Start Focus Cycle?"
+    QUICK_BLOCK_DISTRACTION,     // "Block [app] now?"
+    SET_TIME_LIMIT              // "Set daily limit for [app]?"
+}
+
 data class InsightsState(
     val biggestDistraction: DistractionInsight? = null,
     val hourlyInsight: HourlyInsight? = null,
     val longSessionRisks: List<LongSessionRisk> = emptyList(),
     val focusStreakDays: Int = 0,
     val weeklyTimeSavedMinutes: Int = 0, // Estimated based on blocks
-    val hasEnoughData: Boolean = false
+    val hasEnoughData: Boolean = false,
+    val actionSuggestions: List<ActionSuggestion> = emptyList() // Context-aware suggestions
 )
 
 data class HomeUiState(
@@ -371,6 +391,42 @@ class HomeViewModel @Inject constructor(
                 // Estimate time saved: assume each block saves ~2 minutes of distraction
                 val weeklyTimeSaved = logs.size * 2
 
+                // ===== CONTEXT-AWARE ACTION SUGGESTIONS =====
+                val actionSuggestions = mutableListOf<ActionSuggestion>()
+
+                // Suggestion 1: Focus Cycle for peak distraction time
+                hourlyInsight?.worstHour?.let { peakHour ->
+                    if (hourlyBlocks.isNotEmpty() && hourlyBlocks[peakHour] ?: 0 >= 3) {
+                        // Find the peak window (typically 2-3 hours around the worst hour)
+                        val peakStart = maxOf(0, peakHour - 1)
+                        val peakEnd = minOf(23, peakHour + 1)
+                        val totalPeakBlocks = (peakStart..peakEnd).sumOf { hourlyBlocks[it] ?: 0 }
+
+                        if (totalPeakBlocks >= 4) {
+                            actionSuggestions.add(ActionSuggestion(
+                                type = ActionType.FOCUS_CYCLE_FOR_PEAK_TIME,
+                                title = "Peak distraction window detected",
+                                description = "You get distracted most between ${formatHourShort(peakStart)}-${formatHourShort(peakEnd)}. Set up a Focus Cycle?",
+                                peakStartHour = peakStart,
+                                peakEndHour = peakEnd
+                            ))
+                        }
+                    }
+                }
+
+                // Suggestion 2: Quick Block for biggest distraction
+                biggestDistraction?.let { distraction ->
+                    if (distraction.blockCount >= 5) {
+                        actionSuggestions.add(ActionSuggestion(
+                            type = ActionType.QUICK_BLOCK_DISTRACTION,
+                            title = "${distraction.appName} is your top distraction today",
+                            description = "Block it now to stay focused?",
+                            targetPackage = distraction.packageName,
+                            targetAppName = distraction.appName
+                        ))
+                    }
+                }
+
                 _uiState.update { it.copy(
                     insights = InsightsState(
                         biggestDistraction = biggestDistraction,
@@ -378,10 +434,23 @@ class HomeViewModel @Inject constructor(
                         longSessionRisks = longSessions.take(3), // Top 3 long sessions
                         focusStreakDays = focusStreak,
                         weeklyTimeSavedMinutes = weeklyTimeSaved,
-                        hasEnoughData = todayLogs.size >= 3 // Need at least 3 blocks for meaningful insights
+                        hasEnoughData = todayLogs.size >= 3, // Need at least 3 blocks for meaningful insights
+                        actionSuggestions = actionSuggestions
                     )
                 )}
             }
+        }
+    }
+
+    /**
+     * Format hour for display in suggestions (e.g., "2 PM")
+     */
+    private fun formatHourShort(hour: Int): String {
+        return when {
+            hour == 0 -> "12 AM"
+            hour < 12 -> "$hour AM"
+            hour == 12 -> "12 PM"
+            else -> "${hour - 12} PM"
         }
     }
 

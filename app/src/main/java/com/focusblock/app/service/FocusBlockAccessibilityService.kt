@@ -220,8 +220,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                                 showBlockingScreen(currentPackage, appName, BlockedByType.QUICK_BLOCK)
                             }
 
-                            // Vibrate to alert user
-                            vibrateDevice()
+                            // Vibrate to alert user (longer vibration for timer expiration)
+                            vibrateForTimerExpiration()
                         }
 
                         // For Pomodoro sessions, transition to break period instead of deactivating
@@ -267,9 +267,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Vibrate device to alert user of timer expiration
+     * Vibrate device to alert user of timer expiration (longer vibration)
      */
-    private fun vibrateDevice() {
+    private fun vibrateForTimerExpiration() {
         try {
             val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager

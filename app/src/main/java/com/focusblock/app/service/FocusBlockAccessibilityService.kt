@@ -84,6 +84,13 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private val database by lazy { FocusBlockDatabase.getDatabase(applicationContext) }
     private var lastForegroundPackage: String? = null
 
+    // ========== QUICK BLOCK TIMER ENFORCEMENT ==========
+    private val quickBlockTimerHandler = Handler(Looper.getMainLooper())
+    private var quickBlockTimerRunnable: Runnable? = null
+    private var cachedQuickBlockEndTime: Long? = null
+    private var cachedQuickBlockPackages: Set<String> = emptySet()
+    private val QUICK_BLOCK_CHECK_INTERVAL = 1000L // Check every second
+
     // ========== CACHED STATE FOR INSTANT TRIGGERING ==========
     @Volatile private var cachedFocusCycle: FocusCycle? = null
     @Volatile private var cachedFocusCyclePackages: Set<String> = emptySet()
@@ -111,6 +118,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Initialize cache immediately
         refreshFocusCycleCache()
 
+        // Start Quick Block timer enforcement
+        startQuickBlockTimerCheck()
+
         // Show toast to confirm service is running
         mainHandler.post {
             android.widget.Toast.makeText(
@@ -118,6 +128,140 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 "FocusBlock Accessibility Service enabled",
                 android.widget.Toast.LENGTH_SHORT
             ).show()
+        }
+    }
+
+    /**
+     * Start periodic Quick Block timer check
+     * This ensures the blocking screen appears IMMEDIATELY when timer ends,
+     * even if the user stays in a blocked app
+     */
+    private fun startQuickBlockTimerCheck() {
+        stopQuickBlockTimerCheck() // Clear any existing timer
+
+        quickBlockTimerRunnable = object : Runnable {
+            override fun run() {
+                checkQuickBlockTimerExpiration()
+                quickBlockTimerHandler.postDelayed(this, QUICK_BLOCK_CHECK_INTERVAL)
+            }
+        }
+        quickBlockTimerHandler.post(quickBlockTimerRunnable!!)
+        Log.d(TAG, "Quick Block timer enforcement started")
+    }
+
+    private fun stopQuickBlockTimerCheck() {
+        quickBlockTimerRunnable?.let {
+            quickBlockTimerHandler.removeCallbacks(it)
+        }
+        quickBlockTimerRunnable = null
+    }
+
+    /**
+     * Check if Quick Focus/Block session timer has expired and enforce blocking
+     * This runs every second to ensure immediate blocking when timer ends
+     *
+     * Quick Focus model:
+     * - During focus/work period: apps are ALLOWED (user is using the app)
+     * - When timer ends: BREAK period starts, apps should be BLOCKED immediately
+     */
+    private fun checkQuickBlockTimerExpiration() {
+        immediateScope.launch {
+            try {
+                val session = database.quickBlockSessionDao().getActiveSessionSync()
+
+                if (session != null && session.endTime != null) {
+                    val now = System.currentTimeMillis()
+
+                    // Cache the session data for quick access
+                    cachedQuickBlockEndTime = session.endTime
+                    cachedQuickBlockPackages = session.blockedPackages
+                        .split(",")
+                        .filter { it.isNotBlank() }
+                        .toSet()
+
+                    // Check if timer has just expired (work period ended, break should start)
+                    if (now >= session.endTime) {
+                        Log.i(TAG, "Quick Focus timer EXPIRED at $now (endTime: ${session.endTime})")
+                        Log.i(TAG, "Focus period ended - BREAK period starting, apps should be blocked")
+
+                        // Check if user is currently on a tracked app
+                        val currentPackage = lastForegroundPackage
+                        if (currentPackage != null && cachedQuickBlockPackages.contains(currentPackage)) {
+                            Log.i(TAG, "User is on tracked app $currentPackage when focus timer expired - showing block screen IMMEDIATELY")
+
+                            // Show blocking screen immediately - user must take a break now
+                            val appName = AppUtils.getAppName(applicationContext, currentPackage)
+                            mainHandler.post {
+                                showBlockingScreen(currentPackage, appName, BlockedByType.QUICK_BLOCK)
+                            }
+
+                            // Vibrate to alert user
+                            vibrateDevice()
+                        }
+
+                        // For Pomodoro sessions, transition to break period instead of deactivating
+                        if (session.isPomodoroSession && session.pomodoroBreakMinutes > 0) {
+                            // Update session to represent break period
+                            // The break period uses the same blocked packages but enforces blocking
+                            val breakEndTime = now + session.pomodoroBreakMinutes * 60 * 1000L
+                            val updatedSession = session.copy(
+                                startTime = now,
+                                endTime = breakEndTime,
+                                isPomodoroSession = false // Mark as break period (blocking mode)
+                            )
+                            database.quickBlockSessionDao().update(updatedSession)
+                            Log.i(TAG, "Pomodoro: Transitioned to break period. Break ends at $breakEndTime")
+
+                            // Show toast notification
+                            mainHandler.post {
+                                android.widget.Toast.makeText(
+                                    applicationContext,
+                                    "Focus time complete! Take a ${session.pomodoroBreakMinutes} minute break.",
+                                    android.widget.Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        } else {
+                            // Non-Pomodoro session or break period ended - deactivate
+                            database.quickBlockSessionDao().deactivate(session.id)
+                            Log.i(TAG, "Quick Block session deactivated after timer expiration")
+
+                            // Clear cached data
+                            cachedQuickBlockEndTime = null
+                            cachedQuickBlockPackages = emptySet()
+                        }
+                    }
+                } else {
+                    // No active timed session
+                    cachedQuickBlockEndTime = null
+                    cachedQuickBlockPackages = emptySet()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking Quick Block timer", e)
+            }
+        }
+    }
+
+    /**
+     * Vibrate device to alert user of timer expiration
+     */
+    private fun vibrateDevice() {
+        try {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                vibratorManager.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(500)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to vibrate", e)
         }
     }
 
@@ -436,6 +580,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         isServiceRunning = false
+        stopQuickBlockTimerCheck() // Clean up Quick Block timer
         serviceScope.cancel()
         immediateScope.cancel()
         super.onDestroy()
@@ -468,11 +613,28 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Priority: Strict Mode > Focus Cycles > Quick Block
         val strictModeEnabled = settingsDao.getValue("strict_mode_enabled")?.toBooleanStrictOrNull() ?: false
 
-        // Check Quick Block (always enforced if active)
+        // Check Quick Block session
         val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
         if (quickBlockSession != null) {
             val blockedPackages = quickBlockSession.blockedPackages.split(",")
             if (blockedPackages.contains(packageName)) {
+                val now = System.currentTimeMillis()
+
+                // For Pomodoro/Focus sessions with a timer:
+                // - During focus period (before endTime): apps are ALLOWED
+                // - After focus period ends (timer expired): apps are BLOCKED (break time)
+                if (quickBlockSession.isPomodoroSession && quickBlockSession.endTime != null) {
+                    // Focus/work period - apps are allowed until timer ends
+                    if (now < quickBlockSession.endTime) {
+                        Log.d(TAG, "Focus period active - allowing $packageName (${(quickBlockSession.endTime - now)/1000}s remaining)")
+                        return false // Allow during focus period
+                    }
+                    // Timer expired - should block (break period)
+                    Log.d(TAG, "Focus period ended - blocking $packageName for break")
+                    return true
+                }
+
+                // Non-Pomodoro Quick Block or break period - block normally
                 return true
             }
         }

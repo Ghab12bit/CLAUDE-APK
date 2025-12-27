@@ -280,17 +280,19 @@ class HomeViewModel @Inject constructor(
      */
     private fun loadInsights() {
         viewModelScope.launch {
-            // Get today's block logs
-            val startOfDay = TimeUtils.getStartOfDay()
-            val startOfWeek = TimeUtils.getStartOfWeek()
+            try {
+                // Get today's block logs
+                val startOfDay = TimeUtils.getStartOfDay()
+                val startOfWeek = TimeUtils.getStartOfWeek()
 
-            repository.getBlockLogsSince(startOfWeek).collect { logs ->
-                if (logs.isEmpty()) {
-                    _uiState.update { it.copy(
-                        insights = InsightsState(hasEnoughData = false)
-                    )}
-                    return@collect
-                }
+                repository.getBlockLogsSince(startOfWeek).collect { logs ->
+                    try {
+                        if (logs.isEmpty()) {
+                            _uiState.update { it.copy(
+                                insights = InsightsState(hasEnoughData = false)
+                            )}
+                            return@collect
+                        }
 
                 // Filter to today's logs for daily insights
                 val todayLogs = logs.filter { it.timestamp >= startOfDay }
@@ -438,6 +440,19 @@ class HomeViewModel @Inject constructor(
                         hasEnoughData = todayLogs.size >= 3, // Need at least 3 blocks for meaningful insights
                         actionSuggestions = actionSuggestions
                     )
+                )}
+                    } catch (e: Exception) {
+                        // Log error and show empty insights
+                        android.util.Log.e("HomeViewModel", "Error processing insights", e)
+                        _uiState.update { it.copy(
+                            insights = InsightsState(hasEnoughData = false)
+                        )}
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("HomeViewModel", "Error loading insights", e)
+                _uiState.update { it.copy(
+                    insights = InsightsState(hasEnoughData = false)
                 )}
             }
         }

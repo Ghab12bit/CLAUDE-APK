@@ -2534,30 +2534,33 @@ fun InsightsSection(
 
         // Hourly Insights Row
         insights.hourlyInsight?.let { hourly ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Best Focus Hour
-                hourly.bestFocusHour?.let { hour ->
-                    HourlyTile(
-                        modifier = Modifier.weight(1f),
-                        title = "Best Focus Hour",
-                        hour = hour,
-                        blockCount = hourly.bestFocusHourBlocks,
-                        isPositive = true
-                    )
-                }
+            // Only show if at least one hour is available
+            if (hourly.bestFocusHour != null || hourly.worstHour != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Best Focus Hour
+                    if (hourly.bestFocusHour != null) {
+                        HourlyTile(
+                            modifier = Modifier.weight(1f),
+                            title = "Best Focus Hour",
+                            hour = hourly.bestFocusHour,
+                            blockCount = hourly.bestFocusHourBlocks,
+                            isPositive = true
+                        )
+                    }
 
-                // Worst Hour
-                hourly.worstHour?.let { hour ->
-                    HourlyTile(
-                        modifier = Modifier.weight(1f),
-                        title = "Weak Hour",
-                        hour = hour,
-                        blockCount = hourly.worstHourBlocks,
-                        isPositive = false
-                    )
+                    // Worst Hour
+                    if (hourly.worstHour != null) {
+                        HourlyTile(
+                            modifier = Modifier.weight(1f),
+                            title = "Weak Hour",
+                            hour = hourly.worstHour,
+                            blockCount = hourly.worstHourBlocks,
+                            isPositive = false
+                        )
+                    }
                 }
             }
         }

@@ -26,6 +26,39 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+// ========== INSIGHTS DATA MODELS ==========
+data class DistractionInsight(
+    val packageName: String,
+    val appName: String,
+    val blockCount: Int,
+    val peakHour: Int? = null, // 0-23 hour when most blocks occurred
+    val peakHourCount: Int = 0
+)
+
+data class HourlyInsight(
+    val bestFocusHour: Int?, // Hour with fewest blocks (0-23)
+    val bestFocusHourBlocks: Int = 0,
+    val worstHour: Int?, // Hour with most blocks (0-23)
+    val worstHourBlocks: Int = 0
+)
+
+data class LongSessionRisk(
+    val packageName: String,
+    val appName: String,
+    val durationMinutes: Int,
+    val startHour: Int, // 0-23
+    val endHour: Int
+)
+
+data class InsightsState(
+    val biggestDistraction: DistractionInsight? = null,
+    val hourlyInsight: HourlyInsight? = null,
+    val longSessionRisks: List<LongSessionRisk> = emptyList(),
+    val focusStreakDays: Int = 0,
+    val weeklyTimeSavedMinutes: Int = 0, // Estimated based on blocks
+    val hasEnoughData: Boolean = false
+)
+
 data class HomeUiState(
     val isQuickBlockActive: Boolean = false,
     val quickBlockSession: QuickBlockSession? = null,
@@ -36,6 +69,8 @@ data class HomeUiState(
     val todayBlockCount: Int = 0,
     val weekBlockCount: Int = 0,
     val focusStreak: Int = 0,
+    // Insights
+    val insights: InsightsState = InsightsState(),
     val isStrictModeEnabled: Boolean = false,
     val isStrictModeLocked: Boolean = false,
     val isStrictModePaused: Boolean = false,
@@ -106,6 +141,7 @@ class HomeViewModel @Inject constructor(
         loadFocusCycleData()
         loadInstalledApps()
         loadStrictModePauseLimits()
+        loadInsights()
         startTimerUpdates()
     }
 
@@ -215,6 +251,137 @@ class HomeViewModel @Inject constructor(
                 strictModeRemainingPausesToday = remaining,
                 strictModeMaxPausesPerDay = max
             )}
+        }
+    }
+
+    /**
+     * Load insights from block logs data
+     * Computes: biggest distraction, peak hours, long sessions, streak
+     */
+    private fun loadInsights() {
+        viewModelScope.launch {
+            // Get today's block logs
+            val startOfDay = TimeUtils.getStartOfDay()
+            val startOfWeek = TimeUtils.getStartOfWeek()
+
+            repository.getBlockLogsSince(startOfWeek).collect { logs ->
+                if (logs.isEmpty()) {
+                    _uiState.update { it.copy(
+                        insights = InsightsState(hasEnoughData = false)
+                    )}
+                    return@collect
+                }
+
+                // Filter to today's logs for daily insights
+                val todayLogs = logs.filter { it.timestamp >= startOfDay }
+
+                // ===== BIGGEST DISTRACTION OF THE DAY =====
+                val appBlockCounts = todayLogs.groupBy { it.packageName }
+                    .mapValues { (_, blocks) -> blocks.size }
+                    .toList()
+                    .sortedByDescending { it.second }
+
+                val biggestDistraction = if (appBlockCounts.isNotEmpty()) {
+                    val (packageName, count) = appBlockCounts.first()
+                    val appName = todayLogs.first { it.packageName == packageName }.appName
+
+                    // Find peak hour for this app
+                    val hourCounts = todayLogs.filter { it.packageName == packageName }
+                        .groupBy { java.util.Calendar.getInstance().apply { timeInMillis = it.timestamp }.get(java.util.Calendar.HOUR_OF_DAY) }
+                        .mapValues { it.value.size }
+                    val peakHour = hourCounts.maxByOrNull { it.value }
+
+                    DistractionInsight(
+                        packageName = packageName,
+                        appName = appName,
+                        blockCount = count,
+                        peakHour = peakHour?.key,
+                        peakHourCount = peakHour?.value ?: 0
+                    )
+                } else null
+
+                // ===== HOURLY INSIGHT: Best Focus vs Worst Hour =====
+                val hourlyBlocks = todayLogs.groupBy {
+                    java.util.Calendar.getInstance().apply { timeInMillis = it.timestamp }.get(java.util.Calendar.HOUR_OF_DAY)
+                }.mapValues { it.value.size }
+
+                // Only consider hours with some activity (6am-midnight)
+                val activeHours = (6..23).filter { hour ->
+                    hourlyBlocks.containsKey(hour) || hourlyBlocks.isNotEmpty()
+                }
+
+                val hourlyInsight = if (hourlyBlocks.isNotEmpty()) {
+                    val worstHourEntry = hourlyBlocks.maxByOrNull { it.value }
+                    val bestHourEntry = hourlyBlocks.minByOrNull { it.value }
+                    HourlyInsight(
+                        bestFocusHour = bestHourEntry?.key,
+                        bestFocusHourBlocks = bestHourEntry?.value ?: 0,
+                        worstHour = worstHourEntry?.key,
+                        worstHourBlocks = worstHourEntry?.value ?: 0
+                    )
+                } else null
+
+                // ===== LONG SESSION RISK: Detect sessions > 40 minutes =====
+                // Approximate session duration by gaps between consecutive blocks for same app
+                val longSessions = mutableListOf<LongSessionRisk>()
+                val sortedLogs = todayLogs.sortedBy { it.timestamp }
+
+                // Group consecutive blocks by app to detect sessions
+                var sessionStart: Long? = null
+                var currentApp: String? = null
+                var currentAppName: String? = null
+
+                for (log in sortedLogs) {
+                    if (currentApp == log.packageName && sessionStart != null) {
+                        // Check if this is a long session (if gap is small, it's same session)
+                        val gap = log.timestamp - sortedLogs.filter { it.timestamp < log.timestamp && it.packageName == log.packageName }.maxOfOrNull { it.timestamp }
+                        if (gap != null && gap < 5 * 60 * 1000) { // 5 min gap tolerance
+                            val duration = (log.timestamp - sessionStart) / (60 * 1000)
+                            if (duration >= 40) {
+                                val cal = java.util.Calendar.getInstance()
+                                cal.timeInMillis = sessionStart
+                                val startHour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                                cal.timeInMillis = log.timestamp
+                                val endHour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+
+                                longSessions.add(LongSessionRisk(
+                                    packageName = log.packageName,
+                                    appName = log.appName,
+                                    durationMinutes = duration.toInt(),
+                                    startHour = startHour,
+                                    endHour = endHour
+                                ))
+                            }
+                        }
+                    } else {
+                        // New session
+                        sessionStart = log.timestamp
+                        currentApp = log.packageName
+                        currentAppName = log.appName
+                    }
+                }
+
+                // ===== STREAK & TIME SAVED =====
+                // Calculate focus streak (days with blocks indicating focus attempts)
+                val daysCounts = logs.groupBy {
+                    java.util.Calendar.getInstance().apply { timeInMillis = it.timestamp }.get(java.util.Calendar.DAY_OF_YEAR)
+                }
+                val focusStreak = daysCounts.size // Simple streak = days with any block activity
+
+                // Estimate time saved: assume each block saves ~2 minutes of distraction
+                val weeklyTimeSaved = logs.size * 2
+
+                _uiState.update { it.copy(
+                    insights = InsightsState(
+                        biggestDistraction = biggestDistraction,
+                        hourlyInsight = hourlyInsight,
+                        longSessionRisks = longSessions.take(3), // Top 3 long sessions
+                        focusStreakDays = focusStreak,
+                        weeklyTimeSavedMinutes = weeklyTimeSaved,
+                        hasEnoughData = todayLogs.size >= 3 // Need at least 3 blocks for meaningful insights
+                    )
+                )}
+            }
         }
     }
 

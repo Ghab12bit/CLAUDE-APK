@@ -48,6 +48,10 @@ import com.focusblock.app.utils.TimeUtils
 import com.focusblock.app.viewmodel.FocusCyclePhase
 import com.focusblock.app.viewmodel.HomeViewModel
 import com.focusblock.app.viewmodel.StrictModePauseResult
+import com.focusblock.app.viewmodel.InsightsState
+import com.focusblock.app.viewmodel.DistractionInsight
+import com.focusblock.app.viewmodel.HourlyInsight
+import com.focusblock.app.viewmodel.LongSessionRisk
 
 @Composable
 fun HomeScreen(
@@ -200,6 +204,23 @@ fun HomeScreen(
                 weekBlockCount = uiState.weekBlockCount,
                 todayBlockCount = uiState.todayBlockCount
             )
+        }
+
+        // ========== INSIGHTS SECTION ==========
+        if (uiState.insights.hasEnoughData) {
+            item {
+                InsightsSection(
+                    insights = uiState.insights,
+                    onStartQuickBlock = { packageName ->
+                        // Start Quick Block for the specific app
+                        viewModel.startQuickBlock(listOf(packageName), 30)
+                    },
+                    onStartFocusCycle = { packageName, peakHour ->
+                        // Show Focus Cycle setup for this app at peak hour
+                        showFocusCycleSetupDialog = true
+                    }
+                )
+            }
         }
 
         // Focus Tips
@@ -2474,5 +2495,405 @@ fun FocusCycleCard(
                 }
             }
         }
+    }
+}
+
+// ========== INSIGHTS SECTION ==========
+
+@Composable
+fun InsightsSection(
+    insights: InsightsState,
+    onStartQuickBlock: (String) -> Unit,
+    onStartFocusCycle: (String, Int?) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Section Header
+        Text(
+            text = "Today's Insights",
+            style = MaterialTheme.typography.titleMedium,
+            color = TextPrimary,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        // Biggest Distraction Card
+        insights.biggestDistraction?.let { distraction ->
+            BiggestDistractionCard(
+                distraction = distraction,
+                onAddFocusCycle = { onStartFocusCycle(distraction.packageName, distraction.peakHour) }
+            )
+        }
+
+        // Hourly Insights Row
+        insights.hourlyInsight?.let { hourly ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Best Focus Hour
+                hourly.bestFocusHour?.let { hour ->
+                    HourlyTile(
+                        modifier = Modifier.weight(1f),
+                        title = "Best Focus Hour",
+                        hour = hour,
+                        blockCount = hourly.bestFocusHourBlocks,
+                        isPositive = true
+                    )
+                }
+
+                // Worst Hour
+                hourly.worstHour?.let { hour ->
+                    HourlyTile(
+                        modifier = Modifier.weight(1f),
+                        title = "Weak Hour",
+                        hour = hour,
+                        blockCount = hourly.worstHourBlocks,
+                        isPositive = false
+                    )
+                }
+            }
+        }
+
+        // Long Session Risks
+        if (insights.longSessionRisks.isNotEmpty()) {
+            LongSessionRiskCard(
+                sessions = insights.longSessionRisks,
+                onStartQuickBlock = onStartQuickBlock
+            )
+        }
+
+        // Streak & Progress Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Focus Streak
+            StreakTile(
+                modifier = Modifier.weight(1f),
+                streakDays = insights.focusStreakDays
+            )
+
+            // Time Saved
+            TimeSavedTile(
+                modifier = Modifier.weight(1f),
+                minutesSaved = insights.weeklyTimeSavedMinutes
+            )
+        }
+    }
+}
+
+@Composable
+fun BiggestDistractionCard(
+    distraction: DistractionInsight,
+    onAddFocusCycle: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Icon
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(AccentOrange.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = AccentOrange,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Biggest Distraction",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary
+                    )
+                    Text(
+                        text = distraction.appName,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                // Block count badge
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = AccentOrange.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = "${distraction.blockCount} blocks",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = AccentOrange,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            // Peak hour info
+            distraction.peakHour?.let { hour ->
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Schedule,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Peak time: ${formatHour(hour)} (${distraction.peakHourCount} blocks)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Action button
+            OutlinedButton(
+                onClick = onAddFocusCycle,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, AccentOrange.copy(alpha = 0.5f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentOrange)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Add Focus Cycle for this window", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+@Composable
+fun HourlyTile(
+    modifier: Modifier = Modifier,
+    title: String,
+    hour: Int,
+    blockCount: Int,
+    isPositive: Boolean
+) {
+    val tileColor = if (isPositive) Primary else Color(0xFFE53935)
+
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = if (isPositive) Icons.Filled.CheckCircle else Icons.Filled.Cancel,
+                contentDescription = null,
+                tint = tileColor,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = formatHour(hour),
+                style = MaterialTheme.typography.titleMedium,
+                color = TextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "$blockCount blocks",
+                style = MaterialTheme.typography.labelSmall,
+                color = tileColor
+            )
+        }
+    }
+}
+
+@Composable
+fun LongSessionRiskCard(
+    sessions: List<LongSessionRisk>,
+    onStartQuickBlock: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Timer,
+                    contentDescription = null,
+                    tint = Color(0xFFFF9800),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Long Session Alert",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "You had extended usage sessions today. Consider setting limits.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            sessions.forEach { session ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onStartQuickBlock(session.packageName) }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = session.appName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "${session.durationMinutes}min • ${formatHour(session.startHour)}-${formatHour(session.endHour)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Filled.Block,
+                        contentDescription = "Block",
+                        tint = AccentOrange,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StreakTile(
+    modifier: Modifier = Modifier,
+    streakDays: Int
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = Icons.Filled.LocalFireDepartment,
+                contentDescription = null,
+                tint = Color(0xFFFF9800),
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "$streakDays",
+                style = MaterialTheme.typography.headlineMedium,
+                color = TextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "day streak",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary
+            )
+        }
+    }
+}
+
+@Composable
+fun TimeSavedTile(
+    modifier: Modifier = Modifier,
+    minutesSaved: Int
+) {
+    val hoursAndMinutes = if (minutesSaved >= 60) {
+        "${minutesSaved / 60}h ${minutesSaved % 60}m"
+    } else {
+        "${minutesSaved}m"
+    }
+
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = Icons.Filled.TrendingUp,
+                contentDescription = null,
+                tint = Primary,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = hoursAndMinutes,
+                style = MaterialTheme.typography.headlineSmall,
+                color = TextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "saved this week",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary
+            )
+        }
+    }
+}
+
+private fun formatHour(hour: Int): String {
+    return when {
+        hour == 0 -> "12 AM"
+        hour < 12 -> "$hour AM"
+        hour == 12 -> "12 PM"
+        else -> "${hour - 12} PM"
     }
 }

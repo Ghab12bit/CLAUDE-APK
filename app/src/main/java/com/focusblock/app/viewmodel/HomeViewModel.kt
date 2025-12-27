@@ -122,16 +122,30 @@ class HomeViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            // Load blocked apps count
-            repository.getBlockedAppsCount().collect { count ->
-                _uiState.update { it.copy(blockedAppsCount = count) }
-            }
-        }
+            // Load blocked apps, filtering out Quick Block-only apps
+            // Combine blocked apps with Quick Block session to filter properly
+            kotlinx.coroutines.flow.combine(
+                repository.getActiveBlockedApps(),
+                repository.getActiveQuickBlockSession()
+            ) { apps, session ->
+                if (session == null) {
+                    // No active Quick Block - show all blocked apps
+                    apps
+                } else {
+                    // Filter out apps that are ONLY blocked due to Quick Block
+                    val sessionPackages = session.blockedPackages.split(",").filter { it.isNotBlank() }.toSet()
+                    val previouslyBlocked = session.previouslyBlockedPackages.split(",").filter { it.isNotBlank() }.toSet()
+                    val quickBlockOnlyApps = sessionPackages - previouslyBlocked
 
-        viewModelScope.launch {
-            // Load blocked apps
-            repository.getActiveBlockedApps().collect { apps ->
-                _uiState.update { it.copy(blockedApps = apps) }
+                    apps.filter { app -> app.packageName !in quickBlockOnlyApps }
+                }
+            }.collect { filteredApps ->
+                _uiState.update {
+                    it.copy(
+                        blockedApps = filteredApps,
+                        blockedAppsCount = filteredApps.size
+                    )
+                }
             }
         }
 

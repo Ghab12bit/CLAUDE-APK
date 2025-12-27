@@ -2880,31 +2880,22 @@ fun ActionSuggestionItem(
     onStartQuickBlock: (String) -> Unit,
     onStartFocusCycle: (String, Int?) -> Unit
 ) {
-    val (icon, iconColor, buttonText, onClick) = when (suggestion.type) {
-        ActionType.FOCUS_CYCLE_FOR_PEAK_TIME -> {
-            Tuple4(
-                Icons.Filled.Refresh,
-                Color(0xFF4CAF50),
-                "Start Focus Cycle",
-                { onStartFocusCycle("", suggestion.peakStartHour) }
-            )
-        }
-        ActionType.QUICK_BLOCK_DISTRACTION -> {
-            Tuple4(
-                Icons.Filled.Block,
-                AccentOrange,
-                "Block Now",
-                { suggestion.targetPackage?.let { onStartQuickBlock(it) } }
-            )
-        }
-        ActionType.SET_TIME_LIMIT -> {
-            Tuple4(
-                Icons.Filled.Timer,
-                Color(0xFF2196F3),
-                "Set Limit",
-                { /* Navigate to time limits */ }
-            )
-        }
+    val icon = when (suggestion.type) {
+        ActionType.FOCUS_CYCLE_FOR_PEAK_TIME -> Icons.Filled.Refresh
+        ActionType.QUICK_BLOCK_DISTRACTION -> Icons.Filled.Block
+        ActionType.SET_TIME_LIMIT -> Icons.Filled.Timer
+    }
+
+    val iconColor = when (suggestion.type) {
+        ActionType.FOCUS_CYCLE_FOR_PEAK_TIME -> Color(0xFF4CAF50)
+        ActionType.QUICK_BLOCK_DISTRACTION -> AccentOrange
+        ActionType.SET_TIME_LIMIT -> Color(0xFF2196F3)
+    }
+
+    val buttonText = when (suggestion.type) {
+        ActionType.FOCUS_CYCLE_FOR_PEAK_TIME -> "Start Focus Cycle"
+        ActionType.QUICK_BLOCK_DISTRACTION -> "Block Now"
+        ActionType.SET_TIME_LIMIT -> "Set Limit"
     }
 
     Surface(
@@ -2953,7 +2944,19 @@ fun ActionSuggestionItem(
             Spacer(modifier = Modifier.height(10.dp))
 
             Button(
-                onClick = onClick,
+                onClick = {
+                    when (suggestion.type) {
+                        ActionType.FOCUS_CYCLE_FOR_PEAK_TIME -> {
+                            onStartFocusCycle("", suggestion.peakStartHour)
+                        }
+                        ActionType.QUICK_BLOCK_DISTRACTION -> {
+                            suggestion.targetPackage?.let { onStartQuickBlock(it) }
+                        }
+                        ActionType.SET_TIME_LIMIT -> {
+                            // Navigate to time limits
+                        }
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = iconColor)
@@ -2969,9 +2972,6 @@ fun ActionSuggestionItem(
         }
     }
 }
-
-// Helper data class for destructuring
-private data class Tuple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
 @Composable
 fun StreakTile(

@@ -207,20 +207,18 @@ fun HomeScreen(
         }
 
         // ========== INSIGHTS SECTION ==========
-        if (uiState.insights.hasEnoughData) {
-            item {
-                InsightsSection(
-                    insights = uiState.insights,
-                    onStartQuickBlock = { packageName ->
-                        // Start Quick Block for the specific app
-                        viewModel.startQuickBlock(listOf(packageName), 30)
-                    },
-                    onStartFocusCycle = { packageName, peakHour ->
-                        // Show Focus Cycle setup for this app at peak hour
-                        showFocusCycleSetupDialog = true
-                    }
-                )
-            }
+        item {
+            InsightsSection(
+                insights = uiState.insights,
+                onStartQuickBlock = { packageName ->
+                    // Start Quick Block for the specific app
+                    viewModel.startQuickBlock(listOf(packageName), 30)
+                },
+                onStartFocusCycle = { packageName, peakHour ->
+                    // Show Focus Cycle setup for this app at peak hour
+                    showFocusCycleSetupDialog = true
+                }
+            )
         }
 
         // Focus Tips
@@ -2518,6 +2516,12 @@ fun InsightsSection(
             fontWeight = FontWeight.SemiBold
         )
 
+        // Show "No data yet" card if insufficient data
+        if (!insights.hasEnoughData) {
+            NoInsightsCard()
+            return@Column
+        }
+
         // Biggest Distraction Card
         insights.biggestDistraction?.let { distraction ->
             BiggestDistractionCard(
@@ -2895,5 +2899,71 @@ private fun formatHour(hour: Int): String {
         hour < 12 -> "$hour AM"
         hour == 12 -> "12 PM"
         else -> "${hour - 12} PM"
+    }
+}
+
+@Composable
+fun NoInsightsCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Insights,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(48.dp)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "No insights yet",
+                style = MaterialTheme.typography.titleMedium,
+                color = TextPrimary,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Start using Focus Block to see your distraction patterns and productivity insights here.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Primary.copy(alpha = 0.1f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Lightbulb,
+                        contentDescription = null,
+                        tint = Primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Try Quick Block or set up a Focus Cycle to get started",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Primary
+                    )
+                }
+            }
+        }
     }
 }

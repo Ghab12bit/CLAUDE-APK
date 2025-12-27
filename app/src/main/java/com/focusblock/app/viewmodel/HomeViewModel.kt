@@ -41,6 +41,8 @@ data class HomeUiState(
     val isStrictModePaused: Boolean = false,
     val strictModeEndTime: Long? = null,
     val strictModeRemainingTime: Long = 0,
+    val strictModeRemainingPausesToday: Int = 1, // Pauses remaining today
+    val strictModeMaxPausesPerDay: Int = 1, // Configurable max pauses
     val isHardModeEnabled: Boolean = false,
     val permissionStatus: PermissionUtils.PermissionStatus = PermissionUtils.PermissionStatus(
         hasUsageStats = false,
@@ -65,6 +67,12 @@ enum class FocusCyclePhase {
     USAGE_WINDOW,  // During allowed usage time
     PAUSED,        // Timer paused (user on non-selected app)
     BREAK          // During break (apps blocked)
+}
+
+enum class StrictModePauseResult {
+    SUCCESS,       // Pause successful
+    NOT_ACTIVE,    // Strict mode not active or already paused
+    LIMIT_REACHED  // Daily pause limit reached
 }
 
 data class PomodoroState(
@@ -97,6 +105,7 @@ class HomeViewModel @Inject constructor(
         loadData()
         loadFocusCycleData()
         loadInstalledApps()
+        loadStrictModePauseLimits()
         startTimerUpdates()
     }
 
@@ -181,6 +190,17 @@ class HomeViewModel @Inject constructor(
             repository.getHardModeEnabledFlow().collect { enabled ->
                 _uiState.update { it.copy(isHardModeEnabled = enabled) }
             }
+        }
+    }
+
+    private fun loadStrictModePauseLimits() {
+        viewModelScope.launch {
+            val remaining = repository.getRemainingPausesToday()
+            val max = repository.getStrictModeMaxPausesPerDay()
+            _uiState.update { it.copy(
+                strictModeRemainingPausesToday = remaining,
+                strictModeMaxPausesPerDay = max
+            )}
         }
     }
 
@@ -605,31 +625,74 @@ class HomeViewModel @Inject constructor(
 
     /**
      * Pause Strict Mode - stores remaining time for later resume
-     * Returns false if cannot pause (not active), true if pause initiated
+     * Returns result indicating if pause was successful or why it failed
      */
-    fun pauseStrictMode(): Boolean {
+    fun pauseStrictMode(): StrictModePauseResult {
         if (!_uiState.value.isStrictModeLocked || _uiState.value.isStrictModePaused) {
-            return false
+            return StrictModePauseResult.NOT_ACTIVE
+        }
+
+        // Check pause limit synchronously from cached state
+        if (_uiState.value.strictModeRemainingPausesToday <= 0) {
+            return StrictModePauseResult.LIMIT_REACHED
         }
 
         viewModelScope.launch {
+            // Double-check limit from repository
+            if (!repository.canPauseStrictMode()) {
+                showToast("You have already used your daily pause exception.")
+                refreshPauseLimitState()
+                return@launch
+            }
+
             val remainingTime = _uiState.value.strictModeRemainingTime
             repository.setStrictModeRemainingOnPause(remainingTime)
             repository.setStrictModePaused(true)
             repository.setStrictModePauseReason("user_paused")
 
+            // Increment pause counter
+            repository.incrementStrictModePauseCount()
+
             // Clear the end time while paused
             repository.clearStrictModeEndTime()
 
+            // Refresh pause limit state
+            val remaining = repository.getRemainingPausesToday()
+
             _uiState.update { it.copy(
                 isStrictModePaused = true,
-                isStrictModeLocked = false
+                isStrictModeLocked = false,
+                strictModeRemainingPausesToday = remaining
             )}
 
-            showToast("Strict Mode paused. ${formatDuration(remainingTime)} remaining.")
+            showToast("Strict Mode paused. ${formatDuration(remainingTime)} remaining. ($remaining pause(s) left today)")
         }
 
-        return true
+        return StrictModePauseResult.SUCCESS
+    }
+
+    /**
+     * Refresh pause limit state from repository
+     */
+    private fun refreshPauseLimitState() {
+        viewModelScope.launch {
+            val remaining = repository.getRemainingPausesToday()
+            val max = repository.getStrictModeMaxPausesPerDay()
+            _uiState.update { it.copy(
+                strictModeRemainingPausesToday = remaining,
+                strictModeMaxPausesPerDay = max
+            )}
+        }
+    }
+
+    /**
+     * Set the maximum number of pauses allowed per day
+     */
+    fun setStrictModeMaxPausesPerDay(max: Int) {
+        viewModelScope.launch {
+            repository.setStrictModeMaxPausesPerDay(max)
+            refreshPauseLimitState()
+        }
     }
 
     /**

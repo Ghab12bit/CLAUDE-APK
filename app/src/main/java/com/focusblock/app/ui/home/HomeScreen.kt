@@ -47,6 +47,7 @@ import com.focusblock.app.utils.PermissionUtils
 import com.focusblock.app.utils.TimeUtils
 import com.focusblock.app.viewmodel.FocusCyclePhase
 import com.focusblock.app.viewmodel.HomeViewModel
+import com.focusblock.app.viewmodel.StrictModePauseResult
 
 @Composable
 fun HomeScreen(
@@ -406,10 +407,15 @@ fun HomeScreen(
     // Strict Mode Pause Dialog (new intentional flow)
     if (showStrictModePauseDialog) {
         StrictModePauseDialog(
+            remainingPausesToday = uiState.strictModeRemainingPausesToday,
+            maxPausesPerDay = uiState.strictModeMaxPausesPerDay,
             onDismiss = { showStrictModePauseDialog = false },
             onKeepFocused = { showStrictModePauseDialog = false },
             onPauseWithReason = { reason ->
-                viewModel.pauseStrictMode()
+                val result = viewModel.pauseStrictMode()
+                if (result == StrictModePauseResult.LIMIT_REACHED) {
+                    // Toast already shown by ViewModel, just close dialog
+                }
                 showStrictModePauseDialog = false
             }
         )

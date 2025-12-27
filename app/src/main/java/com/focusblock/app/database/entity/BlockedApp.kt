@@ -93,6 +93,10 @@ data class AppSettings(
         const val KEY_STRICT_MODE_PAUSED = "strict_mode_paused"
         const val KEY_STRICT_MODE_REMAINING_ON_PAUSE = "strict_mode_remaining_on_pause"
         const val KEY_STRICT_MODE_PAUSE_REASON = "strict_mode_pause_reason"
+        // Pause limit tracking (persists across restart/reboot)
+        const val KEY_STRICT_MODE_PAUSE_COUNT_TODAY = "strict_mode_pause_count_today"
+        const val KEY_STRICT_MODE_PAUSE_RESET_TIME = "strict_mode_pause_reset_time"
+        const val KEY_STRICT_MODE_MAX_PAUSES_PER_DAY = "strict_mode_max_pauses_per_day"
         const val KEY_HARD_MODE_ENABLED = "hard_mode_enabled"
         const val KEY_HARD_MODE_PIN = "hard_mode_pin"
         const val KEY_HARD_MODE_UNLOCK_TIME = "hard_mode_unlock_time"

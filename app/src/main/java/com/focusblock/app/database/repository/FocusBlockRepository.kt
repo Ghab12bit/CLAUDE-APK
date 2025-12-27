@@ -128,6 +128,61 @@ class FocusBlockRepository @Inject constructor(
     fun getStrictModePausedFlow(): Flow<Boolean> =
         settingsDao.getValueFlow(AppSettings.KEY_STRICT_MODE_PAUSED).map { it?.toBooleanStrictOrNull() ?: false }
 
+    // Strict Mode pause limit tracking (persists across restart/reboot)
+    suspend fun getStrictModePauseCountToday(): Int {
+        checkAndResetPauseCountIfNeeded()
+        return getSetting(AppSettings.KEY_STRICT_MODE_PAUSE_COUNT_TODAY)?.toIntOrNull() ?: 0
+    }
+
+    suspend fun incrementStrictModePauseCount() {
+        checkAndResetPauseCountIfNeeded()
+        val current = getSetting(AppSettings.KEY_STRICT_MODE_PAUSE_COUNT_TODAY)?.toIntOrNull() ?: 0
+        setSetting(AppSettings.KEY_STRICT_MODE_PAUSE_COUNT_TODAY, (current + 1).toString())
+    }
+
+    suspend fun getStrictModeMaxPausesPerDay(): Int =
+        getSetting(AppSettings.KEY_STRICT_MODE_MAX_PAUSES_PER_DAY)?.toIntOrNull() ?: 1 // Default: 1 pause per day
+
+    suspend fun setStrictModeMaxPausesPerDay(max: Int) =
+        setSetting(AppSettings.KEY_STRICT_MODE_MAX_PAUSES_PER_DAY, max.toString())
+
+    suspend fun canPauseStrictMode(): Boolean {
+        checkAndResetPauseCountIfNeeded()
+        val current = getSetting(AppSettings.KEY_STRICT_MODE_PAUSE_COUNT_TODAY)?.toIntOrNull() ?: 0
+        val max = getStrictModeMaxPausesPerDay()
+        return current < max
+    }
+
+    suspend fun getRemainingPausesToday(): Int {
+        checkAndResetPauseCountIfNeeded()
+        val current = getSetting(AppSettings.KEY_STRICT_MODE_PAUSE_COUNT_TODAY)?.toIntOrNull() ?: 0
+        val max = getStrictModeMaxPausesPerDay()
+        return maxOf(0, max - current)
+    }
+
+    /**
+     * Check if we need to reset the pause count (midnight reset)
+     * Resets at midnight local time
+     */
+    private suspend fun checkAndResetPauseCountIfNeeded() {
+        val lastResetTime = getSetting(AppSettings.KEY_STRICT_MODE_PAUSE_RESET_TIME)?.toLongOrNull() ?: 0L
+        val now = System.currentTimeMillis()
+
+        // Get today's midnight timestamp
+        val calendar = java.util.Calendar.getInstance()
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        calendar.set(java.util.Calendar.MINUTE, 0)
+        calendar.set(java.util.Calendar.SECOND, 0)
+        calendar.set(java.util.Calendar.MILLISECOND, 0)
+        val todayMidnight = calendar.timeInMillis
+
+        // If last reset was before today's midnight, reset the count
+        if (lastResetTime < todayMidnight) {
+            setSetting(AppSettings.KEY_STRICT_MODE_PAUSE_COUNT_TODAY, "0")
+            setSetting(AppSettings.KEY_STRICT_MODE_PAUSE_RESET_TIME, now.toString())
+        }
+    }
+
     // Get list of currently blocked packages
     suspend fun getBlockedPackageNames(): List<String> = blockedAppDao.getBlockedPackageNames()
 

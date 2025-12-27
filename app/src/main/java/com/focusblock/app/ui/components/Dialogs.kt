@@ -2698,9 +2698,12 @@ fun FocusCycleOverrideDialog(
 
 /**
  * Strict Mode Intentional Pause Dialog - Refined with reason selection
+ * Includes pause limit tracking (default: 1 pause per day)
  */
 @Composable
 fun StrictModePauseDialog(
+    remainingPausesToday: Int = 1,
+    maxPausesPerDay: Int = 1,
     onDismiss: () -> Unit,
     onKeepFocused: () -> Unit,
     onPauseWithReason: (String) -> Unit
@@ -2708,9 +2711,12 @@ fun StrictModePauseDialog(
     var selectedReason by remember { mutableStateOf<String?>(null) }
     var canPause by remember { mutableStateOf(false) }
 
+    // Check if pause limit is reached
+    val pauseLimitReached = remainingPausesToday <= 0
+
     // Add delay before pause becomes available
     LaunchedEffect(selectedReason) {
-        if (selectedReason != null) {
+        if (selectedReason != null && !pauseLimitReached) {
             canPause = false
             kotlinx.coroutines.delay(2000) // 2 second delay after selecting reason
             canPause = true
@@ -2737,18 +2743,21 @@ fun StrictModePauseDialog(
                 modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Icon
+                // Icon - different for limit reached
                 Box(
                     modifier = Modifier
                         .size(72.dp)
                         .clip(CircleShape)
-                        .background(AccentOrange.copy(alpha = 0.15f)),
+                        .background(
+                            if (pauseLimitReached) Color(0xFFE53935).copy(alpha = 0.15f)
+                            else AccentOrange.copy(alpha = 0.15f)
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.PauseCircle,
+                        imageVector = if (pauseLimitReached) Icons.Filled.Block else Icons.Filled.PauseCircle,
                         contentDescription = null,
-                        tint = AccentOrange,
+                        tint = if (pauseLimitReached) Color(0xFFE53935) else AccentOrange,
                         modifier = Modifier.size(36.dp)
                     )
                 }
@@ -2756,124 +2765,207 @@ fun StrictModePauseDialog(
                 Spacer(modifier = Modifier.height(20.dp))
 
                 Text(
-                    text = "Pause Strict Mode?",
+                    text = if (pauseLimitReached) "No Pauses Left Today" else "Pause Strict Mode?",
                     style = MaterialTheme.typography.headlineSmall,
                     color = TextPrimary
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Text(
-                    text = "You're doing great! Pausing now will interrupt your focus session.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
+                if (pauseLimitReached) {
+                    // Limit reached message
+                    Text(
+                        text = "You have already used your one exception today. Strict Mode cannot be paused until tomorrow.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFE53935),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
 
-                Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                // Reason selection
-                Text(
-                    text = "Why do you need to pause?",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = TextPrimary
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    pauseReasons.forEach { (reason, icon) ->
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { selectedReason = reason },
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (selectedReason == reason) AccentOrange.copy(alpha = 0.15f) else BackgroundDark,
-                            border = if (selectedReason == reason)
-                                BorderStroke(1.dp, AccentOrange.copy(alpha = 0.5f))
-                            else
-                                BorderStroke(1.dp, Divider)
+                    // Info box
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFE53935).copy(alpha = 0.1f),
+                        border = BorderStroke(1.dp, Color(0xFFE53935).copy(alpha = 0.3f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
+                            Icon(
+                                imageVector = Icons.Filled.Info,
+                                contentDescription = null,
+                                tint = Color(0xFFE53935),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Pause resets at midnight. Stay focused!",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Only show "Stay Focused" button when limit reached
+                    Button(
+                        onClick = onKeepFocused,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Primary)
+                    ) {
+                        Icon(Icons.Filled.Shield, null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Stay Focused", fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                    }
+                } else {
+                    // Normal flow when pauses available
+                    Text(
+                        text = "You're doing great! Pausing now will interrupt your focus session.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Show remaining pauses
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = AccentOrange.copy(alpha = 0.1f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Warning,
+                                contentDescription = null,
+                                tint = AccentOrange,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "You have $remainingPausesToday of $maxPausesPerDay pause(s) left today",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = AccentOrange
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Reason selection
+                    Text(
+                        text = "Why do you need to pause?",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = TextPrimary
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        pauseReasons.forEach { (reason, icon) ->
+                            Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { selectedReason = reason },
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (selectedReason == reason) AccentOrange.copy(alpha = 0.15f) else BackgroundDark,
+                                border = if (selectedReason == reason)
+                                    BorderStroke(1.dp, AccentOrange.copy(alpha = 0.5f))
+                                else
+                                    BorderStroke(1.dp, Divider)
                             ) {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = null,
-                                    tint = if (selectedReason == reason) AccentOrange else TextSecondary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    text = reason,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = if (selectedReason == reason) TextPrimary else TextSecondary
-                                )
-                                Spacer(modifier = Modifier.weight(1f))
-                                if (selectedReason == reason) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Icon(
-                                        imageVector = Icons.Filled.CheckCircle,
+                                        imageVector = icon,
                                         contentDescription = null,
-                                        tint = AccentOrange,
+                                        tint = if (selectedReason == reason) AccentOrange else TextSecondary,
                                         modifier = Modifier.size(20.dp)
                                     )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        text = reason,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (selectedReason == reason) TextPrimary else TextSecondary
+                                    )
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    if (selectedReason == reason) {
+                                        Icon(
+                                            imageVector = Icons.Filled.CheckCircle,
+                                            contentDescription = null,
+                                            tint = AccentOrange,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
 
-                // Keep Focused button (primary)
-                Button(
-                    onClick = onKeepFocused,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Primary)
-                ) {
-                    Icon(Icons.Filled.Shield, null, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Keep Focused", fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
-                }
+                    // Keep Focused button (primary)
+                    Button(
+                        onClick = onKeepFocused,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Primary)
+                    ) {
+                        Icon(Icons.Filled.Shield, null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Keep Focused", fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                    }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                // Pause button (secondary, requires reason and delay)
-                OutlinedButton(
-                    onClick = {
-                        if (canPause && selectedReason != null) {
-                            onPauseWithReason(selectedReason!!)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    enabled = canPause && selectedReason != null,
-                    border = BorderStroke(
-                        1.dp,
-                        if (canPause && selectedReason != null) AccentOrange.copy(alpha = 0.5f)
-                        else Divider
-                    ),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = if (canPause && selectedReason != null) AccentOrange else TextSecondary
-                    )
-                ) {
-                    Text(
-                        text = when {
-                            selectedReason == null -> "Select a reason first"
-                            !canPause -> "Wait..."
-                            else -> "Pause Anyway"
-                        }
-                    )
-                }
+                    // Pause button (secondary, requires reason and delay)
+                    OutlinedButton(
+                        onClick = {
+                            if (canPause && selectedReason != null) {
+                                onPauseWithReason(selectedReason!!)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        enabled = canPause && selectedReason != null,
+                        border = BorderStroke(
+                            1.dp,
+                            if (canPause && selectedReason != null) AccentOrange.copy(alpha = 0.5f)
+                            else Divider
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (canPause && selectedReason != null) AccentOrange else TextSecondary
+                        )
+                    ) {
+                        Text(
+                            text = when {
+                                selectedReason == null -> "Select a reason first"
+                                !canPause -> "Wait..."
+                                else -> "Pause Anyway"
+                            }
+                        )
+                    }
+                } // End of else block (pauses available)
             }
         }
     }

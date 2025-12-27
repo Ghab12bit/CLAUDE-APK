@@ -42,6 +42,9 @@ class FocusCycleOverlayService : Service() {
         private const val COLLAPSED_ALPHA = 0.6f
         private const val EXPANDED_ALPHA = 0.95f
 
+        const val ACTION_SHOW = "com.focusblock.app.SHOW_OVERLAY"
+        const val ACTION_HIDE = "com.focusblock.app.HIDE_OVERLAY"
+
         fun start(context: Context) {
             if (!Settings.canDrawOverlays(context)) {
                 Log.w(TAG, "No overlay permission, cannot start overlay service")
@@ -54,6 +57,27 @@ class FocusCycleOverlayService : Service() {
         fun stop(context: Context) {
             val intent = Intent(context, FocusCycleOverlayService::class.java)
             context.stopService(intent)
+        }
+
+        /**
+         * Show the overlay (when tracked app is in foreground)
+         */
+        fun show(context: Context) {
+            if (!Settings.canDrawOverlays(context)) return
+            val intent = Intent(context, FocusCycleOverlayService::class.java).apply {
+                action = ACTION_SHOW
+            }
+            context.startService(intent)
+        }
+
+        /**
+         * Hide the overlay (when non-tracked app is in foreground)
+         */
+        fun hide(context: Context) {
+            val intent = Intent(context, FocusCycleOverlayService::class.java).apply {
+                action = ACTION_HIDE
+            }
+            context.startService(intent)
         }
 
         /**
@@ -111,7 +135,47 @@ class FocusCycleOverlayService : Service() {
     private var lastDbFetch: Long = 0
     private val DB_FETCH_INTERVAL = 2000L // Fetch from DB every 2s
 
+    // Visibility state - overlay hidden when user is on non-tracked app
+    private var isOverlayVisible = true
+    private var isViewAdded = false
+
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_SHOW -> {
+                Log.d(TAG, "Received ACTION_SHOW")
+                showOverlayView()
+            }
+            ACTION_HIDE -> {
+                Log.d(TAG, "Received ACTION_HIDE")
+                hideOverlayView()
+            }
+        }
+        return START_STICKY
+    }
+
+    private fun showOverlayView() {
+        if (isOverlayVisible) return
+        isOverlayVisible = true
+        overlayView?.let { view ->
+            handler.post {
+                view.visibility = View.VISIBLE
+                Log.d(TAG, "Overlay shown")
+            }
+        }
+    }
+
+    private fun hideOverlayView() {
+        if (!isOverlayVisible) return
+        isOverlayVisible = false
+        overlayView?.let { view ->
+            handler.post {
+                view.visibility = View.GONE
+                Log.d(TAG, "Overlay hidden")
+            }
+        }
+    }
 
     @SuppressLint("InflateParams")
     override fun onCreate() {
@@ -168,6 +232,11 @@ class FocusCycleOverlayService : Service() {
             startDisplayRefresh()
 
             setExpandedMode()
+
+            // Start hidden - will be shown when tracked app is opened
+            isOverlayVisible = false
+            overlayView?.visibility = View.GONE
+            Log.d(TAG, "Overlay created but hidden - waiting for tracked app")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add overlay view", e)
             stopSelf()

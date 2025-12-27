@@ -239,6 +239,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     // Update notification/overlay immediately
                     updateFocusCycleNotification(updatedCycle)
 
+                    // Show floating overlay when on tracked app
+                    FocusCycleOverlayService.show(applicationContext)
+
                     // Show visible feedback
                     mainHandler.post {
                         android.widget.Toast.makeText(
@@ -299,6 +302,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     cachedFocusCycle = updatedCycle
                     persistFocusCycleUpdate(updatedCycle)
                     updateFocusCycleNotification(updatedCycle)
+
+                    // Hide overlay during break
+                    FocusCycleOverlayService.hide(applicationContext)
                 } else if (isSelectedApp) {
                     // INSTANT RESUME - User is on a selected app
                     if (cycle.isPaused) {
@@ -312,6 +318,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     cachedFocusCycle = updatedCycle
                     persistFocusCycleUpdate(updatedCycle)
                     updateFocusCycleNotification(updatedCycle)
+
+                    // Show overlay when on tracked app
+                    FocusCycleOverlayService.show(applicationContext)
                 } else {
                     // INSTANT PAUSE - User switched to non-selected app
                     if (!cycle.isPaused) {
@@ -325,6 +334,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     cachedFocusCycle = updatedCycle
                     persistFocusCycleUpdate(updatedCycle)
                     updateFocusCycleNotification(updatedCycle)
+
+                    // Hide overlay when on non-tracked app
+                    FocusCycleOverlayService.hide(applicationContext)
                 }
             }
         }

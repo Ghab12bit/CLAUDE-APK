@@ -9,6 +9,10 @@ A comprehensive Android app for managing screen time and blocking distracting ap
 - **Strict Mode**: Prevent yourself from disabling blocking
 - **Hard Mode**: PIN + time lock for maximum commitment
 - **Pomodoro Timer**: Built-in productivity timer with breaks
+- **Focus Cycles**: Automatic blocking during scheduled focus periods
+- **Mindful Reminders**: Gentle nudge at 30 min, firm reminder at 60 min of continuous usage
+- **Insights Dashboard**: Track biggest distractions, peak hours, long sessions, and streaks
+- **Context-Aware Suggestions**: Smart action suggestions based on your usage patterns
 - **Statistics**: Track your blocking activity and saved time
 - **Allowlist**: Keep essential apps always accessible
 - **Beautiful Dark UI**: AppBlock-inspired modern dark theme
@@ -132,7 +136,41 @@ Personal use only. Not for distribution on app stores.
 
 ## Version History
 
-### v1.3.0 - UI Polish (Latest)
+### v1.4.0 - Insights & Mindful Reminders (Latest)
+**Commit:** `640e1da`
+
+#### New Features
+- **Mindful Session Reminders**:
+  - Gentle nudge notification at 30 minutes of continuous app usage
+  - Firm productivity reminder at 60 minutes with escalation
+  - Works independently of app switching (periodic background check)
+  - Gentle double-tap vibration for mindful reminders
+
+- **Insights Dashboard**:
+  - Biggest Distraction of the Day with peak hour detection
+  - Most Productive Hour vs Weakest Hour tiles
+  - Long Session Risk alerts (sessions > 40 min)
+  - Focus Streak counter and Time Saved estimates
+  - Context-aware action suggestions with CTAs
+
+- **Smart Action Suggestions**:
+  - "Peak distraction window detected" - suggests Focus Cycle
+  - "Block [App] now?" - quick action for top distractions
+  - Direct buttons to start existing blocking flows
+
+#### Improvements
+- Quick Focus timer now blocks immediately when timer ends (no app switch needed)
+- Floating overlay auto-hides when tracked app is closed
+- HomeScreen scrolling stability improvements with stable keys
+- Better error handling for Insights data loading
+
+#### Bug Fixes
+- Fixed crash when scrolling Home page fast or repeatedly
+- Fixed HourlyTile Row layout crash with inconsistent weighted children
+- Fixed nullable type handling in insights calculations
+- Added try-catch safety around all insights processing
+
+### v1.3.0 - UI Polish
 **Commit:** `16482f2`
 - Modern, calm, premium UI styling
 - Quick Block hero card with 24dp radius, 8dp elevation
@@ -180,7 +218,8 @@ Personal use only. Not for distribution on app stores.
 
 | Version | Commit | Download |
 |---------|--------|----------|
-| v1.3.0 | `16482f2` | [Latest Branch](../../tree/claude/add-hard-mode-unlock-bTrNn) |
+| v1.4.0 | `640e1da` | [Latest Branch](../../tree/claude/add-hard-mode-unlock-bTrNn) |
+| v1.3.0 | `16482f2` | [Previous](../../tree/16482f2) |
 | v1.0.1 | `ce3b657` | [V1.zip](https://github.com/user-attachments/files/24244521/V1.zip) |
 
 > To build a specific version:

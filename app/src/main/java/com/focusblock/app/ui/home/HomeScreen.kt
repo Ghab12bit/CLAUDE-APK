@@ -2885,22 +2885,25 @@ fun ActionSuggestionItem(
             Tuple4(
                 Icons.Filled.Refresh,
                 Color(0xFF4CAF50),
-                "Start Focus Cycle"
-            ) { onStartFocusCycle("", suggestion.peakStartHour) }
+                "Start Focus Cycle",
+                { onStartFocusCycle("", suggestion.peakStartHour) }
+            )
         }
         ActionType.QUICK_BLOCK_DISTRACTION -> {
             Tuple4(
                 Icons.Filled.Block,
                 AccentOrange,
-                "Block Now"
-            ) { suggestion.targetPackage?.let { onStartQuickBlock(it) } }
+                "Block Now",
+                { suggestion.targetPackage?.let { onStartQuickBlock(it) } }
+            )
         }
         ActionType.SET_TIME_LIMIT -> {
             Tuple4(
                 Icons.Filled.Timer,
                 Color(0xFF2196F3),
-                "Set Limit"
-            ) { /* Navigate to time limits */ }
+                "Set Limit",
+                { /* Navigate to time limits */ }
+            )
         }
     }
 

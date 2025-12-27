@@ -354,7 +354,8 @@ class HomeViewModel @Inject constructor(
                 for (log in sortedLogs) {
                     if (currentApp == log.packageName && sessionStart != null) {
                         // Check if this is a long session (if gap is small, it's same session)
-                        val gap = log.timestamp - sortedLogs.filter { it.timestamp < log.timestamp && it.packageName == log.packageName }.maxOfOrNull { it.timestamp }
+                        val lastTimestamp = sortedLogs.filter { it.timestamp < log.timestamp && it.packageName == log.packageName }.maxOfOrNull { it.timestamp }
+                        val gap = if (lastTimestamp != null) log.timestamp - lastTimestamp else null
                         if (gap != null && gap < 5 * 60 * 1000) { // 5 min gap tolerance
                             val duration = (log.timestamp - sessionStart) / (60 * 1000)
                             if (duration >= 40) {

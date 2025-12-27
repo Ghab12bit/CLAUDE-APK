@@ -153,7 +153,7 @@ fun HomeScreen(
         }
 
         // ========== BLOCKING SECTION ==========
-        item {
+        item(key = "quick_block_header") {
             SectionHeader(
                 title = "Quick Block",
                 subtitle = "Instantly block distracting apps"
@@ -161,7 +161,7 @@ fun HomeScreen(
         }
 
         // Quick Block Card
-        item {
+        item(key = "quick_block_card") {
             QuickBlockCard(
                 isActive = uiState.isQuickBlockActive,
                 remainingTime = uiState.remainingTime,
@@ -192,7 +192,7 @@ fun HomeScreen(
         }
 
         // Statistics summary
-        item {
+        item(key = "stats_summary") {
             StatsSummaryCard(
                 todayBlockCount = uiState.todayBlockCount,
                 blockedAppsCount = uiState.blockedAppsCount,
@@ -201,7 +201,7 @@ fun HomeScreen(
         }
 
         // Weekly Summary Card
-        item {
+        item(key = "weekly_summary") {
             WeeklySummaryCard(
                 weekBlockCount = uiState.weekBlockCount,
                 todayBlockCount = uiState.todayBlockCount
@@ -209,7 +209,7 @@ fun HomeScreen(
         }
 
         // ========== INSIGHTS SECTION ==========
-        item {
+        item(key = "insights_section") {
             InsightsSection(
                 insights = uiState.insights,
                 onStartQuickBlock = { packageName ->
@@ -2521,83 +2521,70 @@ fun InsightsSection(
         // Show "No data yet" card if insufficient data
         if (!insights.hasEnoughData) {
             NoInsightsCard()
-            return@Column
-        }
+        } else {
+            // Biggest Distraction Card
+            insights.biggestDistraction?.let { distraction ->
+                BiggestDistractionCard(
+                    distraction = distraction,
+                    onAddFocusCycle = { onStartFocusCycle(distraction.packageName, distraction.peakHour) }
+                )
+            }
 
-        // Biggest Distraction Card
-        insights.biggestDistraction?.let { distraction ->
-            BiggestDistractionCard(
-                distraction = distraction,
-                onAddFocusCycle = { onStartFocusCycle(distraction.packageName, distraction.peakHour) }
-            )
-        }
-
-        // Hourly Insights Row
-        insights.hourlyInsight?.let { hourly ->
-            // Only show if at least one hour is available
-            if (hourly.bestFocusHour != null || hourly.worstHour != null) {
+            // Hourly Insights Row - only if both hours available for consistent layout
+            val hourly = insights.hourlyInsight
+            if (hourly != null && hourly.bestFocusHour != null && hourly.worstHour != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Best Focus Hour
-                    if (hourly.bestFocusHour != null) {
-                        HourlyTile(
-                            modifier = Modifier.weight(1f),
-                            title = "Best Focus Hour",
-                            hour = hourly.bestFocusHour,
-                            blockCount = hourly.bestFocusHourBlocks,
-                            isPositive = true
-                        )
-                    }
-
-                    // Worst Hour
-                    if (hourly.worstHour != null) {
-                        HourlyTile(
-                            modifier = Modifier.weight(1f),
-                            title = "Weak Hour",
-                            hour = hourly.worstHour,
-                            blockCount = hourly.worstHourBlocks,
-                            isPositive = false
-                        )
-                    }
+                    HourlyTile(
+                        modifier = Modifier.weight(1f),
+                        title = "Best Focus Hour",
+                        hour = hourly.bestFocusHour,
+                        blockCount = hourly.bestFocusHourBlocks,
+                        isPositive = true
+                    )
+                    HourlyTile(
+                        modifier = Modifier.weight(1f),
+                        title = "Weak Hour",
+                        hour = hourly.worstHour,
+                        blockCount = hourly.worstHourBlocks,
+                        isPositive = false
+                    )
                 }
             }
-        }
 
-        // Long Session Risks
-        if (insights.longSessionRisks.isNotEmpty()) {
-            LongSessionRiskCard(
-                sessions = insights.longSessionRisks,
-                onStartQuickBlock = onStartQuickBlock
-            )
-        }
+            // Long Session Risks
+            if (insights.longSessionRisks.isNotEmpty()) {
+                LongSessionRiskCard(
+                    sessions = insights.longSessionRisks,
+                    onStartQuickBlock = onStartQuickBlock
+                )
+            }
 
-        // Context-aware Action Suggestions
-        if (insights.actionSuggestions.isNotEmpty()) {
-            ActionSuggestionsCard(
-                suggestions = insights.actionSuggestions,
-                onStartQuickBlock = onStartQuickBlock,
-                onStartFocusCycle = onStartFocusCycle
-            )
-        }
+            // Context-aware Action Suggestions
+            if (insights.actionSuggestions.isNotEmpty()) {
+                ActionSuggestionsCard(
+                    suggestions = insights.actionSuggestions,
+                    onStartQuickBlock = onStartQuickBlock,
+                    onStartFocusCycle = onStartFocusCycle
+                )
+            }
 
-        // Streak & Progress Row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // Focus Streak
-            StreakTile(
-                modifier = Modifier.weight(1f),
-                streakDays = insights.focusStreakDays
-            )
-
-            // Time Saved
-            TimeSavedTile(
-                modifier = Modifier.weight(1f),
-                minutesSaved = insights.weeklyTimeSavedMinutes
-            )
+            // Streak & Progress Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                StreakTile(
+                    modifier = Modifier.weight(1f),
+                    streakDays = insights.focusStreakDays
+                )
+                TimeSavedTile(
+                    modifier = Modifier.weight(1f),
+                    minutesSaved = insights.weeklyTimeSavedMinutes
+                )
+            }
         }
     }
 }
@@ -2863,13 +2850,13 @@ fun ActionSuggestionsCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            suggestions.forEach { suggestion ->
+            suggestions.forEachIndexed { index, suggestion ->
                 ActionSuggestionItem(
                     suggestion = suggestion,
                     onStartQuickBlock = onStartQuickBlock,
                     onStartFocusCycle = onStartFocusCycle
                 )
-                if (suggestion != suggestions.last()) {
+                if (index < suggestions.lastIndex) {
                     Spacer(modifier = Modifier.height(12.dp))
                 }
             }

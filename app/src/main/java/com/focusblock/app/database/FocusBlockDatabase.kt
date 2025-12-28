@@ -20,9 +20,11 @@ import com.focusblock.app.database.entity.*
         DailyUsage::class,
         ExcludedApp::class,
         FocusCycle::class,
-        FocusCycleOverride::class
+        FocusCycleOverride::class,
+        AppTimerSettings::class,
+        AppTimerDailyUsage::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class FocusBlockDatabase : RoomDatabase() {
@@ -39,6 +41,8 @@ abstract class FocusBlockDatabase : RoomDatabase() {
     abstract fun excludedAppDao(): ExcludedAppDao
     abstract fun focusCycleDao(): FocusCycleDao
     abstract fun focusCycleOverrideDao(): FocusCycleOverrideDao
+    abstract fun appTimerSettingsDao(): AppTimerSettingsDao
+    abstract fun appTimerDailyUsageDao(): AppTimerDailyUsageDao
 
     companion object {
         @Volatile

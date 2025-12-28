@@ -22,6 +22,7 @@ import com.focusblock.app.database.entity.BlockLog
 import com.focusblock.app.database.entity.BlockedByType
 import com.focusblock.app.database.entity.FocusCycle
 import com.focusblock.app.ui.MainActivity
+import com.focusblock.app.ui.overlay.AppTimerReflectionActivity
 import com.focusblock.app.ui.overlay.BlockedAppActivity
 import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.TimeUtils
@@ -43,6 +44,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         private const val SESSION_CHECK_INTERVAL_MS = 60_000L // Check every minute
         private const val GENTLE_REMINDER_NOTIFICATION_ID = 4001
         private const val FIRM_REMINDER_NOTIFICATION_ID = 4002
+
+        // ========== APP TIMER (Shared Time Limit) ==========
+        private const val APP_TIMER_CHECK_INTERVAL_MS = 30_000L // Check every 30 seconds
 
         var isServiceRunning = false
             private set
@@ -118,6 +122,16 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private var sessionCheckRunnable: Runnable? = null
     private var cachedDistractingApps: Set<String> = emptySet() // Apps that are typically blocked/tracked
 
+    // ========== APP TIMER TRACKING ==========
+    private val appTimerHandler = Handler(Looper.getMainLooper())
+    private var appTimerRunnable: Runnable? = null
+    @Volatile private var cachedTimerApps: Set<String> = emptySet()
+    @Volatile private var cachedTimerLimitMinutes: Int = 30
+    @Volatile private var cachedTimerEscalationMinutes: Int = 20
+    @Volatile private var cachedTimerEnabled: Boolean = false
+    private var lastAppTimerUsageMinutes: Int = 0
+    private var currentTimerAppStartTime: Long? = null // When current timer app session started
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.d(TAG, "Accessibility service connected")
@@ -139,12 +153,16 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Initialize cache immediately
         refreshFocusCycleCache()
         refreshDistractingAppsCache()
+        refreshAppTimerCache()
 
         // Start Quick Block timer enforcement
         startQuickBlockTimerCheck()
 
         // Start session duration monitoring for mindful reminders
         startSessionDurationCheck()
+
+        // Start App Timer usage monitoring
+        startAppTimerCheck()
 
         // Show toast to confirm service is running
         mainHandler.post {
@@ -528,6 +546,212 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
     }
 
+    // ========== APP TIMER (Shared Time Limit) METHODS ==========
+
+    /**
+     * Refresh App Timer settings cache from database
+     */
+    private fun refreshAppTimerCache() {
+        immediateScope.launch {
+            try {
+                val settings = database.appTimerSettingsDao().getSettingsSync()
+                if (settings != null) {
+                    cachedTimerEnabled = settings.isEnabled
+                    cachedTimerLimitMinutes = settings.dailyLimitMinutes
+                    cachedTimerEscalationMinutes = settings.escalationThresholdMinutes
+                    cachedTimerApps = settings.timerApps
+                        .split(",")
+                        .filter { it.isNotBlank() }
+                        .toSet()
+                    Log.d(TAG, "App Timer cache refreshed: enabled=${cachedTimerEnabled}, limit=${cachedTimerLimitMinutes}min, apps=${cachedTimerApps.size}")
+                } else {
+                    cachedTimerEnabled = false
+                    cachedTimerApps = emptySet()
+                    Log.d(TAG, "App Timer not configured")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to refresh App Timer cache", e)
+            }
+        }
+    }
+
+    /**
+     * Start periodic App Timer usage check
+     */
+    private fun startAppTimerCheck() {
+        stopAppTimerCheck()
+
+        appTimerRunnable = object : Runnable {
+            override fun run() {
+                checkAppTimerUsage()
+                appTimerHandler.postDelayed(this, APP_TIMER_CHECK_INTERVAL_MS)
+            }
+        }
+        appTimerHandler.post(appTimerRunnable!!)
+        Log.d(TAG, "App Timer usage monitoring started")
+    }
+
+    private fun stopAppTimerCheck() {
+        appTimerRunnable?.let {
+            appTimerHandler.removeCallbacks(it)
+        }
+        appTimerRunnable = null
+    }
+
+    /**
+     * Track timer app session - called on app switch
+     */
+    private fun trackTimerAppSession(packageName: String, eventTime: Long) {
+        if (!cachedTimerEnabled || cachedTimerApps.isEmpty()) return
+
+        val wasOnTimerApp = lastForegroundPackage?.let { cachedTimerApps.contains(it) } ?: false
+        val isNowOnTimerApp = cachedTimerApps.contains(packageName)
+
+        when {
+            // Switched TO a timer app
+            isNowOnTimerApp && !wasOnTimerApp -> {
+                currentTimerAppStartTime = eventTime
+                Log.d(TAG, "App Timer: Started session on timer app $packageName")
+            }
+            // Switched FROM a timer app to non-timer app
+            wasOnTimerApp && !isNowOnTimerApp -> {
+                currentTimerAppStartTime = null
+                Log.d(TAG, "App Timer: Ended session on timer app (switched to $packageName)")
+            }
+            // Still on timer app (different timer app) - keep the session time
+            isNowOnTimerApp && wasOnTimerApp && lastForegroundPackage != packageName -> {
+                // Keep currentTimerAppStartTime as-is
+                Log.d(TAG, "App Timer: Switched between timer apps $packageName")
+            }
+        }
+    }
+
+    /**
+     * Check App Timer usage and show reflection popup if limit exceeded
+     */
+    private fun checkAppTimerUsage() {
+        if (!cachedTimerEnabled || cachedTimerApps.isEmpty()) return
+
+        immediateScope.launch {
+            try {
+                // Get today's date
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    .format(java.util.Date())
+
+                // Get current total usage from UsageStats
+                val totalUsageMinutes = calculateTimerAppsUsage()
+
+                // Update daily usage in database
+                var dailyUsage = database.appTimerDailyUsageDao().getUsageForDateSync(today)
+                if (dailyUsage == null) {
+                    dailyUsage = com.focusblock.app.database.entity.AppTimerDailyUsage(
+                        date = today,
+                        totalUsageMinutes = totalUsageMinutes
+                    )
+                    database.appTimerDailyUsageDao().insert(dailyUsage)
+                } else {
+                    database.appTimerDailyUsageDao().updateUsage(today, totalUsageMinutes)
+                    dailyUsage = dailyUsage.copy(totalUsageMinutes = totalUsageMinutes)
+                }
+
+                lastAppTimerUsageMinutes = totalUsageMinutes
+
+                // Check if we need to show popups
+                val limitMinutes = cachedTimerLimitMinutes
+                val escalationMinutes = limitMinutes + cachedTimerEscalationMinutes
+
+                // Check if user is currently on a timer app
+                val currentPackage = lastForegroundPackage
+                val isOnTimerApp = currentPackage != null && cachedTimerApps.contains(currentPackage)
+
+                when {
+                    // Escalation popup (limit + extra time exceeded)
+                    totalUsageMinutes >= escalationMinutes && !dailyUsage.escalationPopupShown && isOnTimerApp -> {
+                        Log.i(TAG, "App Timer: Escalation threshold reached ($totalUsageMinutes >= $escalationMinutes min)")
+                        database.appTimerDailyUsageDao().markEscalationPopupShown(today)
+                        mainHandler.post {
+                            showAppTimerReflection(totalUsageMinutes, limitMinutes, isEscalation = true)
+                        }
+                    }
+                    // First limit popup
+                    totalUsageMinutes >= limitMinutes && !dailyUsage.limitReachedPopupShown && isOnTimerApp -> {
+                        Log.i(TAG, "App Timer: Limit reached ($totalUsageMinutes >= $limitMinutes min)")
+                        database.appTimerDailyUsageDao().markLimitPopupShown(today)
+                        mainHandler.post {
+                            showAppTimerReflection(totalUsageMinutes, limitMinutes, isEscalation = false)
+                        }
+                    }
+                }
+
+                Log.v(TAG, "App Timer check: usage=$totalUsageMinutes min, limit=$limitMinutes min, onTimerApp=$isOnTimerApp")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking App Timer usage", e)
+            }
+        }
+    }
+
+    /**
+     * Calculate total usage of timer apps today using UsageStats
+     */
+    private fun calculateTimerAppsUsage(): Int {
+        try {
+            val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+
+            // Get today's start time (midnight)
+            val calendar = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }
+            val startTime = calendar.timeInMillis
+            val endTime = System.currentTimeMillis()
+
+            val usageStats = usageStatsManager.queryUsageStats(
+                android.app.usage.UsageStatsManager.INTERVAL_DAILY,
+                startTime,
+                endTime
+            )
+
+            var totalMillis = 0L
+            for (stat in usageStats) {
+                if (cachedTimerApps.contains(stat.packageName)) {
+                    totalMillis += stat.totalTimeInForeground
+                }
+            }
+
+            return (totalMillis / 60_000).toInt()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to calculate timer apps usage", e)
+            return 0
+        }
+    }
+
+    /**
+     * Show the App Timer reflection full-screen popup
+     */
+    private fun showAppTimerReflection(totalUsageMinutes: Int, limitMinutes: Int, isEscalation: Boolean) {
+        Log.i(TAG, "Showing App Timer reflection popup: usage=$totalUsageMinutes, limit=$limitMinutes, escalation=$isEscalation")
+
+        // Vibrate to get attention
+        vibrateDevice()
+
+        try {
+            val timerApps = cachedTimerApps.joinToString(",")
+            val intent = AppTimerReflectionActivity.createIntent(
+                context = applicationContext,
+                totalUsageMinutes = totalUsageMinutes,
+                limitMinutes = limitMinutes,
+                isEscalation = isEscalation,
+                timerApps = timerApps
+            )
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to show App Timer reflection", e)
+        }
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
@@ -544,6 +768,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Track app sessions for gentle/firm reminders
         trackAppSession(packageName, eventTime)
 
+        // ========== APP TIMER TRACKING ==========
+        // Track timer app sessions for shared time limit
+        trackTimerAppSession(packageName, eventTime)
+
         // ========== INSTANT FOCUS CYCLE HANDLING ==========
         // Use cached state for immediate response, then persist async
         handleFocusCycleInstant(packageName, eventTime)
@@ -552,6 +780,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         if (eventTime - lastCacheRefresh > CACHE_REFRESH_INTERVAL_MS) {
             refreshFocusCycleCache()
             refreshDistractingAppsCache() // Also refresh distracting apps list
+            refreshAppTimerCache() // Also refresh app timer settings
         }
 
         // Don't process blocking if we're already blocking
@@ -820,6 +1049,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         isServiceRunning = false
         stopQuickBlockTimerCheck() // Clean up Quick Block timer
         stopSessionDurationCheck() // Clean up session duration timer
+        stopAppTimerCheck() // Clean up App Timer check
         activeSessions.clear() // Clear session tracking
         serviceScope.cancel()
         immediateScope.cancel()

@@ -351,3 +351,59 @@ interface FocusCycleOverrideDao {
     @Query("DELETE FROM focus_cycle_overrides WHERE timestamp < :beforeTime")
     suspend fun deleteOldOverrides(beforeTime: Long)
 }
+
+// ========== APP TIMER DAOs ==========
+
+@Dao
+interface AppTimerSettingsDao {
+    @Query("SELECT * FROM app_timer_settings WHERE id = 1")
+    fun getSettings(): Flow<AppTimerSettings?>
+
+    @Query("SELECT * FROM app_timer_settings WHERE id = 1")
+    suspend fun getSettingsSync(): AppTimerSettings?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(settings: AppTimerSettings)
+
+    @Update
+    suspend fun update(settings: AppTimerSettings)
+
+    @Query("UPDATE app_timer_settings SET isEnabled = :enabled WHERE id = 1")
+    suspend fun setEnabled(enabled: Boolean)
+
+    @Query("UPDATE app_timer_settings SET dailyLimitMinutes = :minutes WHERE id = 1")
+    suspend fun setDailyLimit(minutes: Int)
+
+    @Query("UPDATE app_timer_settings SET timerApps = :apps WHERE id = 1")
+    suspend fun setTimerApps(apps: String)
+}
+
+@Dao
+interface AppTimerDailyUsageDao {
+    @Query("SELECT * FROM app_timer_daily_usage WHERE date = :date")
+    fun getUsageForDate(date: String): Flow<AppTimerDailyUsage?>
+
+    @Query("SELECT * FROM app_timer_daily_usage WHERE date = :date")
+    suspend fun getUsageForDateSync(date: String): AppTimerDailyUsage?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(usage: AppTimerDailyUsage)
+
+    @Update
+    suspend fun update(usage: AppTimerDailyUsage)
+
+    @Query("UPDATE app_timer_daily_usage SET totalUsageMinutes = :minutes, lastUpdated = :timestamp WHERE date = :date")
+    suspend fun updateUsage(date: String, minutes: Int, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE app_timer_daily_usage SET limitReachedPopupShown = 1 WHERE date = :date")
+    suspend fun markLimitPopupShown(date: String)
+
+    @Query("UPDATE app_timer_daily_usage SET escalationPopupShown = 1 WHERE date = :date")
+    suspend fun markEscalationPopupShown(date: String)
+
+    @Query("UPDATE app_timer_daily_usage SET addedToQuickBlock = 1 WHERE date = :date")
+    suspend fun markAddedToQuickBlock(date: String)
+
+    @Query("DELETE FROM app_timer_daily_usage WHERE date < :beforeDate")
+    suspend fun deleteOldUsage(beforeDate: String)
+}

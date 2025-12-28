@@ -209,3 +209,50 @@ data class FocusCycleOverride(
     val packageName: String,
     val appName: String
 )
+
+// ========== APP TIMER (Shared Time Limit) ==========
+
+/**
+ * App Timer Settings - tracks shared daily time limit across multiple apps
+ * User sets a combined limit (e.g., 30 min) for all timer apps together
+ */
+@Entity(tableName = "app_timer_settings")
+data class AppTimerSettings(
+    @PrimaryKey
+    val id: Int = 1, // Singleton - only one settings record
+    val isEnabled: Boolean = false,
+    val dailyLimitMinutes: Int = 30, // Default 30 min combined limit
+    val escalationThresholdMinutes: Int = 20, // Extra minutes after limit for escalation
+    val timerApps: String = "", // Comma-separated package names
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+) {
+    companion object {
+        // Default dopamine/distraction apps
+        val DEFAULT_TIMER_APPS = listOf(
+            "com.google.android.youtube",
+            "com.instagram.android",
+            "com.zhiliaoapp.musically", // TikTok
+            "com.snapchat.android",
+            "com.reddit.frontpage",
+            "com.twitter.android",
+            "com.facebook.katana",
+            "com.facebook.orca" // Messenger
+        )
+    }
+}
+
+/**
+ * App Timer Daily Usage - tracks combined usage per day
+ * Resets at midnight
+ */
+@Entity(tableName = "app_timer_daily_usage")
+data class AppTimerDailyUsage(
+    @PrimaryKey
+    val date: String, // YYYY-MM-DD format
+    val totalUsageMinutes: Int = 0,
+    val limitReachedPopupShown: Boolean = false,
+    val escalationPopupShown: Boolean = false,
+    val addedToQuickBlock: Boolean = false,
+    val lastUpdated: Long = System.currentTimeMillis()
+)

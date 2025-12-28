@@ -113,7 +113,13 @@ data class HomeUiState(
     val isFocusCycleEnabled: Boolean = false,
     val isFocusCycleInBreak: Boolean = false,
     val focusCycleRemainingTime: Long = 0,
-    val focusCyclePhase: FocusCyclePhase = FocusCyclePhase.INACTIVE
+    val focusCyclePhase: FocusCyclePhase = FocusCyclePhase.INACTIVE,
+    // App Timer state (shared daily time limit)
+    val appTimerSettings: AppTimerSettings? = null,
+    val isAppTimerEnabled: Boolean = false,
+    val appTimerLimitMinutes: Int = 30,
+    val appTimerUsageMinutes: Int = 0,
+    val appTimerAppsCount: Int = 0
 )
 
 enum class FocusCyclePhase {
@@ -159,6 +165,7 @@ class HomeViewModel @Inject constructor(
     init {
         loadData()
         loadFocusCycleData()
+        loadAppTimerData()
         loadInstalledApps()
         loadStrictModePauseLimits()
         loadInsights()
@@ -492,6 +499,76 @@ class HomeViewModel @Inject constructor(
                         focusCycleRemainingTime = 0
                     )}
                 }
+            }
+        }
+    }
+
+    private fun loadAppTimerData() {
+        viewModelScope.launch {
+            repository.getAppTimerSettings().collect { settings ->
+                if (settings != null) {
+                    val appsCount = settings.timerApps
+                        .split(",")
+                        .filter { it.isNotBlank() }
+                        .size
+                    _uiState.update { it.copy(
+                        appTimerSettings = settings,
+                        isAppTimerEnabled = settings.isEnabled,
+                        appTimerLimitMinutes = settings.dailyLimitMinutes,
+                        appTimerAppsCount = appsCount
+                    )}
+                } else {
+                    _uiState.update { it.copy(
+                        appTimerSettings = null,
+                        isAppTimerEnabled = false,
+                        appTimerAppsCount = 0
+                    )}
+                }
+            }
+        }
+
+        // Load today's usage
+        viewModelScope.launch {
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                .format(java.util.Date())
+            repository.getAppTimerDailyUsage(today).collect { usage ->
+                _uiState.update { it.copy(
+                    appTimerUsageMinutes = usage?.totalUsageMinutes ?: 0
+                )}
+            }
+        }
+    }
+
+    fun enableAppTimer(limitMinutes: Int, selectedPackages: List<String>) {
+        viewModelScope.launch {
+            val settings = AppTimerSettings(
+                id = 1,
+                isEnabled = true,
+                dailyLimitMinutes = limitMinutes,
+                timerApps = selectedPackages.joinToString(","),
+                updatedAt = System.currentTimeMillis()
+            )
+            repository.saveAppTimerSettings(settings)
+        }
+    }
+
+    fun disableAppTimer() {
+        viewModelScope.launch {
+            val currentSettings = _uiState.value.appTimerSettings
+            if (currentSettings != null) {
+                repository.saveAppTimerSettings(currentSettings.copy(isEnabled = false))
+            }
+        }
+    }
+
+    fun updateAppTimerLimit(limitMinutes: Int) {
+        viewModelScope.launch {
+            val currentSettings = _uiState.value.appTimerSettings
+            if (currentSettings != null) {
+                repository.saveAppTimerSettings(currentSettings.copy(
+                    dailyLimitMinutes = limitMinutes,
+                    updatedAt = System.currentTimeMillis()
+                ))
             }
         }
     }

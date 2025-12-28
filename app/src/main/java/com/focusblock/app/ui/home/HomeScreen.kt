@@ -309,6 +309,38 @@ fun HomeScreen(
                 }
             )
         }
+
+        // App Timer Card (Shared Daily Time Limit)
+        item(key = "app_timer_card") {
+            var showAppTimerSetupDialog by remember { mutableStateOf(false) }
+            val isAccessibilityEnabled = PermissionUtils.hasAccessibilityServiceEnabled(context)
+
+            AppTimerCard(
+                isEnabled = uiState.isAppTimerEnabled,
+                limitMinutes = uiState.appTimerLimitMinutes,
+                usageMinutes = uiState.appTimerUsageMinutes,
+                appsCount = uiState.appTimerAppsCount,
+                isAccessibilityEnabled = isAccessibilityEnabled,
+                onSetupClick = { showAppTimerSetupDialog = true },
+                onDisableClick = { viewModel.disableAppTimer() },
+                onEnableAccessibility = {
+                    val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    context.startActivity(intent)
+                }
+            )
+
+            if (showAppTimerSetupDialog) {
+                AppTimerSetupDialog(
+                    apps = viewModel.getInstalledApps(),
+                    currentSettings = uiState.appTimerSettings,
+                    onDismiss = { showAppTimerSetupDialog = false },
+                    onConfirm = { limitMinutes, selectedPackages ->
+                        viewModel.enableAppTimer(limitMinutes, selectedPackages)
+                        showAppTimerSetupDialog = false
+                    }
+                )
+            }
+        }
     }
     } // End Scaffold
 
@@ -2495,6 +2527,496 @@ fun FocusCycleCard(
                 }
             }
         }
+    }
+}
+
+// ========== APP TIMER CARD ==========
+
+/**
+ * App Timer Card - Shared daily time limit across multiple apps
+ */
+@Composable
+fun AppTimerCard(
+    isEnabled: Boolean,
+    limitMinutes: Int,
+    usageMinutes: Int,
+    appsCount: Int,
+    isAccessibilityEnabled: Boolean = true,
+    onSetupClick: () -> Unit,
+    onDisableClick: () -> Unit,
+    onEnableAccessibility: () -> Unit = {}
+) {
+    val timerColor = Color(0xFF00BCD4) // Cyan
+    val warningColor = Color(0xFFFF5722) // Deep Orange for warning
+
+    // Calculate progress
+    val progress = if (limitMinutes > 0) {
+        (usageMinutes.toFloat() / limitMinutes).coerceIn(0f, 1f)
+    } else 0f
+
+    val isOverLimit = usageMinutes >= limitMinutes
+    val remainingMinutes = maxOf(0, limitMinutes - usageMinutes)
+
+    // Format time
+    fun formatMinutes(minutes: Int): String {
+        val hours = minutes / 60
+        val mins = minutes % 60
+        return if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            ),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isEnabled) timerColor.copy(alpha = 0.08f) else CardDark
+        ),
+        border = if (isEnabled) BorderStroke(1.dp, if (isOverLimit) warningColor.copy(alpha = 0.5f) else timerColor.copy(alpha = 0.3f)) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isEnabled) timerColor.copy(alpha = 0.15f) else SurfaceElevated),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Timer,
+                            contentDescription = null,
+                            tint = if (isEnabled && isOverLimit) warningColor else if (isEnabled) timerColor else TextSecondary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "App Timer",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Medium
+                            )
+                            if (isEnabled) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isOverLimit) warningColor.copy(alpha = 0.2f) else AccentGreen.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = if (isOverLimit) "OVER LIMIT" else "ACTIVE",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isOverLimit) warningColor else AccentGreen,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Shared daily limit across apps",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+
+                if (!isEnabled) {
+                    Button(
+                        onClick = onSetupClick,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = timerColor),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text("Setup", fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+
+            // Show accessibility warning if service not enabled
+            if (!isAccessibilityEnabled && !isEnabled) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    color = warningColor.copy(alpha = 0.1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Warning,
+                            contentDescription = null,
+                            tint = warningColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Enable Accessibility Service to use App Timer",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = onEnableAccessibility,
+                            colors = ButtonDefaults.textButtonColors(contentColor = warningColor)
+                        ) {
+                            Text("Enable", fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            }
+
+            // Active state content
+            if (isEnabled) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Usage progress
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Today's usage",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = TextSecondary
+                        )
+                        Text(
+                            text = "${formatMinutes(usageMinutes)} / ${formatMinutes(limitMinutes)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (isOverLimit) warningColor else TextPrimary,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Progress bar
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = if (isOverLimit) warningColor else timerColor,
+                        trackColor = SurfaceDark
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = if (isOverLimit) {
+                            "You've exceeded your limit by ${formatMinutes(usageMinutes - limitMinutes)}"
+                        } else {
+                            "${formatMinutes(remainingMinutes)} remaining"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isOverLimit) warningColor else TextSecondary
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Stats row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = formatMinutes(limitMinutes),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = timerColor,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Daily Limit",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "$appsCount",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Apps",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Edit and Disable buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onSetupClick,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, timerColor.copy(alpha = 0.5f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = timerColor)
+                    ) {
+                        Text("Edit")
+                    }
+                    OutlinedButton(
+                        onClick = onDisableClick,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, TextSecondary.copy(alpha = 0.3f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary)
+                    ) {
+                        Text("Disable")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * App Timer Setup Dialog
+ */
+@Composable
+fun AppTimerSetupDialog(
+    apps: List<AppUtils.AppInfo>,
+    currentSettings: com.focusblock.app.database.entity.AppTimerSettings?,
+    onDismiss: () -> Unit,
+    onConfirm: (limitMinutes: Int, selectedPackages: List<String>) -> Unit
+) {
+    val defaultApps = com.focusblock.app.database.entity.AppTimerSettings.DEFAULT_TIMER_APPS
+
+    // Initialize with current settings or defaults
+    var selectedApps by remember {
+        mutableStateOf(
+            currentSettings?.timerApps
+                ?.split(",")
+                ?.filter { it.isNotBlank() }
+                ?.toSet()
+                ?: defaultApps.toSet()
+        )
+    }
+
+    var limitMinutes by remember {
+        mutableStateOf(currentSettings?.dailyLimitMinutes ?: 30)
+    }
+
+    val timerColor = Color(0xFF00BCD4) // Cyan
+
+    // Filter apps to show - prioritize timer apps
+    val timerApps = remember(apps) {
+        apps.filter { defaultApps.contains(it.packageName) }
+    }
+    val otherApps = remember(apps) {
+        apps.filter { !defaultApps.contains(it.packageName) }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "App Timer Setup",
+                style = MaterialTheme.typography.titleLarge,
+                color = TextPrimary
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp)
+            ) {
+                // Daily limit selector
+                Text(
+                    text = "Daily time limit",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(15, 30, 45, 60, 90).forEach { minutes ->
+                        FilterChip(
+                            selected = limitMinutes == minutes,
+                            onClick = { limitMinutes = minutes },
+                            label = {
+                                Text(
+                                    text = if (minutes >= 60) "${minutes / 60}h" else "${minutes}m",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = timerColor.copy(alpha = 0.2f),
+                                selectedLabelColor = timerColor
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // App selection
+                Text(
+                    text = "Apps to track (${selectedApps.size} selected)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // App list
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    // Suggested apps header
+                    if (timerApps.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "Suggested apps",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = timerColor,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        }
+                        items(timerApps) { app ->
+                            AppTimerAppRow(
+                                app = app,
+                                isSelected = selectedApps.contains(app.packageName),
+                                onToggle = {
+                                    selectedApps = if (selectedApps.contains(app.packageName)) {
+                                        selectedApps - app.packageName
+                                    } else {
+                                        selectedApps + app.packageName
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    // Other apps header
+                    if (otherApps.isNotEmpty()) {
+                        item {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Other apps",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        }
+                        items(otherApps) { app ->
+                            AppTimerAppRow(
+                                app = app,
+                                isSelected = selectedApps.contains(app.packageName),
+                                onToggle = {
+                                    selectedApps = if (selectedApps.contains(app.packageName)) {
+                                        selectedApps - app.packageName
+                                    } else {
+                                        selectedApps + app.packageName
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(limitMinutes, selectedApps.toList()) },
+                enabled = selectedApps.isNotEmpty(),
+                colors = ButtonDefaults.buttonColors(containerColor = timerColor)
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextSecondary)
+            }
+        },
+        containerColor = CardDark,
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+private fun AppTimerAppRow(
+    app: AppUtils.AppInfo,
+    isSelected: Boolean,
+    onToggle: () -> Unit
+) {
+    val timerColor = Color(0xFF00BCD4)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onToggle)
+            .background(if (isSelected) timerColor.copy(alpha = 0.1f) else Color.Transparent)
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // App icon
+        app.icon?.let { icon ->
+            val bitmap = remember(icon) { icon.toBitmap().asImageBitmap() }
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = app.name,
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextPrimary,
+            modifier = Modifier.weight(1f)
+        )
+        Checkbox(
+            checked = isSelected,
+            onCheckedChange = { onToggle() },
+            colors = CheckboxDefaults.colors(
+                checkedColor = timerColor,
+                uncheckedColor = TextSecondary
+            )
+        )
     }
 }
 

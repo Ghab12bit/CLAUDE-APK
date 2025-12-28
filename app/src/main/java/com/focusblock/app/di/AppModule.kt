@@ -91,4 +91,16 @@ object AppModule {
     fun provideFocusCycleOverrideDao(database: FocusBlockDatabase): FocusCycleOverrideDao {
         return database.focusCycleOverrideDao()
     }
+
+    @Provides
+    @Singleton
+    fun provideAppTimerSettingsDao(database: FocusBlockDatabase): AppTimerSettingsDao {
+        return database.appTimerSettingsDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideAppTimerDailyUsageDao(database: FocusBlockDatabase): AppTimerDailyUsageDao {
+        return database.appTimerDailyUsageDao()
+    }
 }

@@ -20,7 +20,9 @@ class FocusBlockRepository @Inject constructor(
     private val dailyUsageDao: DailyUsageDao,
     private val excludedAppDao: ExcludedAppDao,
     private val focusCycleDao: FocusCycleDao,
-    private val focusCycleOverrideDao: FocusCycleOverrideDao
+    private val focusCycleOverrideDao: FocusCycleOverrideDao,
+    private val appTimerSettingsDao: AppTimerSettingsDao,
+    private val appTimerDailyUsageDao: AppTimerDailyUsageDao
 ) {
     // Blocked Apps
     fun getAllBlockedApps(): Flow<List<BlockedApp>> = blockedAppDao.getAllBlockedApps()
@@ -258,4 +260,23 @@ class FocusBlockRepository @Inject constructor(
     suspend fun getOverrideCountSince(cycleId: Long, since: Long): Int = focusCycleOverrideDao.getOverrideCountSince(cycleId, since)
     suspend fun insertFocusCycleOverride(override: FocusCycleOverride) = focusCycleOverrideDao.insert(override)
     suspend fun deleteOldOverrides(beforeTime: Long) = focusCycleOverrideDao.deleteOldOverrides(beforeTime)
+
+    // App Timer (Shared Time Limit)
+    fun getAppTimerSettings(): Flow<AppTimerSettings?> = appTimerSettingsDao.getSettings()
+    suspend fun getAppTimerSettingsSync(): AppTimerSettings? = appTimerSettingsDao.getSettingsSync()
+    suspend fun saveAppTimerSettings(settings: AppTimerSettings) = appTimerSettingsDao.insert(settings)
+    suspend fun updateAppTimerSettings(settings: AppTimerSettings) = appTimerSettingsDao.update(settings)
+    suspend fun setAppTimerEnabled(enabled: Boolean) = appTimerSettingsDao.setEnabled(enabled)
+    suspend fun setAppTimerDailyLimit(minutes: Int) = appTimerSettingsDao.setDailyLimit(minutes)
+    suspend fun setAppTimerApps(apps: String) = appTimerSettingsDao.setTimerApps(apps)
+
+    // App Timer Daily Usage
+    fun getAppTimerDailyUsage(date: String): Flow<AppTimerDailyUsage?> = appTimerDailyUsageDao.getUsageForDate(date)
+    suspend fun getAppTimerDailyUsageSync(date: String): AppTimerDailyUsage? = appTimerDailyUsageDao.getUsageForDateSync(date)
+    suspend fun insertAppTimerDailyUsage(usage: AppTimerDailyUsage) = appTimerDailyUsageDao.insert(usage)
+    suspend fun updateAppTimerDailyUsage(date: String, minutes: Int) = appTimerDailyUsageDao.updateUsage(date, minutes)
+    suspend fun markAppTimerLimitPopupShown(date: String) = appTimerDailyUsageDao.markLimitPopupShown(date)
+    suspend fun markAppTimerEscalationPopupShown(date: String) = appTimerDailyUsageDao.markEscalationPopupShown(date)
+    suspend fun markAppTimerAddedToQuickBlock(date: String) = appTimerDailyUsageDao.markAddedToQuickBlock(date)
+    suspend fun deleteOldAppTimerUsage(beforeDate: String) = appTimerDailyUsageDao.deleteOldUsage(beforeDate)
 }

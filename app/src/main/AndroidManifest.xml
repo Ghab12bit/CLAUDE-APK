@@ -60,6 +60,18 @@
             android:launchMode="singleInstance"
             android:excludeFromRecents="true" />
 
+        <!-- App Timer Reflection Activity -->
+        <activity
+            android:name=".ui.overlay.AppTimerReflectionActivity"
+            android:exported="false"
+            android:theme="@style/Theme.FocusBlock.Overlay"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.focusblock.apptimer"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+
         <!-- App Blocking Service -->
         <service
             android:name=".service.AppBlockingService"

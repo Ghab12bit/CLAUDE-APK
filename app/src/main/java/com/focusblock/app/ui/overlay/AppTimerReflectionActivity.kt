@@ -255,15 +255,21 @@ fun AppTimerReflectionScreen(
 
                     // Progress bar
                     val progress = (totalUsageMinutes.toFloat() / limitMinutes).coerceAtMost(2f)
-                    LinearProgressIndicator(
-                        progress = { (progress / 2f).coerceAtMost(1f) },
+                    val progressBarValue = (progress / 2f).coerceAtMost(1f)
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                        color = accentColor,
-                        trackColor = SurfaceDark
-                    )
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(SurfaceDark)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progressBarValue)
+                                .fillMaxHeight()
+                                .background(accentColor)
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(8.dp))
 

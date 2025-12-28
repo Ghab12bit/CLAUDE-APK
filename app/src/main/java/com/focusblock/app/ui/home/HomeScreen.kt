@@ -2714,15 +2714,20 @@ fun AppTimerCard(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     // Progress bar
-                    LinearProgressIndicator(
-                        progress = progress,
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                        color = if (isOverLimit) warningColor else timerColor,
-                        trackColor = SurfaceDark
-                    )
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(SurfaceDark)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progress)
+                                .fillMaxHeight()
+                                .background(if (isOverLimit) warningColor else timerColor)
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(4.dp))
 

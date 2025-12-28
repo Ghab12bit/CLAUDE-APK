@@ -3009,7 +3009,7 @@ private fun AppTimerAppRow(
         }
         Spacer(modifier = Modifier.width(12.dp))
         Text(
-            text = app.name,
+            text = app.appName,
             style = MaterialTheme.typography.bodyMedium,
             color = TextPrimary,
             modifier = Modifier.weight(1f)

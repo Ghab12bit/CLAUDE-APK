@@ -2835,6 +2835,19 @@ fun AppTimerSetupDialog(
         mutableStateOf(currentSettings?.dailyLimitMinutes ?: 30)
     }
 
+    // Check if current limit is a preset value
+    val presetValues = listOf(15, 30, 45, 60, 90, 120)
+    var isCustomSelected by remember {
+        mutableStateOf(currentSettings?.dailyLimitMinutes?.let { !presetValues.contains(it) } ?: false)
+    }
+    var customMinutesText by remember {
+        mutableStateOf(
+            if (currentSettings?.dailyLimitMinutes?.let { !presetValues.contains(it) } == true)
+                currentSettings.dailyLimitMinutes.toString()
+            else ""
+        )
+    }
+
     val timerColor = Color(0xFF00BCD4) // Cyan
 
     // Filter apps to show - prioritize timer apps
@@ -2868,14 +2881,18 @@ fun AppTimerSetupDialog(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
+                // First row - preset options
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    listOf(15, 30, 45, 60, 90).forEach { minutes ->
+                    listOf(15, 30, 45, 60, 90, 120).forEach { minutes ->
                         FilterChip(
-                            selected = limitMinutes == minutes,
-                            onClick = { limitMinutes = minutes },
+                            selected = !isCustomSelected && limitMinutes == minutes,
+                            onClick = {
+                                isCustomSelected = false
+                                limitMinutes = minutes
+                            },
                             label = {
                                 Text(
                                     text = if (minutes >= 60) "${minutes / 60}h" else "${minutes}m",
@@ -2886,6 +2903,79 @@ fun AppTimerSetupDialog(
                                 selectedContainerColor = timerColor.copy(alpha = 0.2f),
                                 selectedLabelColor = timerColor
                             )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Custom time input row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = isCustomSelected,
+                        onClick = {
+                            isCustomSelected = true
+                            if (customMinutesText.isNotEmpty()) {
+                                customMinutesText.toIntOrNull()?.let { limitMinutes = it }
+                            }
+                        },
+                        label = {
+                            Text(
+                                text = "Custom",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = timerColor.copy(alpha = 0.2f),
+                            selectedLabelColor = timerColor
+                        )
+                    )
+
+                    if (isCustomSelected) {
+                        OutlinedTextField(
+                            value = customMinutesText,
+                            onValueChange = { newValue ->
+                                // Only allow digits
+                                if (newValue.all { it.isDigit() } && newValue.length <= 3) {
+                                    customMinutesText = newValue
+                                    newValue.toIntOrNull()?.let { minutes ->
+                                        if (minutes > 0) limitMinutes = minutes
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .width(80.dp)
+                                .height(48.dp),
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = TextPrimary,
+                                textAlign = TextAlign.Center
+                            ),
+                            placeholder = {
+                                Text(
+                                    "mins",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            },
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                            ),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = timerColor,
+                                unfocusedBorderColor = TextSecondary.copy(alpha = 0.5f),
+                                cursorColor = timerColor
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        Text(
+                            text = "minutes",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
                         )
                     }
                 }

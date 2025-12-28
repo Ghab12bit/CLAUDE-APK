@@ -4,6 +4,8 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -692,11 +694,13 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Calculate total usage of timer apps today using UsageStats
+     * Calculate total usage of timer apps today using UsageEvents API
+     * This is more accurate than queryUsageStats as it tracks individual
+     * foreground/background events and properly resets at midnight
      */
     private fun calculateTimerAppsUsage(): Int {
         try {
-            val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+            val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
 
             // Get today's start time (midnight)
             val calendar = java.util.Calendar.getInstance().apply {
@@ -708,20 +712,58 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             val startTime = calendar.timeInMillis
             val endTime = System.currentTimeMillis()
 
-            val usageStats = usageStatsManager.queryUsageStats(
-                android.app.usage.UsageStatsManager.INTERVAL_DAILY,
-                startTime,
-                endTime
-            )
+            // Query events for accurate tracking
+            val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
+            val event = UsageEvents.Event()
 
-            var totalMillis = 0L
-            for (stat in usageStats) {
-                if (cachedTimerApps.contains(stat.packageName)) {
-                    totalMillis += stat.totalTimeInForeground
+            // Track foreground start times for each app
+            val activeApps = mutableMapOf<String, Long>()
+            val appUsageMillis = mutableMapOf<String, Long>()
+
+            while (usageEvents.hasNextEvent()) {
+                usageEvents.getNextEvent(event)
+                val packageName = event.packageName ?: continue
+
+                // Only track timer apps
+                if (!cachedTimerApps.contains(packageName)) continue
+
+                when (event.eventType) {
+                    UsageEvents.Event.MOVE_TO_FOREGROUND,
+                    UsageEvents.Event.ACTIVITY_RESUMED -> {
+                        // App came to foreground - record start time
+                        activeApps[packageName] = event.timeStamp
+                    }
+                    UsageEvents.Event.MOVE_TO_BACKGROUND,
+                    UsageEvents.Event.ACTIVITY_PAUSED -> {
+                        // App went to background - calculate duration
+                        val foregroundStart = activeApps.remove(packageName)
+                        if (foregroundStart != null && foregroundStart < event.timeStamp) {
+                            val duration = event.timeStamp - foregroundStart
+                            // Only count reasonable sessions (< 4 hours continuous)
+                            if (duration < 4 * 60 * 60 * 1000) {
+                                appUsageMillis[packageName] = (appUsageMillis[packageName] ?: 0L) + duration
+                            }
+                        }
+                    }
                 }
             }
 
-            return (totalMillis / 60_000).toInt()
+            // Add time for apps still in foreground (currently active)
+            val now = System.currentTimeMillis()
+            for ((packageName, foregroundStart) in activeApps) {
+                val duration = now - foregroundStart
+                if (duration > 0 && duration < 4 * 60 * 60 * 1000) {
+                    appUsageMillis[packageName] = (appUsageMillis[packageName] ?: 0L) + duration
+                }
+            }
+
+            // Sum up total usage across all timer apps
+            val totalMillis = appUsageMillis.values.sum()
+            val totalMinutes = (totalMillis / 60_000).toInt()
+
+            Log.d(TAG, "App Timer usage calculated: ${totalMinutes}m (apps: ${appUsageMillis.keys.joinToString()})")
+
+            return totalMinutes
         } catch (e: Exception) {
             Log.e(TAG, "Failed to calculate timer apps usage", e)
             return 0

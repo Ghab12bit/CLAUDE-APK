@@ -9,6 +9,7 @@ plugins {
 android {
     namespace 'com.focusblock.app'
     compileSdk 34
+    buildToolsVersion "33.0.1"
 
     defaultConfig {
         applicationId "com.focusblock.app"

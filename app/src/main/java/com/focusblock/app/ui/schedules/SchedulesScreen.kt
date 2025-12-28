@@ -704,7 +704,8 @@ fun ScheduleEditDialog(
                         )
                         onSave(newSchedule)
                     },
-                    enabled = name.isNotEmpty() && selectedApps.isNotEmpty() && selectedDays.isNotEmpty()
+                    // Name is optional (defaults to "Schedule"), but need at least one app and one day
+                    enabled = selectedApps.isNotEmpty() && selectedDays.isNotEmpty()
                 ) {
                     Text("Save")
                 }

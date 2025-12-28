@@ -695,7 +695,7 @@ fun ScheduleEditDialog(
                             id = schedule?.id ?: 0,
                             name = name.ifEmpty { "Schedule" },
                             iconType = iconType,
-                            colorHex = getScheduleColor(iconType).toString(),
+                            colorHex = colorToHex(getScheduleColor(iconType)),
                             isEnabled = isEnabled,
                             startTimeMinutes = startTime,
                             endTimeMinutes = endTime,
@@ -870,6 +870,16 @@ fun getScheduleColor(type: ScheduleIconType): Color {
         ScheduleIconType.DETOX -> ScheduleDetox
         else -> Primary
     }
+}
+
+/**
+ * Convert Compose Color to hex string format (e.g., "#0A84FF")
+ */
+fun colorToHex(color: Color): String {
+    val red = (color.red * 255).toInt()
+    val green = (color.green * 255).toInt()
+    val blue = (color.blue * 255).toInt()
+    return String.format("#%02X%02X%02X", red, green, blue)
 }
 
 fun getScheduleIcon(type: ScheduleIconType): ImageVector {

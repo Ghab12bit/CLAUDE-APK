@@ -128,7 +128,15 @@ fun BlockedAppScreen(
     var focusCycleRemainingBreak by remember { mutableStateOf(0L) }
     var canContinueAnyway by remember { mutableStateOf(false) }
 
-    // Load block counts and Focus Cycle state
+    // App Timer override state
+    var showAppTimerOverride by remember { mutableStateOf(false) }
+    var appTimerUsageMinutes by remember { mutableStateOf(0) }
+    var appTimerLimitMinutes by remember { mutableStateOf(0) }
+    var appTimerOverrideAvailable by remember { mutableStateOf(false) }
+    var canUseAppTimerOverride by remember { mutableStateOf(false) }
+    var appTimerOverrideCountdown by remember { mutableStateOf(5) }
+
+    // Load block counts and Focus Cycle/App Timer state
     LaunchedEffect(packageName) {
         val app = database.blockedAppDao().getBlockedApp(packageName)
         todayCount = app?.blockedCount ?: 0
@@ -147,6 +155,22 @@ fun BlockedAppScreen(
             }
             showFocusCycleOverride = true
         }
+
+        // For App Timer, show override option with daily limit
+        if (blockedBy == BlockedByType.APP_TIMER) {
+            val timerSettings = database.appTimerSettingsDao().getSettingsSync()
+            if (timerSettings != null) {
+                appTimerLimitMinutes = timerSettings.dailyLimitMinutes
+                // Get today's usage
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    .format(java.util.Date())
+                val dailyUsage = database.appTimerDailyUsageDao().getUsageForDateSync(today)
+                appTimerUsageMinutes = dailyUsage?.totalUsageMinutes ?: 0
+                // Check if daily override is still available
+                appTimerOverrideAvailable = dailyUsage?.dailyOverrideUsed != true
+            }
+            showAppTimerOverride = true
+        }
     }
 
     // Enable "Continue Anyway" after 2.5 second delay for Focus Cycle
@@ -154,6 +178,19 @@ fun BlockedAppScreen(
         if (showFocusCycleOverride) {
             kotlinx.coroutines.delay(2500)
             canContinueAnyway = true
+        }
+    }
+
+    // Countdown for App Timer override (5 seconds with friction)
+    LaunchedEffect(showAppTimerOverride, appTimerOverrideAvailable) {
+        if (showAppTimerOverride && appTimerOverrideAvailable) {
+            // 5 second countdown before override is available
+            for (i in 5 downTo 1) {
+                appTimerOverrideCountdown = i
+                kotlinx.coroutines.delay(1000)
+            }
+            appTimerOverrideCountdown = 0
+            canUseAppTimerOverride = true
         }
     }
 
@@ -290,6 +327,7 @@ fun BlockedAppScreen(
                     BlockedByType.STRICT_MODE -> "by Strict Mode"
                     BlockedByType.HARD_MODE -> "by Hard Mode"
                     BlockedByType.FOCUS_CYCLE -> "by Focus Cycle (Break Time)"
+                    BlockedByType.APP_TIMER -> "by App Timer (Limit Reached)"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
@@ -481,6 +519,113 @@ fun BlockedAppScreen(
                         text = if (canContinueAnyway) "Continue Anyway" else "Wait...",
                         color = if (canContinueAnyway) TextSecondary else TextSecondary.copy(alpha = 0.4f),
                         style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            } else if (blockedBy == BlockedByType.APP_TIMER && showAppTimerOverride) {
+                // App Timer enforcement - show usage info and override option
+                val timerColor = Color(0xFF00BCD4) // Cyan
+                val warningColor = Color(0xFFFF5722) // Deep Orange
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = timerColor.copy(alpha = 0.1f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Timer,
+                                contentDescription = null,
+                                tint = warningColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Daily Limit Reached",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = warningColor,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Used ${appTimerUsageMinutes}m of ${appTimerLimitMinutes}m today",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "You've used all your screen time for these apps.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // "I'm Done" button (primary - return to home)
+                Button(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentGreen)
+                ) {
+                    Icon(Icons.Filled.Check, null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "I'm Done for Today",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Override button - with friction (5s countdown + once daily)
+                if (appTimerOverrideAvailable) {
+                    TextButton(
+                        onClick = {
+                            if (canUseAppTimerOverride) {
+                                // Activate 15-minute override window
+                                coroutineScope.launch {
+                                    val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                                        .format(java.util.Date())
+                                    val expiresAt = System.currentTimeMillis() + (15 * 60 * 1000L) // 15 min
+                                    database.appTimerDailyUsageDao().activateOverride(today, expiresAt)
+                                }
+                                // Allow through
+                                (context as? ComponentActivity)?.finish()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = canUseAppTimerOverride
+                    ) {
+                        Text(
+                            text = when {
+                                canUseAppTimerOverride -> "Use 15-min Override (1× daily)"
+                                else -> "Wait ${appTimerOverrideCountdown}s..."
+                            },
+                            color = if (canUseAppTimerOverride) warningColor else TextSecondary.copy(alpha = 0.4f),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                } else {
+                    // Override already used today
+                    Text(
+                        text = "Daily override already used",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary.copy(alpha = 0.6f),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             } else {

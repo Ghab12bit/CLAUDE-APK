@@ -629,7 +629,14 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Check App Timer usage and show reflection popup if limit exceeded
+     * Check App Timer usage and enforce limit
+     *
+     * INTEGRATION WITH FOCUS CYCLE:
+     * If the current app is in both App Timer AND Focus Cycle, when App Timer limit
+     * is reached, we trigger Focus Cycle break instead of showing a separate popup.
+     * This makes the systems work together: App Timer triggers Focus Cycle enforcement.
+     *
+     * Priority: Focus Cycle enforcement > App Timer standalone
      */
     private fun checkAppTimerUsage() {
         if (!cachedTimerEnabled || cachedTimerApps.isEmpty()) return
@@ -658,7 +665,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
                 lastAppTimerUsageMinutes = totalUsageMinutes
 
-                // Check if we need to show popups
+                // Check if we need to trigger enforcement
                 val limitMinutes = cachedTimerLimitMinutes
                 val escalationMinutes = limitMinutes + cachedTimerEscalationMinutes
 
@@ -666,26 +673,68 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 val currentPackage = lastForegroundPackage
                 val isOnTimerApp = currentPackage != null && cachedTimerApps.contains(currentPackage)
 
-                when {
-                    // Escalation popup (limit + extra time exceeded)
-                    totalUsageMinutes >= escalationMinutes && !dailyUsage.escalationPopupShown && isOnTimerApp -> {
-                        Log.i(TAG, "App Timer: Escalation threshold reached ($totalUsageMinutes >= $escalationMinutes min)")
-                        database.appTimerDailyUsageDao().markEscalationPopupShown(today)
-                        mainHandler.post {
-                            showAppTimerReflection(totalUsageMinutes, limitMinutes, isEscalation = true)
+                // FOCUS CYCLE INTEGRATION:
+                // Check if the current app is also in an active Focus Cycle
+                val activeFocusCycle = cachedFocusCycle
+                val focusCyclePackages = cachedFocusCyclePackages
+                val isInFocusCycle = currentPackage != null &&
+                    activeFocusCycle != null &&
+                    activeFocusCycle.isEnabled &&
+                    focusCyclePackages.contains(currentPackage)
+
+                // When limit reached, check Focus Cycle integration
+                if (totalUsageMinutes >= limitMinutes && isOnTimerApp) {
+                    if (isInFocusCycle && activeFocusCycle != null) {
+                        // INTEGRATION: Trigger Focus Cycle break instead of separate popup
+                        val isAlreadyInBreak = activeFocusCycle.breakStartTime != null
+                        if (!isAlreadyInBreak) {
+                            Log.i(TAG, "App Timer + Focus Cycle: Triggering break for $currentPackage (usage: $totalUsageMinutes >= limit: $limitMinutes)")
+                            // Force Focus Cycle into break phase
+                            val now = System.currentTimeMillis()
+                            database.focusCycleDao().update(
+                                activeFocusCycle.copy(
+                                    breakStartTime = now,
+                                    accumulatedUsageMillis = 0,
+                                    lastActiveTime = null,
+                                    isPaused = false
+                                )
+                            )
+                            // Update cache immediately
+                            cachedFocusCycle = cachedFocusCycle?.copy(
+                                breakStartTime = now,
+                                accumulatedUsageMillis = 0,
+                                lastActiveTime = null,
+                                isPaused = false
+                            )
+                            // Mark popup shown to prevent duplicate triggers
+                            if (!dailyUsage.limitReachedPopupShown) {
+                                database.appTimerDailyUsageDao().markLimitPopupShown(today)
+                            }
                         }
-                    }
-                    // First limit popup
-                    totalUsageMinutes >= limitMinutes && !dailyUsage.limitReachedPopupShown && isOnTimerApp -> {
-                        Log.i(TAG, "App Timer: Limit reached ($totalUsageMinutes >= $limitMinutes min)")
-                        database.appTimerDailyUsageDao().markLimitPopupShown(today)
-                        mainHandler.post {
-                            showAppTimerReflection(totalUsageMinutes, limitMinutes, isEscalation = false)
+                    } else {
+                        // No Focus Cycle - show standalone popups
+                        when {
+                            // Escalation popup (limit + extra time exceeded)
+                            totalUsageMinutes >= escalationMinutes && !dailyUsage.escalationPopupShown -> {
+                                Log.i(TAG, "App Timer: Escalation threshold reached ($totalUsageMinutes >= $escalationMinutes min)")
+                                database.appTimerDailyUsageDao().markEscalationPopupShown(today)
+                                mainHandler.post {
+                                    showAppTimerReflection(totalUsageMinutes, limitMinutes, isEscalation = true)
+                                }
+                            }
+                            // First limit popup
+                            !dailyUsage.limitReachedPopupShown -> {
+                                Log.i(TAG, "App Timer: Limit reached ($totalUsageMinutes >= $limitMinutes min)")
+                                database.appTimerDailyUsageDao().markLimitPopupShown(today)
+                                mainHandler.post {
+                                    showAppTimerReflection(totalUsageMinutes, limitMinutes, isEscalation = false)
+                                }
+                            }
                         }
                     }
                 }
 
-                Log.v(TAG, "App Timer check: usage=$totalUsageMinutes min, limit=$limitMinutes min, onTimerApp=$isOnTimerApp")
+                Log.v(TAG, "App Timer check: usage=$totalUsageMinutes min, limit=$limitMinutes min, onTimerApp=$isOnTimerApp, inFocusCycle=$isInFocusCycle")
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error checking App Timer usage", e)
@@ -1114,11 +1163,43 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         val quickBlockSessionDao = database.quickBlockSessionDao()
         val settingsDao = database.settingsDao()
         val focusCycleDao = database.focusCycleDao()
+        val appTimerSettingsDao = database.appTimerSettingsDao()
+        val appTimerDailyUsageDao = database.appTimerDailyUsageDao()
 
         // Check if in allowlist
         val blockedApp = blockedAppDao.getBlockedApp(packageName)
         if (blockedApp?.isInAllowlist == true) {
             return false
+        }
+
+        // ============ APP TIMER ENFORCEMENT ============
+        // Check if this app should be blocked due to App Timer limit
+        val timerSettings = appTimerSettingsDao.getSettingsSync()
+        if (timerSettings != null && timerSettings.isEnabled) {
+            val timerApps = timerSettings.timerApps.split(",").filter { it.isNotBlank() }
+            if (timerApps.contains(packageName)) {
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    .format(java.util.Date())
+                val dailyUsage = appTimerDailyUsageDao.getUsageForDateSync(today)
+                val currentUsage = lastAppTimerUsageMinutes // Use cached value for speed
+                val limitMinutes = timerSettings.dailyLimitMinutes
+
+                if (currentUsage >= limitMinutes) {
+                    // Check if override is active and not expired
+                    val overrideExpires = dailyUsage?.overrideExpiresAt
+                    val now = System.currentTimeMillis()
+
+                    if (overrideExpires != null && now < overrideExpires) {
+                        // Override is active - allow for now
+                        Log.d(TAG, "App Timer: Override active for $packageName (expires in ${(overrideExpires - now)/1000}s)")
+                        return false
+                    }
+
+                    // No active override - block the app
+                    Log.d(TAG, "App Timer: Blocking $packageName (usage: $currentUsage >= limit: $limitMinutes)")
+                    return true
+                }
+            }
         }
 
         // ============ MODE PRIORITY RULES ============
@@ -1270,6 +1351,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         val settingsDao = database.settingsDao()
         val quickBlockSessionDao = database.quickBlockSessionDao()
         val focusCycleDao = database.focusCycleDao()
+        val appTimerSettingsDao = database.appTimerSettingsDao()
 
         val hardModeEnabled = settingsDao.getValue("hard_mode_enabled")?.toBooleanStrictOrNull() ?: false
         if (hardModeEnabled) {
@@ -1279,6 +1361,18 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         val strictModeEnabled = settingsDao.getValue("strict_mode_enabled")?.toBooleanStrictOrNull() ?: false
         if (strictModeEnabled) {
             return BlockedByType.STRICT_MODE
+        }
+
+        // Check App Timer first (it's an enforcement limit)
+        val timerSettings = appTimerSettingsDao.getSettingsSync()
+        if (timerSettings != null && timerSettings.isEnabled) {
+            val timerApps = timerSettings.timerApps.split(",").filter { it.isNotBlank() }
+            if (timerApps.contains(packageName)) {
+                val currentUsage = lastAppTimerUsageMinutes
+                if (currentUsage >= timerSettings.dailyLimitMinutes) {
+                    return BlockedByType.APP_TIMER
+                }
+            }
         }
 
         val activeFocusCycle = focusCycleDao.getActiveFocusCycleSync()

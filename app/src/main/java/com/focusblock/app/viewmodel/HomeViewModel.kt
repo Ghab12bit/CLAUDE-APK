@@ -79,12 +79,23 @@ data class InsightsState(
     val actionSuggestions: List<ActionSuggestion> = emptyList() // Context-aware suggestions
 )
 
+// Unified blocked app with source information
+data class UnifiedBlockedApp(
+    val packageName: String,
+    val appName: String,
+    val isQuickBlockOnly: Boolean, // True if only blocked by Quick Block (temporary)
+    val isPermanent: Boolean, // True if in permanent blocked list
+    val isFromSchedule: Boolean = false, // True if blocked by active schedule
+    val isFromAppTimer: Boolean = false // True if in App Timer list
+)
+
 data class HomeUiState(
     val isQuickBlockActive: Boolean = false,
     val quickBlockSession: QuickBlockSession? = null,
     val remainingTime: Long = 0,
     val blockedAppsCount: Int = 0,
     val blockedApps: List<BlockedApp> = emptyList(),
+    val unifiedBlockedApps: List<UnifiedBlockedApp> = emptyList(), // All blocked apps with source
     val activeSchedules: List<Schedule> = emptyList(),
     val todayBlockCount: Int = 0,
     val weekBlockCount: Int = 0,
@@ -185,30 +196,59 @@ class HomeViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            // Load blocked apps, filtering out Quick Block-only apps
-            // Combine blocked apps with Quick Block session to filter properly
+            // Load unified blocked apps list showing ALL blocked apps with their source
             kotlinx.coroutines.flow.combine(
                 repository.getActiveBlockedApps(),
-                repository.getActiveQuickBlockSession()
-            ) { apps, session ->
-                if (session == null) {
-                    // No active Quick Block - show all blocked apps
-                    apps
-                } else {
-                    // Filter out apps that are ONLY blocked due to Quick Block
-                    val sessionPackages = session.blockedPackages.split(",").filter { it.isNotBlank() }.toSet()
-                    val previouslyBlocked = session.previouslyBlockedPackages.split(",").filter { it.isNotBlank() }.toSet()
-                    val quickBlockOnlyApps = sessionPackages - previouslyBlocked
+                repository.getActiveQuickBlockSession(),
+                repository.getAllSchedules(),
+                repository.getAppTimerSettings()
+            ) { apps, session, schedules, timerSettings ->
+                val permanentPackages = apps.map { it.packageName }.toSet()
 
-                    apps.filter { app -> app.packageName !in quickBlockOnlyApps }
-                }
-            }.collect { filteredApps ->
+                // Get Quick Block packages
+                val quickBlockPackages = session?.blockedPackages?.split(",")
+                    ?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
+                val previouslyBlocked = session?.previouslyBlockedPackages?.split(",")
+                    ?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
+                val quickBlockOnlyPackages = quickBlockPackages - previouslyBlocked
+
+                // Get active schedule packages
+                val activeSchedulePackages = schedules
+                    .filter { it.isEnabled }
+                    .flatMap { it.blockedPackages.split(",").filter { pkg -> pkg.isNotBlank() } }
+                    .toSet()
+
+                // Get App Timer packages
+                val timerPackages = timerSettings?.timerApps?.split(",")
+                    ?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
+
+                // Build unified list - all currently blocked apps
+                val allPackages = permanentPackages + quickBlockPackages
+                allPackages.map { packageName ->
+                    val blockedApp = apps.find { it.packageName == packageName }
+                    UnifiedBlockedApp(
+                        packageName = packageName,
+                        appName = blockedApp?.appName ?: AppUtils.getAppName(application, packageName),
+                        isQuickBlockOnly = packageName in quickBlockOnlyPackages,
+                        isPermanent = packageName in permanentPackages && packageName !in quickBlockOnlyPackages,
+                        isFromSchedule = packageName in activeSchedulePackages,
+                        isFromAppTimer = packageName in timerPackages
+                    )
+                }.sortedBy { it.appName }
+            }.collect { unifiedApps ->
                 _uiState.update {
                     it.copy(
-                        blockedApps = filteredApps,
-                        blockedAppsCount = filteredApps.size
+                        unifiedBlockedApps = unifiedApps,
+                        blockedAppsCount = unifiedApps.size
                     )
                 }
+            }
+        }
+
+        // Keep legacy blockedApps for backward compatibility
+        viewModelScope.launch {
+            repository.getActiveBlockedApps().collect { apps ->
+                _uiState.update { it.copy(blockedApps = apps) }
             }
         }
 

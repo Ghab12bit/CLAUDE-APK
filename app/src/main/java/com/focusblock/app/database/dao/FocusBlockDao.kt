@@ -404,6 +404,12 @@ interface AppTimerDailyUsageDao {
     @Query("UPDATE app_timer_daily_usage SET addedToQuickBlock = 1 WHERE date = :date")
     suspend fun markAddedToQuickBlock(date: String)
 
+    @Query("UPDATE app_timer_daily_usage SET dailyOverrideUsed = 1, overrideExpiresAt = :expiresAt WHERE date = :date")
+    suspend fun activateOverride(date: String, expiresAt: Long)
+
+    @Query("UPDATE app_timer_daily_usage SET overrideExpiresAt = NULL WHERE date = :date")
+    suspend fun clearOverride(date: String)
+
     @Query("DELETE FROM app_timer_daily_usage WHERE date < :beforeDate")
     suspend fun deleteOldUsage(beforeDate: String)
 }

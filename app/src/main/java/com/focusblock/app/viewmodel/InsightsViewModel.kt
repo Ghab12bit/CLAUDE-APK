@@ -379,35 +379,35 @@ class InsightsViewModel @Inject constructor(
      * This tracks individual MOVE_TO_FOREGROUND and MOVE_TO_BACKGROUND events
      * to calculate exact screen time per app
      *
-     * PICKUP CALCULATION LOGIC:
-     * -------------------------
-     * Pickups are ESTIMATED, not directly measured. The UsageEvents API does not
-     * provide a direct "phone pickup" event. Instead, we infer pickups by counting
-     * transitions from background state to foreground state.
+     * PICKUP CALCULATION LOGIC (CONSERVATIVE):
+     * ----------------------------------------
+     * Pickups are ESTIMATED using conservative criteria to avoid inflation.
+     * A pickup is only counted when:
+     * 1. Screen was previously off (SCREEN_NON_INTERACTIVE detected), OR
+     * 2. There was a significant idle gap (>30 seconds) since last activity
      *
-     * How it works:
-     * 1. We track lastEventWasBackground flag
-     * 2. When an app moves to foreground (MOVE_TO_FOREGROUND or ACTIVITY_RESUMED)
-     *    after the previous event was a background event, we count it as a pickup
-     * 3. Screen off events (SCREEN_NON_INTERACTIVE) reset to background state
+     * Debounce protection:
+     * - Minimum 5 seconds between pickups to prevent rapid event inflation
+     * - App switches within an active session don't count as pickups
      *
-     * Limitations:
-     * - This counts app opens, not physical phone pickups
-     * - Multiple quick app switches won't count as multiple pickups
-     * - Notifications that briefly wake screen may be counted
-     * - Accuracy is ~60-80% compared to actual pickup sensors
-     *
-     * The UI clearly labels this as "Estimated from app open events"
+     * This approach significantly reduces false positives from:
+     * - Rapid app switching
+     * - Background service launches
+     * - System UI events
+     * - Orientation changes
      */
     private fun getAccurateUsageFromEvents(startTime: Long, endTime: Long): Map<String, AppUsageData> {
         val usageMap = mutableMapOf<String, AppUsageData>()
         val activeApps = mutableMapOf<String, Long>() // packageName -> foreground start time
         val hourlyUsageMap = mutableMapOf<String, MutableMap<Int, Long>>() // packageName -> hour -> duration
 
-        // Pickup estimation: count foreground events after background state
-        // This is NOT a direct measurement - pickups are inferred from usage patterns
+        // Conservative pickup estimation with debounce
         var pickupCount = 0
-        var lastEventWasBackground = true // Assume starting from background (screen off)
+        var lastPickupTime = 0L // For debounce protection
+        var lastActivityTime = 0L // Last foreground/background event time
+        var screenWasOff = true // Start assuming screen was off at beginning of day
+        val PICKUP_DEBOUNCE_MS = 5000L // 5 second minimum between pickups
+        val IDLE_GAP_MS = 30000L // 30 second gap = potential new session/pickup
 
         val usageEvents = usageStatsManager?.queryEvents(startTime, endTime) ?: return emptyMap()
         val event = UsageEvents.Event()
@@ -425,15 +425,25 @@ class InsightsViewModel @Inject constructor(
                     // App came to foreground
                     activeApps[packageName] = event.timeStamp
 
-                    // PICKUP ESTIMATION:
-                    // Count as pickup when transitioning from background to foreground.
-                    // This is an APPROXIMATION - it detects "sessions" starting after
-                    // the screen was off or all apps were in background.
-                    // It does NOT use hardware pickup sensors (not available via API).
-                    if (lastEventWasBackground) {
+                    // CONSERVATIVE PICKUP DETECTION:
+                    // Only count as pickup if:
+                    // 1. Screen was off (real pickup from locked/off state), OR
+                    // 2. Significant idle gap (>30s) since last activity (user put phone down)
+                    // AND debounce period has passed (>5s since last counted pickup)
+                    val timeSinceLastActivity = event.timeStamp - lastActivityTime
+                    val timeSinceLastPickup = event.timeStamp - lastPickupTime
+
+                    val isRealPickup = screenWasOff ||
+                        (timeSinceLastActivity > IDLE_GAP_MS && lastActivityTime > 0)
+                    val passedDebounce = timeSinceLastPickup > PICKUP_DEBOUNCE_MS || lastPickupTime == 0L
+
+                    if (isRealPickup && passedDebounce) {
                         pickupCount++
-                        lastEventWasBackground = false
+                        lastPickupTime = event.timeStamp
+                        screenWasOff = false // Reset - we've counted this pickup
                     }
+
+                    lastActivityTime = event.timeStamp
                 }
 
                 UsageEvents.Event.MOVE_TO_BACKGROUND,
@@ -463,11 +473,16 @@ class InsightsViewModel @Inject constructor(
                             hourlyMap[hour] = (hourlyMap[hour] ?: 0L) + duration
                         }
                     }
-                    lastEventWasBackground = true
+                    lastActivityTime = event.timeStamp
+                    // Note: Don't set screenWasOff here - app going to background
+                    // doesn't mean screen is off (could be switching apps)
                 }
 
                 UsageEvents.Event.SCREEN_NON_INTERACTIVE -> {
-                    // Screen turned off - close all active sessions
+                    // Screen turned off - definitive signal
+                    screenWasOff = true
+
+                    // Close all active sessions
                     val currentTime = event.timeStamp
                     activeApps.forEach { (pkg, startTimestamp) ->
                         if (startTimestamp < currentTime) {
@@ -484,7 +499,12 @@ class InsightsViewModel @Inject constructor(
                         }
                     }
                     activeApps.clear()
-                    lastEventWasBackground = true
+                    lastActivityTime = currentTime
+                }
+
+                UsageEvents.Event.SCREEN_INTERACTIVE -> {
+                    // Screen turned on - next foreground event could be a pickup
+                    screenWasOff = true
                 }
             }
         }

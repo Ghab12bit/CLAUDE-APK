@@ -65,7 +65,7 @@ data class BlockLog(
 )
 
 enum class BlockedByType {
-    QUICK_BLOCK, SCHEDULE, STRICT_MODE, HARD_MODE, FOCUS_CYCLE
+    QUICK_BLOCK, SCHEDULE, STRICT_MODE, HARD_MODE, FOCUS_CYCLE, APP_TIMER
 }
 
 @Entity(tableName = "usage_stats")
@@ -254,5 +254,7 @@ data class AppTimerDailyUsage(
     val limitReachedPopupShown: Boolean = false,
     val escalationPopupShown: Boolean = false,
     val addedToQuickBlock: Boolean = false,
+    val dailyOverrideUsed: Boolean = false, // User has used their one daily override
+    val overrideExpiresAt: Long? = null, // When the current override expires (15 min window)
     val lastUpdated: Long = System.currentTimeMillis()
 )

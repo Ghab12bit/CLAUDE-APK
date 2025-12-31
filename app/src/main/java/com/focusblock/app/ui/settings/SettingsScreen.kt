@@ -41,6 +41,8 @@ fun SettingsScreen(
     var showAllowlistDialog by remember { mutableStateOf(false) }
     var showPinDialog by remember { mutableStateOf(false) }
     var showHardModeDialog by remember { mutableStateOf(false) }
+    var showAboutDialog by remember { mutableStateOf(false) }
+    var showPomodoroPicker by remember { mutableStateOf<String?>(null) } // "work", "short", "long"
 
     LazyColumn(
         modifier = Modifier
@@ -228,7 +230,7 @@ fun SettingsScreen(
                     icon = Icons.Outlined.Timer,
                     title = "Work Duration",
                     subtitle = "${uiState.pomodoroWorkMinutes} minutes",
-                    onClick = { /* Show duration picker */ }
+                    onClick = { showPomodoroPicker = "work" }
                 )
 
                 Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
@@ -237,7 +239,7 @@ fun SettingsScreen(
                     icon = Icons.Outlined.Coffee,
                     title = "Short Break",
                     subtitle = "${uiState.pomodoroShortBreak} minutes",
-                    onClick = { /* Show duration picker */ }
+                    onClick = { showPomodoroPicker = "short" }
                 )
 
                 Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
@@ -246,7 +248,7 @@ fun SettingsScreen(
                     icon = Icons.Outlined.Weekend,
                     title = "Long Break",
                     subtitle = "${uiState.pomodoroLongBreak} minutes",
-                    onClick = { /* Show duration picker */ }
+                    onClick = { showPomodoroPicker = "long" }
                 )
             }
         }
@@ -262,7 +264,7 @@ fun SettingsScreen(
                     icon = Icons.Outlined.Info,
                     title = "About FocusBlock",
                     subtitle = "Personal digital wellbeing app",
-                    onClick = { }
+                    onClick = { showAboutDialog = true }
                 )
             }
         }
@@ -314,6 +316,116 @@ fun SettingsScreen(
             onConfirm = { pin, unlockMinutes ->
                 viewModel.enableHardMode(pin, unlockMinutes)
                 showHardModeDialog = false
+            }
+        )
+    }
+
+    // Pomodoro Duration Picker
+    showPomodoroPicker?.let { type ->
+        val title = when (type) {
+            "work" -> "Work Duration"
+            "short" -> "Short Break"
+            else -> "Long Break"
+        }
+        val currentValue = when (type) {
+            "work" -> uiState.pomodoroWorkMinutes
+            "short" -> uiState.pomodoroShortBreak
+            else -> uiState.pomodoroLongBreak
+        }
+        val options = when (type) {
+            "work" -> listOf(15, 20, 25, 30, 45, 60)
+            "short" -> listOf(3, 5, 10, 15)
+            else -> listOf(10, 15, 20, 30)
+        }
+
+        AlertDialog(
+            onDismissRequest = { showPomodoroPicker = null },
+            title = { Text(title, color = TextPrimary) },
+            containerColor = CardDark,
+            text = {
+                Column {
+                    options.forEach { minutes ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    when (type) {
+                                        "work" -> viewModel.setPomodoroWorkMinutes(minutes)
+                                        "short" -> viewModel.setPomodoroShortBreak(minutes)
+                                        else -> viewModel.setPomodoroLongBreak(minutes)
+                                    }
+                                    showPomodoroPicker = null
+                                }
+                                .padding(vertical = 12.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = minutes == currentValue,
+                                onClick = null,
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = Primary,
+                                    unselectedColor = TextSecondary
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "$minutes minutes",
+                                color = TextPrimary,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPomodoroPicker = null }) {
+                    Text("Cancel", color = Primary)
+                }
+            }
+        )
+    }
+
+    // About Dialog
+    if (showAboutDialog) {
+        AlertDialog(
+            onDismissRequest = { showAboutDialog = false },
+            containerColor = CardDark,
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.Shield,
+                        contentDescription = null,
+                        tint = Primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("FocusBlock", color = TextPrimary)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Your personal digital wellbeing companion",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Version 1.5.0",
+                        color = TextTertiary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        "Take control of your screen time and build healthier digital habits.",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAboutDialog = false }) {
+                    Text("Close", color = Primary)
+                }
             }
         )
     }

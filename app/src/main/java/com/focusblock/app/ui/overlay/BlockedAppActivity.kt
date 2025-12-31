@@ -614,8 +614,9 @@ fun BlockedAppScreen(
                                 canUseAppTimerOverride -> "Use 15-min Override (1× daily)"
                                 else -> "Wait ${appTimerOverrideCountdown}s..."
                             },
-                            color = if (canUseAppTimerOverride) warningColor else TextSecondary.copy(alpha = 0.4f),
-                            style = MaterialTheme.typography.bodyMedium
+                            color = if (canUseAppTimerOverride) warningColor else TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (!canUseAppTimerOverride) FontWeight.Bold else null
                         )
                     }
                 } else {

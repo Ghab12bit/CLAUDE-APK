@@ -215,4 +215,25 @@ class SettingsViewModel @Inject constructor(
             )}
         }
     }
+
+    fun setPomodoroWorkMinutes(minutes: Int) {
+        viewModelScope.launch {
+            repository.setSetting(AppSettings.KEY_POMODORO_WORK_MINUTES, minutes.toString())
+            _uiState.update { it.copy(pomodoroWorkMinutes = minutes) }
+        }
+    }
+
+    fun setPomodoroShortBreak(minutes: Int) {
+        viewModelScope.launch {
+            repository.setSetting(AppSettings.KEY_POMODORO_SHORT_BREAK, minutes.toString())
+            _uiState.update { it.copy(pomodoroShortBreak = minutes) }
+        }
+    }
+
+    fun setPomodoroLongBreak(minutes: Int) {
+        viewModelScope.launch {
+            repository.setSetting(AppSettings.KEY_POMODORO_LONG_BREAK, minutes.toString())
+            _uiState.update { it.copy(pomodoroLongBreak = minutes) }
+        }
+    }
 }

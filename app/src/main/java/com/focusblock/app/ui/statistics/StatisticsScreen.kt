@@ -67,7 +67,7 @@ fun StatisticsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF5F7FA)) // Light background like reference
+            .background(BackgroundDark)
     ) {
         // Header
         InsightsHeader(
@@ -171,7 +171,7 @@ fun StatisticsScreen(
                 Text(
                     text = "Habits",
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color(0xFF1E293B),
+                    color = TextPrimary,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -200,7 +200,7 @@ fun StatisticsScreen(
                 Text(
                     text = "Usage",
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color(0xFF1E293B),
+                    color = TextPrimary,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -218,7 +218,7 @@ fun StatisticsScreen(
                 Text(
                     text = "Focus",
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color(0xFF1E293B),
+                    color = TextPrimary,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -249,7 +249,7 @@ fun StatisticsScreen(
                 Text(
                     text = "Distractions",
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color(0xFF1E293B),
+                    color = TextPrimary,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -294,7 +294,7 @@ fun InsightsHeader(
                     text = "Insights",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF1E293B)
+                    color = TextPrimary
                 )
                 Icon(
                     imageVector = Icons.Filled.AutoAwesome,
@@ -310,7 +310,7 @@ fun InsightsHeader(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(25.dp))
-                    .background(Color(0xFFF1F5F9)),
+                    .background(CardDark),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 InsightsTab.values().forEach { tab ->
@@ -360,7 +360,7 @@ fun HeroMetricCard(
             Text(
                 text = screenTime,
                 style = MaterialTheme.typography.displayMedium,
-                color = Color(0xFF1E293B),
+                color = TextPrimary,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(4.dp))
@@ -473,7 +473,7 @@ fun UsageTimelineCard(
                                         .width(24.dp)
                                         .height(4.dp)
                                         .clip(RoundedCornerShape(2.dp))
-                                        .background(Color(0xFFE2E8F0))
+                                        .background(SurfaceElevated)
                                 )
                             }
                         }
@@ -520,7 +520,7 @@ fun MostUsedAppsCard(
             Text(
                 text = "Most used apps",
                 style = MaterialTheme.typography.titleMedium,
-                color = Color(0xFF1E293B),
+                color = TextPrimary,
                 fontWeight = FontWeight.SemiBold
             )
 
@@ -543,7 +543,7 @@ fun MostUsedAppsCard(
                 ) {
                     Text(
                         text = if (expanded) "Show less" else "More",
-                        color = Color(0xFF64748B)
+                        color = TextSecondary
                     )
                     Icon(
                         imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
@@ -579,7 +579,7 @@ fun MostUsedAppRow(app: AppUsageInfo) {
             modifier = Modifier
                 .size(40.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFFF1F5F9)),
+                .background(CardDark),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -596,7 +596,7 @@ fun MostUsedAppRow(app: AppUsageInfo) {
             Text(
                 text = app.appName,
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF1E293B),
+                color = TextPrimary,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -626,7 +626,7 @@ fun MostUsedAppRow(app: AppUsageInfo) {
         Text(
             text = app.usageDuration,
             style = MaterialTheme.typography.bodyMedium,
-            color = Color(0xFF64748B)
+            color = TextSecondary
         )
 
         Icon(
@@ -661,7 +661,7 @@ fun BalanceCard(
                 Text(
                     text = "Balance",
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color(0xFF1E293B),
+                    color = TextPrimary,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
@@ -679,7 +679,7 @@ fun BalanceCard(
                     .fillMaxWidth()
                     .height(8.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFFE2E8F0))
+                    .background(SurfaceElevated)
             ) {
                 Box(
                     modifier = Modifier
@@ -756,7 +756,7 @@ fun PeakTimeCard(
                     Text(
                         text = "Peak time",
                         style = MaterialTheme.typography.titleMedium,
-                        color = Color(0xFF1E293B),
+                        color = TextPrimary,
                         fontWeight = FontWeight.SemiBold
                     )
                     if (hasRisk) {
@@ -818,7 +818,7 @@ fun PeakTimeCard(
                             .clip(RoundedCornerShape(2.dp))
                             .background(
                                 when {
-                                    total == 0 -> Color(0xFFE2E8F0)
+                                    total == 0 -> SurfaceBorder
                                     barHasRisk -> Color(0xFFEF4444).copy(alpha = 0.8f)
                                     else -> Primary.copy(alpha = 0.6f)
                                 }
@@ -895,7 +895,7 @@ fun UsageDistributionRow(
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF64748B)
+                color = TextSecondary
             )
         }
 
@@ -904,7 +904,7 @@ fun UsageDistributionRow(
                 .weight(1f)
                 .height(8.dp)
                 .clip(RoundedCornerShape(4.dp))
-                .background(Color(0xFFE2E8F0))
+                .background(SurfaceElevated)
         ) {
             Box(
                 modifier = Modifier

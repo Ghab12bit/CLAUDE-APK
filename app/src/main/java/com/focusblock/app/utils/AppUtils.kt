@@ -16,6 +16,22 @@ object AppUtils {
         val isSystemApp: Boolean
     )
 
+    // System apps that are user-facing and should always be shown in app lists
+    // These are often pre-installed but users commonly want to block them
+    private val USER_FACING_SYSTEM_APPS = setOf(
+        "com.android.chrome",
+        "com.google.android.youtube",
+        "com.google.android.apps.photos",
+        "com.google.android.apps.maps",
+        "com.google.android.gm",
+        "com.google.android.calendar",
+        "com.sec.android.app.sbrowser", // Samsung Internet
+        "com.samsung.android.game.gamehome", // Samsung Game Launcher
+        "com.samsung.android.app.notes", // Samsung Notes
+        "com.google.android.apps.youtube.music",
+        "com.google.android.googlequicksearchbox" // Google app
+    )
+
     fun getInstalledApps(context: Context, includeSystemApps: Boolean = false): List<AppInfo> {
         val packageManager = context.packageManager
         val intent = Intent(Intent.ACTION_MAIN).apply {
@@ -50,7 +66,7 @@ object AppUtils {
                     isSystemApp = isSystemApp
                 )
             }
-            .filter { includeSystemApps || !it.isSystemApp }
+            .filter { includeSystemApps || !it.isSystemApp || USER_FACING_SYSTEM_APPS.contains(it.packageName) }
             .filter { it.packageName != context.packageName } // Exclude FocusBlock itself
             .distinctBy { it.packageName }
             .sortedBy { it.appName.lowercase() }

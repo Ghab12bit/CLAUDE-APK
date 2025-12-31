@@ -136,7 +136,37 @@ Personal use only. Not for distribution on app stores.
 
 ## Version History
 
-### v1.4.0 - Insights & Mindful Reminders (Latest)
+### v1.5.0 - App Timer & Blocking Improvements (Latest)
+**Commit:** `340adc9`
+
+#### New Features
+- **App Timer**: Set shared daily time limits across multiple apps
+  - Custom time input (not just presets)
+  - Accurate usage tracking using UsageEvents API
+  - Enforced blocking when limit reached with override friction
+  - 5-second countdown + 15-min override (once daily)
+  - Integrates with Focus Cycle for combined enforcement
+
+- **Unified Blocking System**:
+  - All blocked apps now show their source (Quick Block, Schedule, App Timer, Focus Cycle)
+  - Improved pickup detection with conservative counting
+  - 30-second idle gap and 5-second debounce for accurate metrics
+
+#### UI/UX Improvements
+- Statistics/Insights screen now uses dark theme (consistent with app)
+- Override countdown text now visible (was too dim)
+- Pomodoro settings now functional with duration picker
+- About dialog added with app info
+- Chrome and other pre-installed apps now appear in app list
+- Schedule save button no longer requires name (defaults to "Schedule")
+
+#### Bug Fixes
+- Fixed App Timer usage showing wrong time (was cumulative, now resets at midnight)
+- Fixed Chrome not appearing in app list (system app filter whitelist)
+- Fixed LinearProgressIndicator crashes in App Timer screens
+- Fixed pickup metric inflation (was counting app switches as pickups)
+
+### v1.4.0 - Insights & Mindful Reminders
 **Commit:** `640e1da`
 
 #### New Features
@@ -218,8 +248,9 @@ Personal use only. Not for distribution on app stores.
 
 | Version | Commit | Download |
 |---------|--------|----------|
-| v1.4.0 | `640e1da` | [Latest Branch](../../tree/claude/add-hard-mode-unlock-bTrNn) |
-| v1.3.0 | `16482f2` | [Previous](../../tree/16482f2) |
+| v1.5.0 | `340adc9` | [Latest Branch](../../tree/claude/add-hard-mode-unlock-bTrNn) |
+| v1.4.0 | `640e1da` | [Previous](../../tree/640e1da) |
+| v1.3.0 | `16482f2` | [UI Polish](../../tree/16482f2) |
 | v1.0.1 | `ce3b657` | [V1.zip](https://github.com/user-attachments/files/24244521/V1.zip) |
 
 > To build a specific version:

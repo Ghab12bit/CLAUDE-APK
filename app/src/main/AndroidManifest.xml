@@ -121,6 +121,15 @@
             android:name=".receiver.PomodoroReceiver"
             android:exported="false" />
 
+        <!-- App Timer Extend Receiver -->
+        <receiver
+            android:name=".receiver.AppTimerExtendReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.focusblock.app.ACTION_EXTEND_APP_TIMER" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

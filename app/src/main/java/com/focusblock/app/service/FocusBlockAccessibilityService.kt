@@ -49,6 +49,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
         // ========== APP TIMER (Shared Time Limit) ==========
         private const val APP_TIMER_CHECK_INTERVAL_MS = 30_000L // Check every 30 seconds
+        private const val APP_TIMER_NOTIFICATION_ID = 4003
+        const val ACTION_EXTEND_APP_TIMER = "com.focusblock.app.ACTION_EXTEND_APP_TIMER"
 
         var isServiceRunning = false
             private set
@@ -614,16 +616,37 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             isNowOnTimerApp && !wasOnTimerApp -> {
                 currentTimerAppStartTime = eventTime
                 Log.d(TAG, "App Timer: Started session on timer app $packageName")
+
+                // Immediately show notification with current usage
+                val appName = try {
+                    val pm = packageManager
+                    pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
+                } catch (e: Exception) {
+                    null
+                }
+                showAppTimerNotification(lastAppTimerUsageMinutes, cachedTimerLimitMinutes, appName)
             }
             // Switched FROM a timer app to non-timer app
             wasOnTimerApp && !isNowOnTimerApp -> {
                 currentTimerAppStartTime = null
                 Log.d(TAG, "App Timer: Ended session on timer app (switched to $packageName)")
+
+                // Immediately dismiss notification
+                dismissAppTimerNotification()
             }
             // Still on timer app (different timer app) - keep the session time
             isNowOnTimerApp && wasOnTimerApp && lastForegroundPackage != packageName -> {
                 // Keep currentTimerAppStartTime as-is
                 Log.d(TAG, "App Timer: Switched between timer apps $packageName")
+
+                // Update notification with new app name
+                val appName = try {
+                    val pm = packageManager
+                    pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
+                } catch (e: Exception) {
+                    null
+                }
+                showAppTimerNotification(lastAppTimerUsageMinutes, cachedTimerLimitMinutes, appName)
             }
         }
     }
@@ -735,6 +758,26 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 }
 
                 Log.v(TAG, "App Timer check: usage=$totalUsageMinutes min, limit=$limitMinutes min, onTimerApp=$isOnTimerApp, inFocusCycle=$isInFocusCycle")
+
+                // Show/hide App Timer notification based on current state
+                if (isOnTimerApp) {
+                    // Get app name for notification
+                    val appName = try {
+                        val pm = packageManager
+                        pm.getApplicationLabel(pm.getApplicationInfo(currentPackage!!, 0)).toString()
+                    } catch (e: Exception) {
+                        null
+                    }
+
+                    mainHandler.post {
+                        showAppTimerNotification(totalUsageMinutes, limitMinutes, appName)
+                    }
+                } else {
+                    // Not on a timer app - dismiss notification
+                    mainHandler.post {
+                        dismissAppTimerNotification()
+                    }
+                }
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error checking App Timer usage", e)
@@ -1132,6 +1175,81 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         notificationManager.notify(FOCUS_CYCLE_NOTIFICATION_ID, builder.build())
     }
 
+    /**
+     * Show/update the App Timer notification with remaining time
+     */
+    private fun showAppTimerNotification(usedMinutes: Int, limitMinutes: Int, currentAppName: String?) {
+        val remainingMinutes = (limitMinutes - usedMinutes).coerceAtLeast(0)
+        val remainingHours = remainingMinutes / 60
+        val remainingMins = remainingMinutes % 60
+
+        val remainingText = when {
+            remainingMinutes <= 0 -> "Limit reached!"
+            remainingHours > 0 -> "${remainingHours}h ${remainingMins}m left"
+            else -> "${remainingMins}m left"
+        }
+
+        val progress = ((usedMinutes * 100) / limitMinutes).coerceIn(0, 100)
+
+        val appContext = currentAppName?.let { " - Using $it" } ?: ""
+        val title = "App Timer$appContext"
+        val content = "$remainingText of ${limitMinutes}m daily limit"
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        // Add action to extend timer (add 15 minutes)
+        val extendIntent = Intent(ACTION_EXTEND_APP_TIMER).apply {
+            setPackage(packageName)
+        }
+        val extendPendingIntent = PendingIntent.getBroadcast(
+            this, 1, extendIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val builder = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_APP_TIMER)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(content)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOnlyAlertOnce(true)
+            .setProgress(100, progress, false)
+            .addAction(
+                R.drawable.ic_notification,
+                "+15 min",
+                extendPendingIntent
+            )
+
+        // Add warning color when close to limit
+        if (remainingMinutes <= 5) {
+            builder.setColorized(true)
+            builder.color = android.graphics.Color.parseColor("#F85149") // Red warning
+        } else if (remainingMinutes <= 15) {
+            builder.setColorized(true)
+            builder.color = android.graphics.Color.parseColor("#F0883E") // Orange warning
+        }
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(APP_TIMER_NOTIFICATION_ID, builder.build())
+    }
+
+    /**
+     * Dismiss the App Timer notification when user leaves timer apps
+     */
+    private fun dismissAppTimerNotification() {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancel(APP_TIMER_NOTIFICATION_ID)
+    }
+
     override fun onInterrupt() {
         // Required override
     }
@@ -1141,6 +1259,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         stopQuickBlockTimerCheck() // Clean up Quick Block timer
         stopSessionDurationCheck() // Clean up session duration timer
         stopAppTimerCheck() // Clean up App Timer check
+        dismissAppTimerNotification() // Dismiss App Timer notification
         activeSessions.clear() // Clear session tracking
         serviceScope.cancel()
         immediateScope.cancel()

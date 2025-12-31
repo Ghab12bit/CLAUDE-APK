@@ -59,8 +59,18 @@ class FocusBlockApp : Application() {
             vibrationPattern = longArrayOf(0, 200) // Short, gentle vibration
         }
 
+        // App Timer Channel - shows remaining time
+        val appTimerChannel = NotificationChannel(
+            CHANNEL_APP_TIMER,
+            "App Timer",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Shows remaining App Timer time"
+            setShowBadge(false)
+        }
+
         notificationManager.createNotificationChannels(
-            listOf(blockingChannel, alertsChannel, pomodoroChannel, reminderChannel)
+            listOf(blockingChannel, alertsChannel, pomodoroChannel, reminderChannel, appTimerChannel)
         )
     }
 
@@ -69,5 +79,6 @@ class FocusBlockApp : Application() {
         const val CHANNEL_ALERTS = "alerts"
         const val CHANNEL_POMODORO = "pomodoro"
         const val CHANNEL_MINDFUL_REMINDER = "mindful_reminder"
+        const val CHANNEL_APP_TIMER = "app_timer"
     }
 }

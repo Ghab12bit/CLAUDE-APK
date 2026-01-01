@@ -43,6 +43,10 @@ data class InsightsUiState(
     val totalScreenTime: String = "0m",
     val screenTimeChange: String = "No data available",
     val isChangePositive: Boolean = true,
+    // Weekly trend tracking
+    val weeklyTrendPercent: Int = 0, // Positive = increase, Negative = decrease
+    val weeklyTrendText: String = "", // e.g., "Up 15% from last week"
+    val hasWeeklyTrend: Boolean = false,
     val hourlyUsage: Map<Int, Triple<Int, Int, Int>> = emptyMap(),
     val mostUsedApps: List<AppUsageInfo> = emptyList(),
     val appsExpanded: Boolean = false,
@@ -59,8 +63,25 @@ data class InsightsUiState(
     val pickupCount: Int = 0,
     val isPickupEstimated: Boolean = true, // Pickups are inferred from events
     val pickupNote: String = "Estimated from app open events",
-    val peakTimeDetails: PeakTimeDetails? = null // Peak time drilldown data
+    val peakTimeDetails: PeakTimeDetails? = null, // Peak time drilldown data
+    // Repeat offender tracking - apps user keeps trying to open despite blocks
+    val repeatOffenders: List<RepeatOffenderApp> = emptyList(),
+    val hasRepeatOffenders: Boolean = false
 )
+
+// Data class for repeat offender apps
+data class RepeatOffenderApp(
+    val packageName: String,
+    val appName: String,
+    val blockCount: Int,
+    val severity: OffenderSeverity
+)
+
+enum class OffenderSeverity {
+    LOW,      // 1-3 blocks today
+    MEDIUM,   // 4-7 blocks today
+    HIGH      // 8+ blocks today
+}
 
 // Data class for Peak Time detail view
 data class PeakTimeDetails(
@@ -356,8 +377,18 @@ class InsightsViewModel @Inject constructor(
                         getAccurateUsageFromEvents(startTime - 86400000, startTime)
                     } else null
 
+                    // Calculate weekly trend (only on Day tab to avoid redundant calculations)
+                    val weeklyTrend = if (tab == InsightsTab.DAY) {
+                        calculateWeeklyTrend()
+                    } else Triple(0, "", false)
+
+                    // Get repeat offenders (only on Day tab)
+                    val repeatOffenders = if (tab == InsightsTab.DAY) {
+                        getRepeatOffenders()
+                    } else emptyList()
+
                     withContext(Dispatchers.Main) {
-                        processUsageData(usageData, previousData, dateLabel, canGoForward)
+                        processUsageData(usageData, previousData, dateLabel, canGoForward, weeklyTrend, repeatOffenders)
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
@@ -371,6 +402,120 @@ class InsightsViewModel @Inject constructor(
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Get repeat offender apps - apps user keeps trying to open despite blocks
+     */
+    private suspend fun getRepeatOffenders(): List<RepeatOffenderApp> {
+        try {
+            // Get today's start time
+            val calendar = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val todayStart = calendar.timeInMillis
+
+            // Get most blocked apps since today
+            val blockedApps = repository.getMostBlockedApps(todayStart, 5)
+
+            return blockedApps.mapNotNull { appBlockCount ->
+                if (appBlockCount.count < 1) return@mapNotNull null
+
+                // Get app name
+                val appName = try {
+                    val pm = application.packageManager
+                    pm.getApplicationLabel(
+                        pm.getApplicationInfo(appBlockCount.packageName, 0)
+                    ).toString()
+                } catch (e: Exception) {
+                    appBlockCount.packageName.substringAfterLast('.')
+                }
+
+                val severity = when {
+                    appBlockCount.count >= 8 -> OffenderSeverity.HIGH
+                    appBlockCount.count >= 4 -> OffenderSeverity.MEDIUM
+                    else -> OffenderSeverity.LOW
+                }
+
+                RepeatOffenderApp(
+                    packageName = appBlockCount.packageName,
+                    appName = appName,
+                    blockCount = appBlockCount.count,
+                    severity = severity
+                )
+            }
+        } catch (e: Exception) {
+            return emptyList()
+        }
+    }
+
+    /**
+     * Calculate weekly screen time trend
+     * Compares this week's daily average to last week's average
+     * Returns Triple(percentChange, trendText, hasTrend)
+     */
+    private fun calculateWeeklyTrend(): Triple<Int, String, Boolean> {
+        try {
+            val calendar = Calendar.getInstance()
+
+            // This week: Start from beginning of current week
+            calendar.set(Calendar.DAY_OF_WEEK, calendar.firstDayOfWeek)
+            calendar.set(Calendar.HOUR_OF_DAY, 0)
+            calendar.set(Calendar.MINUTE, 0)
+            calendar.set(Calendar.SECOND, 0)
+            calendar.set(Calendar.MILLISECOND, 0)
+            val thisWeekStart = calendar.timeInMillis
+            val now = System.currentTimeMillis()
+
+            // Days elapsed this week (minimum 1)
+            val daysThisWeek = ((now - thisWeekStart) / 86400000).toInt().coerceAtLeast(1)
+
+            // Last week: Previous 7 days before this week started
+            val lastWeekEnd = thisWeekStart
+            val lastWeekStart = thisWeekStart - (7 * 86400000)
+
+            // Get usage for both periods
+            val thisWeekData = getAccurateUsageFromEvents(thisWeekStart, now)
+            val lastWeekData = getAccurateUsageFromEvents(lastWeekStart, lastWeekEnd)
+
+            // Calculate total minutes for each week
+            val thisWeekMinutes = thisWeekData
+                .filter { it.key != "__metadata__" && it.value.totalTime > 60000 }
+                .values.sumOf { (it.totalTime / 60000).toInt() }
+
+            val lastWeekMinutes = lastWeekData
+                .filter { it.key != "__metadata__" && it.value.totalTime > 60000 }
+                .values.sumOf { (it.totalTime / 60000).toInt() }
+
+            // Calculate daily averages
+            val thisWeekDailyAvg = thisWeekMinutes / daysThisWeek
+            val lastWeekDailyAvg = lastWeekMinutes / 7
+
+            // Need at least 2 days of data this week and some data last week
+            if (daysThisWeek < 2 || lastWeekDailyAvg == 0) {
+                return Triple(0, "", false)
+            }
+
+            // Calculate percentage change
+            val percentChange = ((thisWeekDailyAvg - lastWeekDailyAvg) * 100) / lastWeekDailyAvg
+
+            val trendText = when {
+                percentChange > 20 -> "Up ${percentChange}% from last week"
+                percentChange > 10 -> "Up ${percentChange}% this week"
+                percentChange > 0 -> "Slightly up (${percentChange}%)"
+                percentChange < -20 -> "Down ${-percentChange}% from last week"
+                percentChange < -10 -> "Down ${-percentChange}% this week"
+                percentChange < 0 -> "Slightly down (${-percentChange}%)"
+                else -> "Same as last week"
+            }
+
+            return Triple(percentChange, trendText, true)
+        } catch (e: Exception) {
+            return Triple(0, "", false)
         }
     }
 
@@ -586,7 +731,9 @@ class InsightsViewModel @Inject constructor(
         usageData: Map<String, AppUsageData>,
         previousDayData: Map<String, AppUsageData>?,
         dateLabel: String,
-        canGoForward: Boolean = false
+        canGoForward: Boolean = false,
+        weeklyTrend: Triple<Int, String, Boolean> = Triple(0, "", false),
+        repeatOffenders: List<RepeatOffenderApp> = emptyList()
     ) {
         // Extract metadata
         val metadata = usageData["__metadata__"]
@@ -692,6 +839,9 @@ class InsightsViewModel @Inject constructor(
                 totalScreenTime = totalScreenTime,
                 screenTimeChange = changeText,
                 isChangePositive = changeText.contains("less"),
+                weeklyTrendPercent = weeklyTrend.first,
+                weeklyTrendText = weeklyTrend.second,
+                hasWeeklyTrend = weeklyTrend.third,
                 hourlyUsage = hourlyUsage,
                 mostUsedApps = appUsageList,
                 balancePercentage = balancePercentage,
@@ -706,7 +856,9 @@ class InsightsViewModel @Inject constructor(
                 longestFocus = formatDuration(focusEstimate),
                 longestContinuousUse = formatDuration(longestAppMinutes),
                 longestSessionWarning = longestSessionWarning,
-                peakTimeDetails = peakTimeDetails
+                peakTimeDetails = peakTimeDetails,
+                repeatOffenders = repeatOffenders,
+                hasRepeatOffenders = repeatOffenders.isNotEmpty()
             )
         }
     }

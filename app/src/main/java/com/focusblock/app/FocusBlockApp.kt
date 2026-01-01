@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import com.focusblock.app.worker.DailyInsightsWorker
 import dagger.hilt.android.HiltAndroidApp
 
 @HiltAndroidApp
@@ -12,6 +13,11 @@ class FocusBlockApp : Application() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
+        scheduleDailyInsights()
+    }
+
+    private fun scheduleDailyInsights() {
+        DailyInsightsWorker.schedule(this)
     }
 
     private fun createNotificationChannels() {

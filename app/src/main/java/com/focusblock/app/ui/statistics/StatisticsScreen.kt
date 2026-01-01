@@ -32,6 +32,8 @@ import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.viewmodel.InsightsViewModel
 import com.focusblock.app.viewmodel.InsightsTab
 import com.focusblock.app.viewmodel.AppCategory
+import com.focusblock.app.viewmodel.RepeatOffenderApp
+import com.focusblock.app.viewmodel.OffenderSeverity
 import kotlinx.coroutines.launch
 
 // Color scheme for categories
@@ -146,7 +148,10 @@ fun StatisticsScreen(
                 HeroMetricCard(
                     screenTime = uiState.totalScreenTime,
                     changeText = uiState.screenTimeChange,
-                    isPositive = uiState.isChangePositive
+                    isPositive = uiState.isChangePositive,
+                    weeklyTrendText = uiState.weeklyTrendText,
+                    weeklyTrendPercent = uiState.weeklyTrendPercent,
+                    hasWeeklyTrend = uiState.hasWeeklyTrend
                 )
             }
 
@@ -211,6 +216,24 @@ fun StatisticsScreen(
                     neutralPercent = uiState.neutralPercent,
                     productivePercent = uiState.productivePercent
                 )
+            }
+
+            // Repeat Offenders Section (apps user keeps trying to open)
+            if (uiState.hasRepeatOffenders) {
+                item {
+                    Text(
+                        text = "Repeat Offenders",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                item {
+                    RepeatOffendersCard(
+                        offenders = uiState.repeatOffenders
+                    )
+                }
             }
 
             // Focus Section
@@ -343,12 +366,15 @@ fun InsightsHeader(
 fun HeroMetricCard(
     screenTime: String,
     changeText: String,
-    isPositive: Boolean
+    isPositive: Boolean,
+    weeklyTrendText: String = "",
+    weeklyTrendPercent: Int = 0,
+    hasWeeklyTrend: Boolean = false
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
@@ -367,7 +393,7 @@ fun HeroMetricCard(
             Text(
                 text = "SCREEN TIME",
                 style = MaterialTheme.typography.labelMedium,
-                color = Color(0xFF94A3B8),
+                color = TextSecondary,
                 letterSpacing = 1.sp
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -376,6 +402,50 @@ fun HeroMetricCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = if (isPositive) Color(0xFF10B981) else Color(0xFFEF4444)
             )
+
+            // Weekly trend indicator
+            if (hasWeeklyTrend && weeklyTrendText.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .background(
+                            color = when {
+                                weeklyTrendPercent > 10 -> Color(0xFFEF4444).copy(alpha = 0.1f)
+                                weeklyTrendPercent < -10 -> Color(0xFF10B981).copy(alpha = 0.1f)
+                                else -> TextSecondary.copy(alpha = 0.1f)
+                            },
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = when {
+                            weeklyTrendPercent > 0 -> Icons.Filled.TrendingUp
+                            weeklyTrendPercent < 0 -> Icons.Filled.TrendingDown
+                            else -> Icons.Filled.TrendingFlat
+                        },
+                        contentDescription = null,
+                        tint = when {
+                            weeklyTrendPercent > 10 -> Color(0xFFEF4444)
+                            weeklyTrendPercent < -10 -> Color(0xFF10B981)
+                            else -> TextSecondary
+                        },
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = weeklyTrendText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = when {
+                            weeklyTrendPercent > 10 -> Color(0xFFEF4444)
+                            weeklyTrendPercent < -10 -> Color(0xFF10B981)
+                            else -> TextSecondary
+                        }
+                    )
+                }
+            }
         }
     }
 }
@@ -1046,6 +1116,131 @@ fun DistractionsCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFFADB5BD)
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RepeatOffendersCard(
+    offenders: List<RepeatOffenderApp>
+) {
+    val context = LocalContext.current
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = Color(0xFFF0883E),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Apps you keep trying to open",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            offenders.forEach { offender ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // App icon
+                    val icon = remember(offender.packageName) {
+                        try {
+                            context.packageManager.getApplicationIcon(offender.packageName)
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+
+                    if (icon != null) {
+                        Image(
+                            bitmap = icon.toBitmap(48, 48).asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(SurfaceElevated),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Android,
+                                contentDescription = null,
+                                tint = TextSecondary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    // App name and block count
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = offender.appName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${offender.blockCount} blocks today",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                    }
+
+                    // Severity indicator
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = when (offender.severity) {
+                                    OffenderSeverity.HIGH -> Color(0xFFEF4444).copy(alpha = 0.1f)
+                                    OffenderSeverity.MEDIUM -> Color(0xFFF0883E).copy(alpha = 0.1f)
+                                    OffenderSeverity.LOW -> TextSecondary.copy(alpha = 0.1f)
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = when (offender.severity) {
+                                OffenderSeverity.HIGH -> "High"
+                                OffenderSeverity.MEDIUM -> "Medium"
+                                OffenderSeverity.LOW -> "Low"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = when (offender.severity) {
+                                OffenderSeverity.HIGH -> Color(0xFFEF4444)
+                                OffenderSeverity.MEDIUM -> Color(0xFFF0883E)
+                                OffenderSeverity.LOW -> TextSecondary
+                            }
+                        )
+                    }
                 }
             }
         }

@@ -46,7 +46,7 @@ class FocusBlockRepository @Inject constructor(
     suspend fun updateSchedule(schedule: Schedule) = scheduleDao.update(schedule)
     suspend fun deleteSchedule(schedule: Schedule) = scheduleDao.delete(schedule)
     suspend fun setScheduleEnabled(id: Long, enabled: Boolean) = scheduleDao.setEnabled(id, enabled)
-    suspend fun getActiveSchedules(currentMinute: Int, dayOfWeek: Int): List<Schedule> =
+    suspend fun getActiveSchedules(currentMinute: Int, dayOfWeek: String): List<Schedule> =
         scheduleDao.getActiveSchedules(currentMinute, dayOfWeek)
 
     // Quick Block Sessions

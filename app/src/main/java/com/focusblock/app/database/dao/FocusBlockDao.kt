@@ -75,8 +75,25 @@ interface ScheduleDao {
     @Query("UPDATE schedules SET isEnabled = :enabled WHERE id = :id")
     suspend fun setEnabled(id: Long, enabled: Boolean)
 
-    @Query("SELECT * FROM schedules WHERE isEnabled = 1 AND :currentMinute >= startTimeMinutes AND :currentMinute < endTimeMinutes AND daysOfWeek LIKE '%' || :dayOfWeek || '%'")
-    suspend fun getActiveSchedules(currentMinute: Int, dayOfWeek: Int): List<Schedule>
+    // Fixed query to handle:
+    // 1. Normal schedules (start < end): e.g., 9 AM to 5 PM
+    // 2. Overnight schedules (start > end): e.g., 10 PM to 6 AM
+    // 3. Proper day matching using comma-separated pattern
+    @Query("""
+        SELECT * FROM schedules WHERE isEnabled = 1
+        AND (
+            (startTimeMinutes < endTimeMinutes AND :currentMinute >= startTimeMinutes AND :currentMinute < endTimeMinutes)
+            OR
+            (startTimeMinutes > endTimeMinutes AND (:currentMinute >= startTimeMinutes OR :currentMinute < endTimeMinutes))
+        )
+        AND (
+            daysOfWeek LIKE :dayOfWeek || ',%'
+            OR daysOfWeek LIKE '%,' || :dayOfWeek || ',%'
+            OR daysOfWeek LIKE '%,' || :dayOfWeek
+            OR daysOfWeek = :dayOfWeek
+        )
+    """)
+    suspend fun getActiveSchedules(currentMinute: Int, dayOfWeek: String): List<Schedule>
 }
 
 @Dao

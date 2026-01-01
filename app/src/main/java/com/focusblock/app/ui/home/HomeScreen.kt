@@ -152,6 +152,34 @@ fun HomeScreen(
             }
         }
 
+        // ========== UNIFIED BLOCKING STATUS ==========
+        // Show when any blocking mode is active
+        val hasActiveBlocking = uiState.isQuickBlockActive ||
+            uiState.isStrictModeEnabled ||
+            uiState.isHardModeEnabled ||
+            uiState.isFocusCycleEnabled ||
+            (uiState.isAppTimerEnabled && uiState.appTimerUsageMinutes > 0) ||
+            uiState.activeSchedules.isNotEmpty()
+
+        if (hasActiveBlocking) {
+            item(key = "unified_status") {
+                UnifiedBlockingStatusCard(
+                    isQuickBlockActive = uiState.isQuickBlockActive,
+                    quickBlockRemainingTime = uiState.remainingTime,
+                    isStrictModeEnabled = uiState.isStrictModeEnabled,
+                    strictModeRemainingTime = uiState.strictModeRemainingTime,
+                    isHardModeEnabled = uiState.isHardModeEnabled,
+                    isFocusCycleEnabled = uiState.isFocusCycleEnabled,
+                    focusCyclePhase = uiState.focusCyclePhase,
+                    focusCycleRemainingTime = uiState.focusCycleRemainingTime,
+                    isAppTimerEnabled = uiState.isAppTimerEnabled,
+                    appTimerUsageMinutes = uiState.appTimerUsageMinutes,
+                    appTimerLimitMinutes = uiState.appTimerLimitMinutes,
+                    activeSchedulesCount = uiState.activeSchedules.size
+                )
+            }
+        }
+
         // ========== BLOCKING SECTION ==========
         item(key = "quick_block_header") {
             SectionHeader(
@@ -634,6 +662,196 @@ fun PauseMotivationDialog(
             }
         }
     )
+}
+
+/**
+ * Unified Blocking Status Card - Shows all active blocking modes at a glance.
+ * This gives users a clear view of their current protection level and which
+ * features are working together to help them stay focused.
+ */
+@Composable
+fun UnifiedBlockingStatusCard(
+    isQuickBlockActive: Boolean,
+    quickBlockRemainingTime: Long,
+    isStrictModeEnabled: Boolean,
+    strictModeRemainingTime: Long,
+    isHardModeEnabled: Boolean,
+    isFocusCycleEnabled: Boolean,
+    focusCyclePhase: FocusCyclePhase,
+    focusCycleRemainingTime: Long,
+    isAppTimerEnabled: Boolean,
+    appTimerUsageMinutes: Int,
+    appTimerLimitMinutes: Int,
+    activeSchedulesCount: Int
+) {
+    // Calculate protection level based on active modes
+    val protectionLevel = when {
+        isHardModeEnabled -> "Maximum"
+        isStrictModeEnabled -> "High"
+        isQuickBlockActive || isFocusCycleEnabled -> "Active"
+        activeSchedulesCount > 0 || isAppTimerEnabled -> "Monitoring"
+        else -> "Low"
+    }
+
+    val protectionColor = when (protectionLevel) {
+        "Maximum" -> Color(0xFFFF6B6B) // Red for Hard Mode
+        "High" -> Color(0xFFF0883E) // Orange for Strict Mode
+        "Active" -> Primary // Green for active blocking
+        "Monitoring" -> Color(0xFF4ECDC4) // Teal for monitoring
+        else -> TextSecondary
+    }
+
+    // Count active features
+    val activeFeatures = mutableListOf<String>()
+    if (isQuickBlockActive) activeFeatures.add("Quick Block")
+    if (isStrictModeEnabled) activeFeatures.add("Strict Mode")
+    if (isHardModeEnabled) activeFeatures.add("Hard Mode")
+    if (isFocusCycleEnabled) activeFeatures.add("Focus Cycle")
+    if (isAppTimerEnabled) activeFeatures.add("App Timer")
+    if (activeSchedulesCount > 0) activeFeatures.add("$activeSchedulesCount Schedule${if (activeSchedulesCount > 1) "s" else ""}")
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        border = BorderStroke(1.dp, protectionColor.copy(alpha = 0.3f))
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Header with protection level
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(protectionColor.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = when (protectionLevel) {
+                                "Maximum" -> Icons.Filled.Lock
+                                "High" -> Icons.Filled.Shield
+                                else -> Icons.Filled.Security
+                            },
+                            contentDescription = null,
+                            tint = protectionColor,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "Protection Status",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "$protectionLevel Protection",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = protectionColor
+                        )
+                    }
+                }
+                // Active count badge
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = protectionColor.copy(alpha = 0.2f)
+                ) {
+                    Text(
+                        text = "${activeFeatures.size} active",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = protectionColor,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            // Active features chips
+            if (activeFeatures.isNotEmpty()) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(activeFeatures.size) { index ->
+                        val feature = activeFeatures[index]
+                        val (icon, time) = when {
+                            feature == "Quick Block" && quickBlockRemainingTime > 0 ->
+                                Icons.Filled.Block to TimeUtils.formatDuration(quickBlockRemainingTime)
+                            feature == "Strict Mode" && strictModeRemainingTime > 0 ->
+                                Icons.Filled.Shield to TimeUtils.formatDuration(strictModeRemainingTime)
+                            feature == "Hard Mode" ->
+                                Icons.Filled.Lock to null
+                            feature == "Focus Cycle" -> {
+                                val phaseText = when (focusCyclePhase) {
+                                    FocusCyclePhase.USAGE_WINDOW -> "Using"
+                                    FocusCyclePhase.BREAK -> "Break"
+                                    FocusCyclePhase.PAUSED -> "Paused"
+                                    FocusCyclePhase.ARMED -> "Ready"
+                                    else -> null
+                                }
+                                Icons.Filled.Update to phaseText
+                            }
+                            feature == "App Timer" -> {
+                                val remaining = appTimerLimitMinutes - appTimerUsageMinutes
+                                Icons.Filled.Timer to "${remaining}m left"
+                            }
+                            feature.contains("Schedule") ->
+                                Icons.Filled.Schedule to null
+                            else -> Icons.Filled.CheckCircle to null
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = SurfaceDark
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = protectionColor,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = feature,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextPrimary
+                                )
+                                if (time != null) {
+                                    Text(
+                                        text = time,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Integration message
+            if (activeFeatures.size > 1) {
+                Text(
+                    text = "Features working together to keep you focused",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary.copy(alpha = 0.7f)
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -2740,6 +2958,39 @@ fun AppTimerCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = if (isOverLimit) warningColor else TextSecondary
                     )
+                }
+
+                // Escalation suggestion when near limit (80% or more)
+                val isNearLimit = usageMinutes >= (limitMinutes * 0.8f) && !isOverLimit
+                if (isNearLimit || isOverLimit) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isOverLimit) warningColor.copy(alpha = 0.1f) else timerColor.copy(alpha = 0.1f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isOverLimit) Icons.Filled.Warning else Icons.Outlined.Lightbulb,
+                                contentDescription = null,
+                                tint = if (isOverLimit) warningColor else timerColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isOverLimit) {
+                                    "Use Quick Block or Focus Cycle to enforce stronger limits"
+                                } else {
+                                    "Running low! Consider enabling Focus Cycle for stricter control"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isOverLimit) warningColor else TextSecondary
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))

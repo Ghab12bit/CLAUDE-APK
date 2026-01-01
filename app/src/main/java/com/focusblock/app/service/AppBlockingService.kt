@@ -171,7 +171,7 @@ class AppBlockingService : Service() {
 
         // Check schedules
         val currentMinute = TimeUtils.getCurrentMinuteOfDay()
-        val dayOfWeek = TimeUtils.getCurrentDayOfWeek()
+        val dayOfWeek = TimeUtils.getCurrentDayOfWeek().toString()
         val activeSchedules = repository.getActiveSchedules(currentMinute, dayOfWeek)
 
         for (schedule in activeSchedules) {

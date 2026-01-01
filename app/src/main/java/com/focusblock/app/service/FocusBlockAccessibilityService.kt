@@ -52,6 +52,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         private const val APP_TIMER_NOTIFICATION_ID = 4003
         const val ACTION_EXTEND_APP_TIMER = "com.focusblock.app.ACTION_EXTEND_APP_TIMER"
 
+        // ========== SCHEDULE ENFORCEMENT ==========
+        private const val SCHEDULE_CHECK_INTERVAL_MS = 60_000L // Check every minute
+
         var isServiceRunning = false
             private set
 
@@ -136,6 +139,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private var lastAppTimerUsageMinutes: Int = 0
     private var currentTimerAppStartTime: Long? = null // When current timer app session started
 
+    // ========== SCHEDULE ENFORCEMENT ==========
+    private val scheduleCheckHandler = Handler(Looper.getMainLooper())
+    private var scheduleCheckRunnable: Runnable? = null
+    private var lastScheduleCheck: Long = 0L
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.d(TAG, "Accessibility service connected")
@@ -167,6 +175,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
         // Start App Timer usage monitoring
         startAppTimerCheck()
+
+        // Start schedule enforcement check
+        startScheduleCheck()
 
         // Show toast to confirm service is running
         mainHandler.post {
@@ -886,6 +897,106 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
     }
 
+    // ========== SCHEDULE ENFORCEMENT METHODS ==========
+
+    /**
+     * Start periodic schedule enforcement check.
+     * This ensures schedules are enforced even if the user is already in an app
+     * when the schedule becomes active.
+     */
+    private fun startScheduleCheck() {
+        stopScheduleCheck()
+
+        scheduleCheckRunnable = object : Runnable {
+            override fun run() {
+                checkScheduleEnforcement()
+                scheduleCheckHandler.postDelayed(this, SCHEDULE_CHECK_INTERVAL_MS)
+            }
+        }
+        scheduleCheckHandler.post(scheduleCheckRunnable!!)
+        Log.d(TAG, "Schedule enforcement check started")
+    }
+
+    private fun stopScheduleCheck() {
+        scheduleCheckRunnable?.let {
+            scheduleCheckHandler.removeCallbacks(it)
+        }
+        scheduleCheckRunnable = null
+    }
+
+    /**
+     * Periodically check if the current foreground app should be blocked due to an active schedule.
+     * This catches cases where the user was already in an app when a schedule became active.
+     */
+    private fun checkScheduleEnforcement() {
+        val currentPackage = lastForegroundPackage ?: return
+        val now = System.currentTimeMillis()
+
+        // Don't check too frequently (redundant with event-based checking)
+        if (now - lastScheduleCheck < 30_000L) return
+        lastScheduleCheck = now
+
+        // Don't block our own app or system components
+        if (shouldIgnorePackage(currentPackage)) return
+
+        // Check if blocking is already in progress
+        if (isBlockingInProgress) return
+
+        immediateScope.launch {
+            try {
+                val scheduleDao = database.scheduleDao()
+                val blockedAppDao = database.blockedAppDao()
+
+                // Check if in allowlist
+                val blockedApp = blockedAppDao.getBlockedApp(currentPackage)
+                if (blockedApp?.isInAllowlist == true) return@launch
+
+                // Check schedules
+                val currentMinute = TimeUtils.getCurrentMinuteOfDay()
+                val dayOfWeek = TimeUtils.getCurrentDayOfWeek().toString()
+                val activeSchedules = scheduleDao.getActiveSchedules(currentMinute, dayOfWeek)
+
+                for (schedule in activeSchedules) {
+                    val blockedPackages = schedule.blockedPackages.split(",")
+                    if (blockedPackages.contains(currentPackage)) {
+                        Log.i(TAG, "Schedule enforcement: Blocking $currentPackage (schedule: ${schedule.name})")
+
+                        // Block the app
+                        val appName = AppUtils.getAppName(applicationContext, currentPackage)
+
+                        mainHandler.post {
+                            // Vibrate to alert
+                            vibrateDevice()
+                            // Go home first
+                            performGlobalAction(GLOBAL_ACTION_HOME)
+                        }
+
+                        // Small delay then show blocking screen
+                        kotlinx.coroutines.delay(150)
+
+                        mainHandler.post {
+                            showBlockingScreen(currentPackage, appName, BlockedByType.SCHEDULE)
+                        }
+
+                        // Log the block
+                        database.blockLogDao().insert(
+                            BlockLog(
+                                packageName = currentPackage,
+                                appName = appName,
+                                blockedBy = BlockedByType.SCHEDULE
+                            )
+                        )
+                        database.blockedAppDao().incrementBlockCount(currentPackage)
+
+                        break // Only block once
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in schedule enforcement check", e)
+            }
+        }
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
@@ -1259,6 +1370,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         stopQuickBlockTimerCheck() // Clean up Quick Block timer
         stopSessionDurationCheck() // Clean up session duration timer
         stopAppTimerCheck() // Clean up App Timer check
+        stopScheduleCheck() // Clean up schedule enforcement check
         dismissAppTimerNotification() // Dismiss App Timer notification
         activeSessions.clear() // Clear session tracking
         serviceScope.cancel()
@@ -1385,7 +1497,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
         // Check schedules
         val currentMinute = TimeUtils.getCurrentMinuteOfDay()
-        val dayOfWeek = TimeUtils.getCurrentDayOfWeek()
+        val dayOfWeek = TimeUtils.getCurrentDayOfWeek().toString()
         val activeSchedules = scheduleDao.getActiveSchedules(currentMinute, dayOfWeek)
 
         for (schedule in activeSchedules) {

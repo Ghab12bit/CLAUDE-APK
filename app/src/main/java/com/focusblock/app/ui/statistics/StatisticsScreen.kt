@@ -102,7 +102,7 @@ fun StatisticsScreen(
                                 .clip(CircleShape)
                                 .clickable { viewModel.goToPreviousDay() },
                             shape = CircleShape,
-                            color = Color.White
+                            color = CardDark
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.ChevronLeft,
@@ -128,12 +128,12 @@ fun StatisticsScreen(
                                 .clip(CircleShape)
                                 .clickable(enabled = uiState.canGoForward) { viewModel.goToNextDay() },
                             shape = CircleShape,
-                            color = if (uiState.canGoForward) Color.White else Color.Transparent
+                            color = if (uiState.canGoForward) CardDark else Color.Transparent
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.ChevronRight,
                                 contentDescription = "Next day",
-                                tint = if (uiState.canGoForward) Primary else Color(0xFFCBD5E1),
+                                tint = if (uiState.canGoForward) Primary else TextSecondary,
                                 modifier = Modifier
                                     .padding(8.dp)
                                     .size(24.dp)
@@ -297,7 +297,7 @@ fun InsightsHeader(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = Color.White,
+        color = SurfaceDark,
         shadowElevation = 2.dp
     ) {
         Column(
@@ -311,7 +311,7 @@ fun InsightsHeader(
                 Icon(
                     imageVector = Icons.Outlined.Settings,
                     contentDescription = "Settings",
-                    tint = Color(0xFF64748B)
+                    tint = TextSecondary
                 )
                 Text(
                     text = "Insights",
@@ -350,7 +350,7 @@ fun InsightsHeader(
                         Text(
                             text = tab.label,
                             style = MaterialTheme.typography.labelLarge,
-                            color = if (isSelected) Color.White else Color(0xFF64748B),
+                            color = if (isSelected) Color.White else TextSecondary,
                             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                             modifier = Modifier.padding(vertical = 10.dp),
                             textAlign = TextAlign.Center

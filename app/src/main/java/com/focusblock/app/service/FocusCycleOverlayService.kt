@@ -138,6 +138,8 @@ class FocusCycleOverlayService : Service() {
     // Visibility state - overlay hidden when user is on non-tracked app
     private var isOverlayVisible = true
     private var isViewAdded = false
+    private var lastVisibilityCheck: Long = 0L
+    private val VISIBILITY_CHECK_INTERVAL = 5000L // Check every 5 seconds
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -156,12 +158,17 @@ class FocusCycleOverlayService : Service() {
     }
 
     private fun showOverlayView() {
-        if (isOverlayVisible) return
         isOverlayVisible = true
         overlayView?.let { view ->
             handler.post {
                 view.visibility = View.VISIBLE
-                Log.d(TAG, "Overlay shown")
+                // Force layout refresh to ensure visibility
+                try {
+                    windowManager?.updateViewLayout(view, layoutParams)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to refresh layout on show", e)
+                }
+                Log.d(TAG, "Overlay shown and layout refreshed")
             }
         }
     }
@@ -277,12 +284,48 @@ class FocusCycleOverlayService : Service() {
                     fetchCycleFromDb()
                 }
 
+                // Periodic visibility enforcement - ensures overlay stays visible
+                // Android can sometimes hide the view, this forces it back
+                if (now - lastVisibilityCheck > VISIBILITY_CHECK_INTERVAL) {
+                    lastVisibilityCheck = now
+                    ensureVisibility()
+                }
+
                 // Update display from cached cycle using LIVE timestamps
                 updateDisplayFromTimestamps()
 
                 handler.postDelayed(this, UPDATE_INTERVAL_MS)
             }
         })
+    }
+
+    /**
+     * Ensure the overlay is visible if it should be.
+     * This fixes the issue where Android may hide the view after 30-40 seconds.
+     */
+    private fun ensureVisibility() {
+        if (!isOverlayVisible) return // User intentionally hid it
+
+        overlayView?.let { view ->
+            if (view.visibility != View.VISIBLE) {
+                Log.w(TAG, "Overlay was hidden by system, forcing visible")
+                view.visibility = View.VISIBLE
+
+                // Also refresh the layout to ensure it's properly displayed
+                try {
+                    windowManager?.updateViewLayout(view, layoutParams)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to refresh layout", e)
+                }
+            }
+
+            // Also ensure alpha is correct
+            if (isCollapsed && view.alpha != COLLAPSED_ALPHA) {
+                view.alpha = COLLAPSED_ALPHA
+            } else if (!isCollapsed && view.alpha != EXPANDED_ALPHA) {
+                view.alpha = EXPANDED_ALPHA
+            }
+        }
     }
 
     /**

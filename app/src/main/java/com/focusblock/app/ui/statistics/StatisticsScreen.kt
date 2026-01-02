@@ -457,7 +457,7 @@ fun UsageTimelineCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
@@ -476,9 +476,9 @@ fun UsageTimelineCard(
                         .fillMaxHeight(),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("1h", style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8))
-                    Text("30m", style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8))
-                    Text("0s", style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8))
+                    Text("1h", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                    Text("30m", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                    Text("0s", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
                 }
 
                 // Chart bars
@@ -562,7 +562,7 @@ fun UsageTimelineCard(
                     Text(
                         text = label,
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF94A3B8),
+                        color = TextSecondary,
                         modifier = Modifier.weight(1f),
                         textAlign = TextAlign.Center
                     )
@@ -581,7 +581,7 @@ fun MostUsedAppsCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
@@ -618,7 +618,7 @@ fun MostUsedAppsCard(
                     Icon(
                         imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                         contentDescription = null,
-                        tint = Color(0xFF64748B),
+                        tint = TextSecondary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -655,7 +655,7 @@ fun MostUsedAppRow(app: AppUsageInfo) {
             Icon(
                 imageVector = Icons.Filled.Android,
                 contentDescription = null,
-                tint = Color(0xFF94A3B8),
+                tint = TextSecondary,
                 modifier = Modifier.size(24.dp)
             )
         }
@@ -688,7 +688,7 @@ fun MostUsedAppRow(app: AppUsageInfo) {
                 Text(
                     text = app.category.label,
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF94A3B8)
+                    color = TextSecondary
                 )
             }
         }
@@ -702,7 +702,7 @@ fun MostUsedAppRow(app: AppUsageInfo) {
         Icon(
             imageVector = Icons.Outlined.ChevronRight,
             contentDescription = null,
-            tint = Color(0xFFCBD5E1),
+            tint = TextSecondary,
             modifier = Modifier.size(20.dp)
         )
     }
@@ -717,7 +717,7 @@ fun BalanceCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
@@ -784,14 +784,14 @@ fun BalanceCard(
                     Icon(
                         imageVector = Icons.Outlined.WbSunny,
                         contentDescription = null,
-                        tint = Color(0xFF94A3B8),
+                        tint = TextSecondary,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = awakeTime,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF94A3B8)
+                        color = TextSecondary
                     )
                 }
             }
@@ -811,7 +811,7 @@ fun PeakTimeCard(
             .fillMaxWidth()
             .clickable { onClick() },
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
@@ -849,7 +849,7 @@ fun PeakTimeCard(
                     Icon(
                         imageVector = Icons.Filled.ChevronRight,
                         contentDescription = "View details",
-                        tint = Color(0xFF94A3B8),
+                        tint = TextSecondary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -909,7 +909,7 @@ fun UsageDistributionCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
@@ -1011,7 +1011,7 @@ fun FocusMetricCard(
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
@@ -1040,7 +1040,7 @@ fun FocusMetricCard(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelSmall,
-                color = if (hasWarning) warningColor else Color(0xFF94A3B8),
+                color = if (hasWarning) warningColor else TextSecondary,
                 letterSpacing = 0.5.sp
             )
 
@@ -1049,7 +1049,7 @@ fun FocusMetricCard(
             Text(
                 text = value,
                 style = MaterialTheme.typography.titleMedium,
-                color = if (hasWarning) warningColor else Color(0xFF1E293B),
+                color = if (hasWarning) warningColor else TextPrimary,
                 fontWeight = FontWeight.SemiBold
             )
 
@@ -1073,7 +1073,7 @@ fun DistractionsCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
@@ -1101,7 +1101,7 @@ fun DistractionsCard(
                 Text(
                     text = "PICKUPS",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF94A3B8),
+                    color = TextSecondary,
                     letterSpacing = 0.5.sp
                 )
                 Text(
@@ -1114,7 +1114,7 @@ fun DistractionsCard(
                     Text(
                         text = "Estimated from app opens",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFADB5BD)
+                        color = TextSecondary
                     )
                 }
             }

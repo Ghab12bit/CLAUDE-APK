@@ -48,7 +48,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         private const val FIRM_REMINDER_NOTIFICATION_ID = 4002
 
         // ========== APP TIMER (Shared Time Limit) ==========
-        private const val APP_TIMER_CHECK_INTERVAL_MS = 30_000L // Check every 30 seconds
+        private const val APP_TIMER_CHECK_INTERVAL_MS = 10_000L // Check every 10 seconds for responsive tracking
         private const val APP_TIMER_NOTIFICATION_ID = 4003
         const val ACTION_EXTEND_APP_TIMER = "com.focusblock.app.ACTION_EXTEND_APP_TIMER"
 
@@ -784,6 +784,21 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
                 Log.v(TAG, "App Timer check: usage=$totalUsageMinutes min, limit=$limitMinutes min, onTimerApp=$isOnTimerApp, inFocusCycle=$isInFocusCycle")
 
+                // PROACTIVE ENFORCEMENT: When limit is reached and on timer app, BLOCK immediately
+                // This ensures the app is blocked even if no new accessibility events are triggered
+                if (totalUsageMinutes >= limitMinutes && isOnTimerApp && currentPackage != null) {
+                    // Check if override is active
+                    val overrideExpires = dailyUsage.overrideExpiresAt
+                    val now = System.currentTimeMillis()
+                    val hasActiveOverride = overrideExpires != null && now < overrideExpires
+
+                    if (!hasActiveOverride && !isBlockingInProgress) {
+                        Log.i(TAG, "App Timer: Proactive enforcement - blocking $currentPackage (usage: $totalUsageMinutes >= limit: $limitMinutes)")
+                        // Block the app using the service scope (blockApp is a suspend function)
+                        blockApp(currentPackage)
+                    }
+                }
+
                 // Show/hide App Timer notification based on current state
                 if (isOnTimerApp) {
                     // Get app name for notification
@@ -871,6 +886,27 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 val duration = now - foregroundStart
                 if (duration > 0 && duration < 4 * 60 * 60 * 1000) {
                     appUsageMillis[packageName] = (appUsageMillis[packageName] ?: 0L) + duration
+                }
+            }
+
+            // IMPORTANT: Supplement with our own real-time tracking
+            // The UsageEvents API may not update in real-time during continuous app usage
+            // (e.g., scrolling in the same activity without opening new screens)
+            // Use our accessibility-tracked currentTimerAppStartTime as a supplement
+            val currentForeground = lastForegroundPackage
+            val sessionStart = currentTimerAppStartTime
+            if (currentForeground != null && sessionStart != null && cachedTimerApps.contains(currentForeground)) {
+                val accessibilityTrackedSession = now - sessionStart
+                val usageEventsTracked = appUsageMillis[currentForeground] ?: 0L
+
+                // If our accessibility-based tracking shows more time than UsageEvents,
+                // use our tracking as it's more real-time
+                if (accessibilityTrackedSession > usageEventsTracked) {
+                    val additionalTime = accessibilityTrackedSession - usageEventsTracked
+                    if (additionalTime > 0 && additionalTime < 4 * 60 * 60 * 1000) {
+                        appUsageMillis[currentForeground] = usageEventsTracked + additionalTime
+                        Log.d(TAG, "App Timer: Supplemented with accessibility tracking (+${additionalTime/1000}s for $currentForeground)")
+                    }
                 }
             }
 

@@ -1160,6 +1160,18 @@ class HomeViewModel @Inject constructor(
         useQuickBlockApps: Boolean
     ) {
         viewModelScope.launch {
+            // Validate that there are apps to track
+            val hasSelectedApps = selectedPackages.isNotEmpty()
+            val hasQuickBlockApps = if (useQuickBlockApps) {
+                val session = repository.getActiveQuickBlockSessionSync()
+                session?.blockedPackages?.split(",")?.filter { it.isNotBlank() }?.isNotEmpty() ?: false
+            } else false
+
+            if (!hasSelectedApps && !hasQuickBlockApps) {
+                showToast("Please select apps to track or start a Quick Block session first")
+                return@launch
+            }
+
             // Disable any existing focus cycles first
             repository.disableAllFocusCycles()
 

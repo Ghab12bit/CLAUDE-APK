@@ -338,10 +338,24 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 val cycle = focusCycleDao.getActiveFocusCycleSync()
 
                 cachedFocusCycle = cycle
-                cachedFocusCyclePackages = cycle?.selectedPackages
+
+                // Determine packages to track
+                var packages = cycle?.selectedPackages
                     ?.split(",")
                     ?.filter { it.isNotBlank() }
                     ?.toSet() ?: emptySet()
+
+                // If useQuickBlockApps is true and no explicit packages, use Quick Block apps
+                if (packages.isEmpty() && cycle?.useQuickBlockApps == true) {
+                    val quickBlockSession = database.quickBlockSessionDao().getActiveSessionSync()
+                    packages = quickBlockSession?.blockedPackages
+                        ?.split(",")
+                        ?.filter { it.isNotBlank() }
+                        ?.toSet() ?: emptySet()
+                    Log.d(TAG, "Focus Cycle using Quick Block apps: ${packages.size}")
+                }
+
+                cachedFocusCyclePackages = packages
                 lastCacheRefresh = System.currentTimeMillis()
 
                 Log.d(TAG, "Cache refreshed: cycle=${cycle?.isEnabled}, packages=${cachedFocusCyclePackages.size}")
@@ -1389,6 +1403,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     private suspend fun shouldBlockApp(packageName: String): Boolean {
+        Log.d(TAG, "shouldBlockApp() checking: $packageName")
+
         val blockedAppDao = database.blockedAppDao()
         val scheduleDao = database.scheduleDao()
         val quickBlockSessionDao = database.quickBlockSessionDao()
@@ -1397,9 +1413,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         val appTimerSettingsDao = database.appTimerSettingsDao()
         val appTimerDailyUsageDao = database.appTimerDailyUsageDao()
 
-        // Check if in allowlist
+        // Check if in allowlist - always allow these apps
         val blockedApp = blockedAppDao.getBlockedApp(packageName)
         if (blockedApp?.isInAllowlist == true) {
+            Log.d(TAG, "App is in allowlist, allowing: $packageName")
             return false
         }
 
@@ -1427,7 +1444,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     }
 
                     // No active override - block the app
-                    Log.d(TAG, "App Timer: Blocking $packageName (usage: $currentUsage >= limit: $limitMinutes)")
+                    Log.i(TAG, "App Timer blocking: $packageName (usage: $currentUsage min >= limit: $limitMinutes min)")
                     return true
                 }
             }
@@ -1459,6 +1476,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 }
 
                 // Non-Pomodoro Quick Block or break period - block normally
+                Log.i(TAG, "Quick Block blocking: $packageName (session active)")
                 return true
             }
         }
@@ -1469,26 +1487,34 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             if (activeFocusCycle != null && activeFocusCycle.isEnabled) {
                 val now = System.currentTimeMillis()
                 val breakStart = activeFocusCycle.breakStartTime
-                val cycleStart = activeFocusCycle.cycleStartTime
 
                 // Check if we're in break phase
+                // IMPORTANT: Only check breakStartTime, not simple time calculation
+                // The usage window exhaustion is determined by accumulatedUsageMillis in handleFocusCycleInstant
                 val isInBreak = if (breakStart != null) {
                     val breakEnd = breakStart + timeToMillis(activeFocusCycle.breakDurationMinutes)
                     now < breakEnd
-                } else if (cycleStart != null) {
-                    val usageEnd = cycleStart + timeToMillis(activeFocusCycle.usageWindowMinutes)
-                    now >= usageEnd
                 } else {
+                    // Not in break - usage window is still active or cycle hasn't started
                     false
                 }
 
                 if (isInBreak) {
-                    val focusCyclePackages = activeFocusCycle.selectedPackages
+                    // Get packages to check (consider useQuickBlockApps)
+                    var focusCyclePackages = activeFocusCycle.selectedPackages
                         .split(",")
                         .filter { it.isNotBlank() }
 
+                    // If no explicit packages and useQuickBlockApps is true, use Quick Block apps
+                    if (focusCyclePackages.isEmpty() && activeFocusCycle.useQuickBlockApps) {
+                        val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
+                        focusCyclePackages = quickBlockSession?.blockedPackages
+                            ?.split(",")
+                            ?.filter { it.isNotBlank() } ?: emptyList()
+                    }
+
                     if (focusCyclePackages.contains(packageName)) {
-                        Log.d(TAG, "Focus Cycle blocking (soft-nudge): $packageName")
+                        Log.i(TAG, "Focus Cycle blocking: $packageName (break phase until ${activeFocusCycle.breakStartTime?.let { it + timeToMillis(activeFocusCycle.breakDurationMinutes) }})")
                         return true
                     }
                 }
@@ -1503,15 +1529,22 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         for (schedule in activeSchedules) {
             val blockedPackages = schedule.blockedPackages.split(",")
             if (blockedPackages.contains(packageName)) {
+                Log.d(TAG, "Schedule blocking: $packageName (schedule: ${schedule.name})")
                 return true
             }
         }
 
-        // Check if individually blocked
-        if (blockedApp?.isBlocked == true) {
-            return true
-        }
+        // IMPORTANT: We do NOT check isBlocked = true here anymore
+        // The isBlocked flag was being set by Quick Block sessions but not cleared on timer expiry
+        // This caused apps to remain blocked even after all blocking modes were inactive
+        //
+        // Apps are only blocked when an ACTIVE blocking policy is in effect:
+        // - Active Quick Block session (checked above)
+        // - Active Focus Cycle break (checked above)
+        // - Active Schedule (checked above)
+        // - App Timer limit reached (checked above)
 
+        Log.d(TAG, "No active blocking policy for: $packageName")
         return false
     }
 

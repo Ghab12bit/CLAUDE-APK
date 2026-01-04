@@ -302,7 +302,7 @@ fun HomeScreen(
             SecondaryModeCard(
                 title = "Focus Cycle",
                 description = "Use apps in timed windows with enforced breaks",
-                icon = Icons.Outlined.Loop,
+                icon = Icons.Outlined.Autorenew,
                 isEnabled = uiState.isFocusCycleEnabled,
                 statusText = when {
                     !uiState.isFocusCycleEnabled -> "Not active"

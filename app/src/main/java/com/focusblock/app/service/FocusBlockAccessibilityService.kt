@@ -531,6 +531,20 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * Check if package is a system app (settings, systemui, etc.)
+     * These pause the session but don't end it
+     */
+    private fun isSystemApp(packageName: String): Boolean {
+        return packageName == "com.android.settings" ||
+               packageName == "com.android.systemui" ||
+               packageName.startsWith("com.samsung.android.app.") ||
+               packageName.startsWith("com.google.android.gms") ||
+               packageName.startsWith("com.android.vending") || // Play Store
+               packageName == "com.android.packageinstaller" ||
+               packageName == "com.google.android.packageinstaller"
+    }
+
+    /**
      * Check session durations and show reminders if thresholds exceeded
      *
      * FIXED: Uses accumulated ACTIVE time, not raw elapsed time since start.

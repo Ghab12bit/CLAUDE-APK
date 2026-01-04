@@ -182,14 +182,14 @@ fun StatisticsScreen(
                     CompactMetricCard(
                         title = "Balance",
                         value = "${uiState.balancePercentage}%",
-                        icon = Icons.Outlined.Balance,
+                        icon = Icons.Outlined.PieChart,
                         modifier = Modifier.weight(1f),
                         subtitle = "of awake time"
                     )
                     CompactMetricCard(
                         title = "Peak",
                         value = uiState.peakTimeRange.split(" - ").firstOrNull() ?: "",
-                        icon = Icons.Outlined.WatchLater,
+                        icon = Icons.Outlined.Schedule,
                         modifier = Modifier.weight(1f),
                         hasWarning = uiState.peakTimeRisk
                     )
@@ -337,7 +337,7 @@ fun CompactSummaryCard(
                 QuickStat(
                     label = "Longest",
                     value = longestSession,
-                    icon = Icons.Outlined.Timelapse,
+                    icon = Icons.Outlined.AccessTime,
                     hasWarning = hasSessionWarning
                 )
             }

@@ -613,12 +613,12 @@ class FocusBlockAccessibilityService : AccessibilityService() {
      * Check if screen is off or locked
      */
     private fun isScreenOff(): Boolean {
-        return try {
+        try {
             val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-            !powerManager.isInteractive
+            return !powerManager.isInteractive
         } catch (e: Exception) {
             Log.w(TAG, "Failed to check screen state", e)
-            false
+            return false
         }
     }
 

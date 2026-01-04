@@ -306,8 +306,11 @@ fun HomeScreen(
                 isEnabled = uiState.isFocusCycleEnabled,
                 statusText = when {
                     !uiState.isFocusCycleEnabled -> "Not active"
-                    uiState.focusCyclePhase == FocusCyclePhase.BREAK -> "Break: ${uiState.focusCycleRemainingTime}"
-                    else -> "Active: ${uiState.focusCycleRemainingTime} left"
+                    uiState.focusCyclePhase == FocusCyclePhase.BREAK ->
+                        "Break: ${TimeUtils.formatDuration(uiState.focusCycleRemainingTime)}"
+                    uiState.focusCycleRemainingTime > 0 ->
+                        "Active: ${TimeUtils.formatDuration(uiState.focusCycleRemainingTime)}"
+                    else -> "Active"
                 },
                 onEnableClick = { showFocusCycleSetupDialog = true },
                 onDisableClick = { viewModel.disableFocusCycle() }
@@ -323,7 +326,9 @@ fun HomeScreen(
                 isEnabled = uiState.isStrictModeEnabled,
                 statusText = when {
                     uiState.isStrictModePaused -> "Paused"
-                    uiState.isStrictModeEnabled -> "Active: ${uiState.strictModeRemainingTime}"
+                    uiState.isStrictModeEnabled && uiState.strictModeRemainingTime > 0 ->
+                        "Active: ${TimeUtils.formatDuration(uiState.strictModeRemainingTime)}"
+                    uiState.isStrictModeEnabled -> "Active"
                     else -> "Not active"
                 },
                 isLocked = uiState.isStrictModeLocked,
@@ -333,6 +338,9 @@ fun HomeScreen(
                         viewModel.setStrictMode(false)
                     }
                 },
+                onLockedClick = if (uiState.isStrictModeLocked) {
+                    { showStrictModeUnlockDialog = true } // Emergency unlock dialog
+                } else null,
                 extraAction = if (uiState.isStrictModeEnabled && !uiState.isStrictModePaused) {
                     { showStrictModePauseDialog = true }
                 } else if (uiState.isStrictModePaused) {
@@ -4249,6 +4257,7 @@ fun SecondaryModeCard(
     isLocked: Boolean = false,
     onEnableClick: () -> Unit,
     onDisableClick: () -> Unit,
+    onLockedClick: (() -> Unit)? = null, // Action when locked icon is clicked (e.g., emergency unlock)
     extraAction: (() -> Unit)? = null,
     extraActionLabel: String = ""
 ) {
@@ -4321,14 +4330,26 @@ fun SecondaryModeCard(
                         )
                     }
                 } else {
-                    Icon(
-                        imageVector = Icons.Outlined.Lock,
-                        contentDescription = "Locked",
-                        tint = Primary,
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .size(20.dp)
-                    )
+                    // Lock icon - clickable if onLockedClick is provided (emergency unlock)
+                    if (onLockedClick != null) {
+                        IconButton(onClick = onLockedClick) {
+                            Icon(
+                                imageVector = Icons.Outlined.Lock,
+                                contentDescription = "Unlock",
+                                tint = Primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    } else {
+                        Icon(
+                            imageVector = Icons.Outlined.Lock,
+                            contentDescription = "Locked",
+                            tint = Primary,
+                            modifier = Modifier
+                                .padding(8.dp)
+                                .size(20.dp)
+                        )
+                    }
                 }
             } else {
                 TextButton(onClick = onEnableClick) {

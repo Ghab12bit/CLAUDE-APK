@@ -365,10 +365,13 @@ fun HomeScreen(
         }
 
         // ========== INSIGHTS PREVIEW ==========
-        if (uiState.insights != null && uiState.insights!!.hasActionableInsights) {
+        // Show insights if we have enough data and actionable content
+        val insightsHasContent = uiState.insights.hasEnoughData &&
+            (uiState.insights.biggestDistraction != null || uiState.insights.actionSuggestions.isNotEmpty())
+        if (insightsHasContent) {
             item(key = "insights_preview") {
                 InsightsPreviewCard(
-                    insights = uiState.insights!!,
+                    insights = uiState.insights,
                     onStartQuickBlock = { packageName ->
                         viewModel.startQuickBlock(listOf(packageName), 30)
                     }
@@ -1603,7 +1606,7 @@ fun StrictModeCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (isLocked) Icons.Filled.LockClock else Icons.Filled.Lock,
+                            imageVector = if (isLocked) Icons.Filled.Timer else Icons.Filled.Lock,
                             contentDescription = null,
                             tint = if (isEnabled) Primary else TextSecondary,
                             modifier = Modifier.size(22.dp)
@@ -2207,7 +2210,7 @@ fun StrictModeUnlockDialog(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (isLocked) Icons.Filled.LockClock else Icons.Filled.Lock,
+                        imageVector = if (isLocked) Icons.Filled.Timer else Icons.Filled.Lock,
                         contentDescription = null,
                         tint = if (isLocked) AccentRed else Primary,
                         modifier = Modifier.size(28.dp)
@@ -2438,7 +2441,7 @@ fun FocusCycleCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Loop,
+                            imageVector = Icons.Filled.Autorenew,
                             contentDescription = null,
                             tint = if (isEnabled) cycleColor else TextSecondary,
                             modifier = Modifier.size(22.dp)
@@ -3941,7 +3944,7 @@ fun NoInsightsCard() {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
-                imageVector = Icons.Outlined.Insights,
+                imageVector = Icons.Outlined.TrendingUp,
                 contentDescription = null,
                 tint = TextSecondary,
                 modifier = Modifier.size(48.dp)
@@ -4377,10 +4380,10 @@ fun InsightsPreviewCard(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Show the most relevant insight
-            val topDistraction = insights.distractionInsight
+            val topDistraction = insights.biggestDistraction
             if (topDistraction != null) {
                 Text(
-                    text = "${topDistraction.appName} used ${topDistraction.usageMinutes}m today",
+                    text = "${topDistraction.appName} blocked ${topDistraction.blockCount} times today",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextPrimary
                 )

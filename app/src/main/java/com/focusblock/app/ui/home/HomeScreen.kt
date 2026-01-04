@@ -180,170 +180,22 @@ fun HomeScreen(
             }
         }
 
-        // ========== BLOCKING SECTION ==========
-        item(key = "quick_block_header") {
+        // ========== PRIMARY CONTROLS SECTION ==========
+        // Quick Block + App Timer as equal primary features
+        item(key = "primary_controls_header") {
             SectionHeader(
-                title = "Quick Block",
-                subtitle = "Instantly block distracting apps"
+                title = "Daily Controls",
+                subtitle = "Your core digital wellness tools"
             )
         }
 
-        // Quick Block Card
-        item(key = "quick_block_card") {
-            QuickBlockCard(
-                isActive = uiState.isQuickBlockActive,
-                remainingTime = uiState.remainingTime,
-                endTime = uiState.quickBlockSession?.endTime,
-                blockedAppsCount = uiState.quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotEmpty() }?.size ?: 0,
-                isPomodoroMode = uiState.isPomodoroMode,
-                onStartClick = { showAppSelectionDialog = true },
-                onStopClick = {
-                    if (uiState.isHardModeEnabled) {
-                        // Show PIN dialog for hard mode
-                        showUnlockPinDialog = true
-                    } else if (uiState.isStrictModeEnabled) {
-                        // Show strict mode unlock dialog
-                        showStrictModeUnlockDialog = true
-                    } else {
-                        viewModel.stopQuickBlock()
-                    }
-                },
-                onTimerClick = { showTimerDialog = true },
-                onPomodoroClick = { showPomodoroDialog = true },
-                onSelectAppsClick = {
-                    isEditingApps = true
-                    showAppSelectionDialog = true
-                },
-                isStrictMode = uiState.isStrictModeEnabled,
-                isHardMode = uiState.isHardModeEnabled
-            )
-        }
-
-        // Statistics summary
-        item(key = "stats_summary") {
-            StatsSummaryCard(
-                todayBlockCount = uiState.todayBlockCount,
-                blockedAppsCount = uiState.blockedAppsCount,
-                onAppsBlockedClick = { showBlockedAppsDialog = true }
-            )
-        }
-
-        // Weekly Summary Card
-        item(key = "weekly_summary") {
-            WeeklySummaryCard(
-                weekBlockCount = uiState.weekBlockCount,
-                todayBlockCount = uiState.todayBlockCount
-            )
-        }
-
-        // ========== INSIGHTS SECTION ==========
-        item(key = "insights_section") {
-            InsightsSection(
-                insights = uiState.insights,
-                onStartQuickBlock = { packageName ->
-                    // Start Quick Block for the specific app
-                    viewModel.startQuickBlock(listOf(packageName), 30)
-                },
-                onStartFocusCycle = { packageName, peakHour ->
-                    // Show Focus Cycle setup for this app at peak hour
-                    showFocusCycleSetupDialog = true
-                }
-            )
-        }
-
-        // Focus Tips
-        item {
-            FocusTipsCard()
-        }
-
-        // Active Schedules
-        if (uiState.activeSchedules.isNotEmpty()) {
-            item {
-                Text(
-                    text = "Schedules",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-
-            item {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(uiState.activeSchedules.take(5)) { schedule ->
-                        SchedulePreviewCard(schedule = schedule)
-                    }
-                }
-            }
-        }
-
-        // ========== FOCUS MODES SECTION ==========
-        item {
-            SectionHeader(
-                title = "Focus Modes",
-                subtitle = "Control your digital habits"
-            )
-        }
-
-        // Strict Mode Card
-        item {
-            StrictModeCard(
-                isEnabled = uiState.isStrictModeEnabled,
-                isLocked = uiState.isStrictModeLocked,
-                isPaused = uiState.isStrictModePaused,
-                remainingTime = uiState.strictModeRemainingTime,
-                isHardModeEnabled = uiState.isHardModeEnabled,
-                onToggle = { enabled ->
-                    if (enabled) {
-                        // Show duration picker when enabling
-                        showStrictModeSetupDialog = true
-                    } else if (!uiState.isStrictModeLocked) {
-                        // Can only disable if not locked
-                        viewModel.setStrictMode(false)
-                    }
-                },
-                onHardModeClick = { showHardModeDialog = true },
-                onAddTime = { minutes -> viewModel.addStrictModeTime(minutes) },
-                onPauseClick = { showStrictModePauseDialog = true },
-                onResumeClick = { viewModel.resumeStrictMode() }
-            )
-        }
-
-        // Focus Cycles Card (Soft-Nudge Mode)
-        item {
-            val trackedAppsCount = uiState.focusCycle?.selectedPackages
-                ?.split(",")
-                ?.filter { it.isNotBlank() }
-                ?.size ?: 0
-            val useQuickBlockApps = uiState.focusCycle?.useQuickBlockApps ?: true
-            val isAccessibilityEnabled = PermissionUtils.hasAccessibilityServiceEnabled(context)
-
-            FocusCycleCard(
-                isEnabled = uiState.isFocusCycleEnabled,
-                phase = uiState.focusCyclePhase,
-                remainingTime = uiState.focusCycleRemainingTime,
-                usageWindowMinutes = uiState.focusCycle?.usageWindowMinutes ?: 10,
-                breakDurationMinutes = uiState.focusCycle?.breakDurationMinutes ?: 30,
-                trackedAppsCount = trackedAppsCount,
-                useQuickBlockApps = useQuickBlockApps,
-                isAccessibilityEnabled = isAccessibilityEnabled,
-                onStartClick = { showFocusCycleSetupDialog = true },
-                onStopClick = { viewModel.disableFocusCycle() },
-                onEnableAccessibility = {
-                    // Open accessibility settings
-                    val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                    context.startActivity(intent)
-                }
-            )
-        }
-
-        // App Timer Card (Shared Daily Time Limit)
+        // App Timer Card - PROMOTED to primary position
+        // This is the foundation of daily discipline
         item(key = "app_timer_card") {
             var showAppTimerSetupDialog by remember { mutableStateOf(false) }
             val isAccessibilityEnabled = PermissionUtils.hasAccessibilityServiceEnabled(context)
 
-            AppTimerCard(
+            PrimaryAppTimerCard(
                 isEnabled = uiState.isAppTimerEnabled,
                 limitMinutes = uiState.appTimerLimitMinutes,
                 usageMinutes = uiState.appTimerUsageMinutes,
@@ -369,6 +221,163 @@ fun HomeScreen(
                 )
             }
         }
+
+        // Quick Block Card - Primary instant control
+        item(key = "quick_block_card") {
+            QuickBlockCard(
+                isActive = uiState.isQuickBlockActive,
+                remainingTime = uiState.remainingTime,
+                endTime = uiState.quickBlockSession?.endTime,
+                blockedAppsCount = uiState.quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotEmpty() }?.size ?: 0,
+                isPomodoroMode = uiState.isPomodoroMode,
+                onStartClick = { showAppSelectionDialog = true },
+                onStopClick = {
+                    if (uiState.isHardModeEnabled) {
+                        showUnlockPinDialog = true
+                    } else if (uiState.isStrictModeEnabled) {
+                        showStrictModeUnlockDialog = true
+                    } else {
+                        viewModel.stopQuickBlock()
+                    }
+                },
+                onTimerClick = { showTimerDialog = true },
+                onPomodoroClick = { showPomodoroDialog = true },
+                onSelectAppsClick = {
+                    isEditingApps = true
+                    showAppSelectionDialog = true
+                },
+                isStrictMode = uiState.isStrictModeEnabled,
+                isHardMode = uiState.isHardModeEnabled
+            )
+        }
+
+        // ========== QUICK STATS ROW ==========
+        item(key = "stats_row") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Today's blocks
+                CompactStatCard(
+                    label = "Today",
+                    value = "${uiState.todayBlockCount}",
+                    subtitle = "blocks",
+                    modifier = Modifier.weight(1f)
+                )
+                // This week
+                CompactStatCard(
+                    label = "This Week",
+                    value = "${uiState.weekBlockCount}",
+                    subtitle = "blocks",
+                    modifier = Modifier.weight(1f)
+                )
+                // Tracked apps
+                CompactStatCard(
+                    label = "Tracked",
+                    value = "${uiState.blockedAppsCount}",
+                    subtitle = "apps",
+                    modifier = Modifier.weight(1f),
+                    onClick = { showBlockedAppsDialog = true }
+                )
+            }
+        }
+
+        // ========== SECONDARY MODES SECTION ==========
+        item(key = "secondary_modes_header") {
+            SectionHeader(
+                title = "Advanced Modes",
+                subtitle = "Optional structured controls"
+            )
+        }
+
+        // Focus Cycles Card (Soft-Nudge Mode) - Optional structured mode
+        item(key = "focus_cycle_card") {
+            val trackedAppsCount = uiState.focusCycle?.selectedPackages
+                ?.split(",")
+                ?.filter { it.isNotBlank() }
+                ?.size ?: 0
+            val useQuickBlockApps = uiState.focusCycle?.useQuickBlockApps ?: true
+            val isAccessibilityEnabled = PermissionUtils.hasAccessibilityServiceEnabled(context)
+
+            SecondaryModeCard(
+                title = "Focus Cycle",
+                description = "Use apps in timed windows with enforced breaks",
+                icon = Icons.Outlined.Loop,
+                isEnabled = uiState.isFocusCycleEnabled,
+                statusText = when {
+                    !uiState.isFocusCycleEnabled -> "Not active"
+                    uiState.focusCyclePhase == FocusCyclePhase.BREAK -> "Break: ${uiState.focusCycleRemainingTime}"
+                    else -> "Active: ${uiState.focusCycleRemainingTime} left"
+                },
+                onEnableClick = { showFocusCycleSetupDialog = true },
+                onDisableClick = { viewModel.disableFocusCycle() }
+            )
+        }
+
+        // Strict Mode Card - Optional enforcement
+        item(key = "strict_mode_card") {
+            SecondaryModeCard(
+                title = "Strict Mode",
+                description = "Lock your blocking choices for a set time",
+                icon = Icons.Outlined.Lock,
+                isEnabled = uiState.isStrictModeEnabled,
+                statusText = when {
+                    uiState.isStrictModePaused -> "Paused"
+                    uiState.isStrictModeEnabled -> "Active: ${uiState.strictModeRemainingTime}"
+                    else -> "Not active"
+                },
+                isLocked = uiState.isStrictModeLocked,
+                onEnableClick = { showStrictModeSetupDialog = true },
+                onDisableClick = {
+                    if (!uiState.isStrictModeLocked) {
+                        viewModel.setStrictMode(false)
+                    }
+                },
+                extraAction = if (uiState.isStrictModeEnabled && !uiState.isStrictModePaused) {
+                    { showStrictModePauseDialog = true }
+                } else if (uiState.isStrictModePaused) {
+                    { viewModel.resumeStrictMode() }
+                } else null,
+                extraActionLabel = if (uiState.isStrictModePaused) "Resume" else "Pause"
+            )
+        }
+
+        // Active Schedules (if any)
+        if (uiState.activeSchedules.isNotEmpty()) {
+            item(key = "schedules_header") {
+                Text(
+                    text = "Active Schedules",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+
+            item(key = "schedules_row") {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(uiState.activeSchedules.take(3)) { schedule ->
+                        SchedulePreviewCard(schedule = schedule)
+                    }
+                }
+            }
+        }
+
+        // ========== INSIGHTS PREVIEW ==========
+        if (uiState.insights != null && uiState.insights!!.hasActionableInsights) {
+            item(key = "insights_preview") {
+                InsightsPreviewCard(
+                    insights = uiState.insights!!,
+                    onStartQuickBlock = { packageName ->
+                        viewModel.startQuickBlock(listOf(packageName), 30)
+                    }
+                )
+            }
+        }
+
+        // Bottom spacing
+        item { Spacer(modifier = Modifier.height(16.dp)) }
     }
     } // End Scaffold
 
@@ -3976,6 +3985,422 @@ fun NoInsightsCard() {
                     Text(
                         text = "Try Quick Block or set up a Focus Cycle to get started",
                         style = MaterialTheme.typography.labelSmall,
+                        color = Primary
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ========== NEW HOME PAGE COMPONENTS ==========
+
+/**
+ * Primary App Timer Card - Promoted as the foundation of daily discipline
+ */
+@Composable
+fun PrimaryAppTimerCard(
+    isEnabled: Boolean,
+    limitMinutes: Int,
+    usageMinutes: Int,
+    appsCount: Int,
+    isAccessibilityEnabled: Boolean,
+    onSetupClick: () -> Unit,
+    onDisableClick: () -> Unit,
+    onEnableAccessibility: () -> Unit
+) {
+    val progress = if (limitMinutes > 0) (usageMinutes.toFloat() / limitMinutes).coerceIn(0f, 1f) else 0f
+    val isOverLimit = usageMinutes >= limitMinutes && limitMinutes > 0
+    val remainingMinutes = (limitMinutes - usageMinutes).coerceAtLeast(0)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isEnabled) {
+                if (isOverLimit) Color(0xFFEF4444).copy(alpha = 0.1f) else Primary.copy(alpha = 0.1f)
+            } else CardDark
+        ),
+        border = if (isEnabled) BorderStroke(1.dp, if (isOverLimit) Color(0xFFEF4444) else Primary) else null
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            // Header row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.Timer,
+                        contentDescription = null,
+                        tint = if (isEnabled) {
+                            if (isOverLimit) Color(0xFFEF4444) else Primary
+                        } else TextSecondary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "Daily App Timer",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (isEnabled) "$appsCount apps tracked" else "Set a daily limit",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+
+                // Status badge
+                if (isEnabled) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isOverLimit) Color(0xFFEF4444) else Primary
+                    ) {
+                        Text(
+                            text = if (isOverLimit) "LIMIT REACHED" else "ACTIVE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+
+            if (isEnabled) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Progress bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(SurfaceDark)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isOverLimit) Color(0xFFEF4444) else Primary)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Usage stats
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "${usageMinutes}m used",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isOverLimit) Color(0xFFEF4444) else TextSecondary
+                    )
+                    Text(
+                        text = if (isOverLimit) "Over limit!" else "${remainingMinutes}m remaining",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isOverLimit) Color(0xFFEF4444) else TextSecondary,
+                        fontWeight = if (isOverLimit) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Actions
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onSetupClick,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, SurfaceBorder)
+                    ) {
+                        Text("Edit", color = TextSecondary)
+                    }
+                    Button(
+                        onClick = onDisableClick,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = SurfaceElevated)
+                    ) {
+                        Text("Disable", color = TextPrimary)
+                    }
+                }
+            } else {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (!isAccessibilityEnabled) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = AccentOrange.copy(alpha = 0.1f)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onEnableAccessibility() }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Warning,
+                                contentDescription = null,
+                                tint = AccentOrange,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Enable accessibility for timer enforcement",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = AccentOrange
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                Button(
+                    onClick = onSetupClick,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Primary)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Set Daily Limit", fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Compact stat card for quick stats row
+ */
+@Composable
+fun CompactStatCard(
+    label: String,
+    value: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
+) {
+    Card(
+        modifier = modifier
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleLarge,
+                color = TextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary
+            )
+        }
+    }
+}
+
+/**
+ * Secondary mode card - compact representation of optional modes
+ */
+@Composable
+fun SecondaryModeCard(
+    title: String,
+    description: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isEnabled: Boolean,
+    statusText: String,
+    isLocked: Boolean = false,
+    onEnableClick: () -> Unit,
+    onDisableClick: () -> Unit,
+    extraAction: (() -> Unit)? = null,
+    extraActionLabel: String = ""
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isEnabled) Primary.copy(alpha = 0.05f) else CardDark
+        ),
+        border = if (isEnabled) BorderStroke(1.dp, Primary.copy(alpha = 0.3f)) else null
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Icon
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isEnabled) Primary.copy(alpha = 0.15f) else SurfaceDark),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (isEnabled) Primary else TextSecondary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Content
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = if (isEnabled) statusText else description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isEnabled) Primary else TextSecondary,
+                    maxLines = 1
+                )
+            }
+
+            // Action button
+            if (isEnabled) {
+                if (extraAction != null && !isLocked) {
+                    TextButton(onClick = extraAction) {
+                        Text(
+                            text = extraActionLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Primary
+                        )
+                    }
+                }
+                if (!isLocked) {
+                    IconButton(onClick = onDisableClick) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "Disable",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.Lock,
+                        contentDescription = "Locked",
+                        tint = Primary,
+                        modifier = Modifier
+                            .padding(8.dp)
+                            .size(20.dp)
+                    )
+                }
+            } else {
+                TextButton(onClick = onEnableClick) {
+                    Text(
+                        text = "Enable",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Primary
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Insights preview card - compact version for home page
+ */
+@Composable
+fun InsightsPreviewCard(
+    insights: InsightsState,
+    onStartQuickBlock: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Insight",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary
+                )
+                Icon(
+                    imageVector = Icons.Outlined.Lightbulb,
+                    contentDescription = null,
+                    tint = AccentOrange,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Show the most relevant insight
+            val topDistraction = insights.distractionInsight
+            if (topDistraction != null) {
+                Text(
+                    text = "${topDistraction.appName} used ${topDistraction.usageMinutes}m today",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextPrimary
+                )
+                if (topDistraction.peakHour != null) {
+                    Text(
+                        text = "Peak usage at ${topDistraction.peakHour}:00",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                TextButton(
+                    onClick = { onStartQuickBlock(topDistraction.packageName) },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text(
+                        text = "Block now",
+                        style = MaterialTheme.typography.labelMedium,
                         color = Primary
                     )
                 }

@@ -118,9 +118,12 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
     // ========== MINDFUL SESSION TRACKING ==========
     // Track continuous session duration for distracting apps (apps that get blocked)
+    // FIXED: Only tracks ACTIVE foreground usage, not idle/lock screen time
     private data class AppSession(
         val packageName: String,
         val startTime: Long,
+        var lastActiveTime: Long = startTime, // Last time we confirmed user activity
+        var accumulatedActiveMillis: Long = 0, // Accumulated active time (for pause/resume)
         var gentleReminderShown: Boolean = false,
         var firmReminderShown: Boolean = false
     )
@@ -128,6 +131,12 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private val sessionCheckHandler = Handler(Looper.getMainLooper())
     private var sessionCheckRunnable: Runnable? = null
     private var cachedDistractingApps: Set<String> = emptySet() // Apps that are typically blocked/tracked
+
+    // Session detection debounce - prevent micro-events from resetting session
+    private var lastAppSwitchTime: Long = 0
+    private var pendingSessionEnd: String? = null // Package that might end session (with debounce)
+    private val SESSION_SWITCH_DEBOUNCE_MS = 3000L // 3 seconds debounce for app switches
+    private val SESSION_IDLE_TIMEOUT_MS = 60_000L // 1 minute of no activity = session ends
 
     // ========== APP TIMER TRACKING ==========
     private val appTimerHandler = Handler(Looper.getMainLooper())
@@ -419,45 +428,153 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Track app session start/switch
+     * Track app session start/switch with proper continuous-use detection
      * Called when the foreground app changes
+     *
+     * FIXED: Properly handles:
+     * - Debouncing micro-events (brief app switches don't reset session)
+     * - Launcher/home screen = session ends
+     * - System apps/settings = session pauses, not ends
+     * - Idle detection via lastActiveTime
      */
     private fun trackAppSession(packageName: String, eventTime: Long) {
-        // End previous session for other apps
+        val now = System.currentTimeMillis()
         val previousPackage = lastForegroundPackage
-        if (previousPackage != null && previousPackage != packageName) {
-            activeSessions.remove(previousPackage)
-            Log.d(TAG, "Session ended for: $previousPackage")
-        }
 
-        // Check if this is a distracting app we should track
-        if (!cachedDistractingApps.contains(packageName)) {
+        // Check if switching to launcher/home screen - this ends ALL sessions
+        if (isLauncherOrHome(packageName)) {
+            // Clear all active sessions when user goes home
+            if (activeSessions.isNotEmpty()) {
+                Log.d(TAG, "Session tracking: User went to home screen, clearing ${activeSessions.size} sessions")
+                activeSessions.clear()
+            }
+            pendingSessionEnd = null
             return
         }
 
-        // Start or continue session for this app
-        if (!activeSessions.containsKey(packageName)) {
+        // Check if switching to system settings - pause session but don't end
+        if (isSystemApp(packageName)) {
+            // Just update last switch time, don't end session yet
+            lastAppSwitchTime = now
+            Log.v(TAG, "Session tracking: Switched to system app $packageName, sessions paused")
+            return
+        }
+
+        // End previous session for other apps (with debounce)
+        if (previousPackage != null && previousPackage != packageName) {
+            val timeSinceLastSwitch = now - lastAppSwitchTime
+
+            // If returning to the same distracting app within debounce window, continue session
+            val existingSession = activeSessions[packageName]
+            if (existingSession != null && pendingSessionEnd == packageName &&
+                timeSinceLastSwitch < SESSION_SWITCH_DEBOUNCE_MS) {
+                // User returned quickly - continue the session
+                Log.d(TAG, "Session tracking: User returned to $packageName within debounce, continuing session")
+                pendingSessionEnd = null
+                existingSession.lastActiveTime = now
+                activeSessions[packageName] = existingSession
+            } else {
+                // Different app - end the previous session
+                val prevSession = activeSessions.remove(previousPackage)
+                if (prevSession != null) {
+                    // Calculate final accumulated time for the ended session
+                    val finalActiveTime = prevSession.accumulatedActiveMillis +
+                        (now - prevSession.lastActiveTime).coerceAtLeast(0)
+                    Log.d(TAG, "Session ended for: $previousPackage (total active: ${finalActiveTime/60000}min)")
+                }
+            }
+        }
+
+        // Update switch time
+        lastAppSwitchTime = now
+
+        // Check if this is a distracting app we should track
+        if (!cachedDistractingApps.contains(packageName)) {
+            pendingSessionEnd = null
+            return
+        }
+
+        // Start or continue session for this distracting app
+        val existingSession = activeSessions[packageName]
+        if (existingSession != null) {
+            // Continue existing session - update last active time
+            existingSession.lastActiveTime = now
+            activeSessions[packageName] = existingSession
+            Log.v(TAG, "Session tracking: Continuing session for $packageName")
+        } else {
+            // Start new session
             activeSessions[packageName] = AppSession(
                 packageName = packageName,
-                startTime = eventTime
+                startTime = now,
+                lastActiveTime = now,
+                accumulatedActiveMillis = 0
             )
-            Log.d(TAG, "Session started for distracting app: $packageName")
+            Log.d(TAG, "Session tracking: Started new session for distracting app: $packageName")
         }
+
+        pendingSessionEnd = null
+    }
+
+    /**
+     * Check if package is launcher/home screen
+     */
+    private fun isLauncherOrHome(packageName: String): Boolean {
+        return packageName.contains("launcher") ||
+               packageName.contains("home") ||
+               packageName == "com.google.android.apps.nexuslauncher" ||
+               packageName == "com.sec.android.app.launcher" || // Samsung
+               packageName == "com.huawei.android.launcher" || // Huawei
+               packageName == "com.miui.home" || // Xiaomi
+               packageName == "com.oppo.launcher" || // Oppo
+               packageName == "com.android.launcher3" ||
+               packageName == "com.android.launcher"
     }
 
     /**
      * Check session durations and show reminders if thresholds exceeded
+     *
+     * FIXED: Uses accumulated ACTIVE time, not raw elapsed time since start.
+     * This prevents false triggers when:
+     * - Screen is locked/off
+     * - User is idle (no interaction events)
+     * - User briefly switched to another app
      */
     private fun checkSessionDurations() {
         val now = System.currentTimeMillis()
         val currentPackage = lastForegroundPackage ?: return
 
+        // Check if screen is off/locked - clear all sessions
+        if (isScreenOff()) {
+            if (activeSessions.isNotEmpty()) {
+                Log.d(TAG, "Session check: Screen is off, clearing ${activeSessions.size} sessions")
+                activeSessions.clear()
+            }
+            return
+        }
+
         // Only check if user is currently on a distracting app
         val session = activeSessions[currentPackage] ?: return
 
-        val sessionDurationMinutes = (now - session.startTime) / 60_000
+        // Check for idle timeout - if no activity update for too long, end session
+        val timeSinceLastActive = now - session.lastActiveTime
+        if (timeSinceLastActive > SESSION_IDLE_TIMEOUT_MS) {
+            Log.d(TAG, "Session check: Idle timeout for $currentPackage (${timeSinceLastActive/1000}s since last activity)")
+            activeSessions.remove(currentPackage)
+            return
+        }
 
-        Log.v(TAG, "Session check: $currentPackage duration=${sessionDurationMinutes}min, gentle=${session.gentleReminderShown}, firm=${session.firmReminderShown}")
+        // Calculate ACTUAL active usage time
+        // = accumulated time from previous periods + current active period
+        val currentPeriodTime = (now - session.lastActiveTime).coerceIn(0, SESSION_IDLE_TIMEOUT_MS)
+        val totalActiveMillis = session.accumulatedActiveMillis + currentPeriodTime
+        val sessionDurationMinutes = totalActiveMillis / 60_000
+
+        // Update session with current accumulated time (for next check)
+        session.accumulatedActiveMillis = totalActiveMillis
+        session.lastActiveTime = now
+        activeSessions[currentPackage] = session
+
+        Log.v(TAG, "Session check: $currentPackage activeTime=${sessionDurationMinutes}min, gentle=${session.gentleReminderShown}, firm=${session.firmReminderShown}")
 
         when {
             // Firm reminder at 60+ minutes (if gentle already shown)
@@ -475,6 +592,19 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 session.gentleReminderShown = true
                 activeSessions[currentPackage] = session
             }
+        }
+    }
+
+    /**
+     * Check if screen is off or locked
+     */
+    private fun isScreenOff(): Boolean {
+        return try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            !powerManager.isInteractive
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to check screen state", e)
+            false
         }
     }
 

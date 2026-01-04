@@ -82,11 +82,11 @@ fun StatisticsScreen(
             }
         )
 
-        // Content
+        // Content - Reorganized: Summary → Key Metrics → Apps → Details (chart last)
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Date Navigator (only for Day tab)
             if (uiState.selectedTab == InsightsTab.DAY) {
@@ -118,7 +118,7 @@ fun StatisticsScreen(
                         Text(
                             text = uiState.dateLabel,
                             style = MaterialTheme.typography.titleMedium,
-                            color = Primary,
+                            color = TextPrimary,
                             fontWeight = FontWeight.SemiBold
                         )
 
@@ -143,22 +143,67 @@ fun StatisticsScreen(
                 }
             }
 
-            // Hero Metric - Screen Time
+            // ========== SUMMARY SECTION ==========
+            // Compact screen time summary - key number at a glance
             item {
-                HeroMetricCard(
+                CompactSummaryCard(
                     screenTime = uiState.totalScreenTime,
                     changeText = uiState.screenTimeChange,
                     isPositive = uiState.isChangePositive,
-                    weeklyTrendText = uiState.weeklyTrendText,
-                    weeklyTrendPercent = uiState.weeklyTrendPercent,
-                    hasWeeklyTrend = uiState.hasWeeklyTrend
+                    pickupCount = uiState.pickupCount,
+                    longestSession = uiState.longestContinuousUse,
+                    hasSessionWarning = uiState.longestSessionWarning
                 )
             }
 
-            // Usage Timeline Chart
+            // ========== KEY METRICS SECTION ==========
             item {
-                UsageTimelineCard(
-                    hourlyUsage = uiState.hourlyUsage
+                Text(
+                    text = "Key Metrics",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp
+                )
+            }
+
+            // Key metrics in a compact row
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CompactMetricCard(
+                        title = "Focus",
+                        value = uiState.longestFocus,
+                        icon = Icons.Outlined.Timer,
+                        modifier = Modifier.weight(1f)
+                    )
+                    CompactMetricCard(
+                        title = "Balance",
+                        value = "${uiState.balancePercentage}%",
+                        icon = Icons.Outlined.Balance,
+                        modifier = Modifier.weight(1f),
+                        subtitle = "of awake time"
+                    )
+                    CompactMetricCard(
+                        title = "Peak",
+                        value = uiState.peakTimeRange.split(" - ").firstOrNull() ?: "",
+                        icon = Icons.Outlined.WatchLater,
+                        modifier = Modifier.weight(1f),
+                        hasWarning = uiState.peakTimeRisk
+                    )
+                }
+            }
+
+            // ========== APPS SECTION ==========
+            item {
+                Text(
+                    text = "Apps",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp
                 )
             }
 
@@ -171,26 +216,43 @@ fun StatisticsScreen(
                 )
             }
 
-            // Habits Section
+            // Repeat Offenders (apps user keeps trying to open)
+            if (uiState.hasRepeatOffenders) {
+                item {
+                    RepeatOffendersCard(
+                        offenders = uiState.repeatOffenders
+                    )
+                }
+            }
+
+            // Usage Distribution (category breakdown)
+            item {
+                UsageDistributionCard(
+                    distractivePercent = uiState.distractivePercent,
+                    neutralPercent = uiState.neutralPercent,
+                    productivePercent = uiState.productivePercent
+                )
+            }
+
+            // ========== DETAILS SECTION ==========
             item {
                 Text(
-                    text = "Habits",
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "Timeline",
+                    style = MaterialTheme.typography.titleSmall,
                     color = TextPrimary,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp
                 )
             }
 
-            // Balance Card
+            // Usage Timeline Chart - moved to bottom as it's detail-level
             item {
-                BalanceCard(
-                    phoneTime = uiState.totalScreenTime,
-                    awakeTime = uiState.awakeTime,
-                    percentage = uiState.balancePercentage
+                UsageTimelineCard(
+                    hourlyUsage = uiState.hourlyUsage
                 )
             }
 
-            // Peak Time Card
+            // Peak Time Card with details
             item {
                 PeakTimeCard(
                     peakTimeRange = uiState.peakTimeRange,
@@ -200,92 +262,172 @@ fun StatisticsScreen(
                 )
             }
 
-            // Usage Distribution
-            item {
-                Text(
-                    text = "Usage",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            item {
-                UsageDistributionCard(
-                    distractivePercent = uiState.distractivePercent,
-                    neutralPercent = uiState.neutralPercent,
-                    productivePercent = uiState.productivePercent
-                )
-            }
-
-            // Repeat Offenders Section (apps user keeps trying to open)
-            if (uiState.hasRepeatOffenders) {
-                item {
-                    Text(
-                        text = "Repeat Offenders",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = TextPrimary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                item {
-                    RepeatOffendersCard(
-                        offenders = uiState.repeatOffenders
-                    )
-                }
-            }
-
-            // Focus Section
-            item {
-                Text(
-                    text = "Focus",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    FocusMetricCard(
-                        title = "LONGEST FOCUS",
-                        value = uiState.longestFocus,
-                        icon = Icons.Outlined.Timer,
-                        modifier = Modifier.weight(1f)
-                    )
-                    FocusMetricCard(
-                        title = "CONTINUOUS USE",
-                        value = uiState.longestContinuousUse,
-                        icon = Icons.Outlined.Smartphone,
-                        modifier = Modifier.weight(1f),
-                        hasWarning = uiState.longestSessionWarning
-                    )
-                }
-            }
-
-            // Distractions
-            item {
-                Text(
-                    text = "Distractions",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            item {
-                DistractionsCard(
-                    pickupCount = uiState.pickupCount,
-                    isEstimated = uiState.isPickupEstimated
-                )
-            }
-
             // Bottom spacing
             item { Spacer(modifier = Modifier.height(16.dp)) }
+        }
+    }
+}
+
+// ========== NEW COMPACT SUMMARY CARD ==========
+@Composable
+fun CompactSummaryCard(
+    screenTime: String,
+    changeText: String,
+    isPositive: Boolean,
+    pickupCount: Int,
+    longestSession: String,
+    hasSessionWarning: Boolean
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            // Main screen time - prominent but not overwhelming
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = screenTime,
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Screen Time",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+
+                // Change indicator
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isPositive) Color(0xFF10B981).copy(alpha = 0.15f)
+                            else Color(0xFFEF4444).copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = changeText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isPositive) Color(0xFF10B981) else Color(0xFFEF4444),
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Quick stats row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                QuickStat(
+                    label = "Pickups",
+                    value = pickupCount.toString(),
+                    icon = Icons.Outlined.TouchApp
+                )
+                QuickStat(
+                    label = "Longest",
+                    value = longestSession,
+                    icon = Icons.Outlined.Timelapse,
+                    hasWarning = hasSessionWarning
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickStat(
+    label: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    hasWarning: Boolean = false
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (hasWarning) Color(0xFFF0883E) else TextSecondary,
+            modifier = Modifier.size(16.dp)
+        )
+        Column {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (hasWarning) Color(0xFFF0883E) else TextPrimary,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary
+            )
+        }
+    }
+}
+
+// ========== COMPACT METRIC CARD ==========
+@Composable
+fun CompactMetricCard(
+    title: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    hasWarning: Boolean = false
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (hasWarning) Color(0xFFF0883E) else Primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (hasWarning) Color(0xFFF0883E) else TextPrimary,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary,
+                textAlign = TextAlign.Center
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary.copy(alpha = 0.7f),
+                    fontSize = 9.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }

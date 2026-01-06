@@ -1867,6 +1867,13 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             return BlockedByType.HARD_MODE
         }
 
+        // Check Global Daily Limit (highest priority after hard mode)
+        if (cachedGlobalLimitEnabled && !isExcludedFromGlobalLimit(packageName)) {
+            if (lastGlobalUsageMinutes >= cachedGlobalLimitMinutes) {
+                return BlockedByType.GLOBAL_LIMIT
+            }
+        }
+
         val strictModeEnabled = settingsDao.getValue("strict_mode_enabled")?.toBooleanStrictOrNull() ?: false
         if (strictModeEnabled) {
             return BlockedByType.STRICT_MODE

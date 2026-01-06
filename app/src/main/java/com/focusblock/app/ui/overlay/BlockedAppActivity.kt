@@ -136,7 +136,16 @@ fun BlockedAppScreen(
     var canUseAppTimerOverride by remember { mutableStateOf(false) }
     var appTimerOverrideCountdown by remember { mutableStateOf(5) }
 
-    // Load block counts and Focus Cycle/App Timer state
+    // Global Limit override state
+    var showGlobalLimitOverride by remember { mutableStateOf(false) }
+    var globalLimitUsageMinutes by remember { mutableStateOf(0) }
+    var globalLimitMinutes by remember { mutableStateOf(0) }
+    var globalLimitOverrideAvailable by remember { mutableStateOf(false) }
+    var canUseGlobalLimitOverride by remember { mutableStateOf(false) }
+    var globalLimitOverrideCountdown by remember { mutableStateOf(5) }
+    var globalLimitOverrideCooldown by remember { mutableStateOf(0L) }
+
+    // Load block counts and Focus Cycle/App Timer/Global Limit state
     LaunchedEffect(packageName) {
         val app = database.blockedAppDao().getBlockedApp(packageName)
         todayCount = app?.blockedCount ?: 0
@@ -171,6 +180,24 @@ fun BlockedAppScreen(
             }
             showAppTimerOverride = true
         }
+
+        // For Global Limit, show override option with emergency override
+        if (blockedBy == BlockedByType.GLOBAL_LIMIT) {
+            val globalSettings = database.globalDailyLimitSettingsDao().getSettingsSync()
+            if (globalSettings != null) {
+                globalLimitMinutes = globalSettings.dailyLimitMinutes
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    .format(java.util.Date())
+                val globalUsage = database.globalDailyUsageDao().getUsageForDateSync(today)
+                globalLimitUsageMinutes = globalUsage?.totalUsageMinutes ?: 0
+                // Check if override is available (cooldown expired)
+                val now = System.currentTimeMillis()
+                val cooldownUntil = globalUsage?.overrideCooldownUntil ?: 0L
+                globalLimitOverrideAvailable = now >= cooldownUntil
+                globalLimitOverrideCooldown = maxOf(0L, cooldownUntil - now)
+            }
+            showGlobalLimitOverride = true
+        }
     }
 
     // Enable "Continue Anyway" after 2.5 second delay for Focus Cycle
@@ -191,6 +218,19 @@ fun BlockedAppScreen(
             }
             appTimerOverrideCountdown = 0
             canUseAppTimerOverride = true
+        }
+    }
+
+    // Countdown for Global Limit override (5 seconds with friction)
+    LaunchedEffect(showGlobalLimitOverride, globalLimitOverrideAvailable) {
+        if (showGlobalLimitOverride && globalLimitOverrideAvailable) {
+            // 5 second countdown before override is available
+            for (i in 5 downTo 1) {
+                globalLimitOverrideCountdown = i
+                kotlinx.coroutines.delay(1000)
+            }
+            globalLimitOverrideCountdown = 0
+            canUseGlobalLimitOverride = true
         }
     }
 
@@ -328,6 +368,7 @@ fun BlockedAppScreen(
                     BlockedByType.HARD_MODE -> "by Hard Mode"
                     BlockedByType.FOCUS_CYCLE -> "by Focus Cycle (Break Time)"
                     BlockedByType.APP_TIMER -> "by App Timer (Limit Reached)"
+                    BlockedByType.GLOBAL_LIMIT -> "by Daily Usage Limit"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
@@ -623,6 +664,122 @@ fun BlockedAppScreen(
                     // Override already used today
                     Text(
                         text = "Daily override already used",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary.copy(alpha = 0.6f),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            } else if (blockedBy == BlockedByType.GLOBAL_LIMIT && showGlobalLimitOverride) {
+                // Global Daily Limit enforcement - show usage info and emergency override option
+                val limitColor = Color(0xFFE91E63) // Pink
+                val warningColor = Color(0xFFFF5722) // Deep Orange
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = limitColor.copy(alpha = 0.1f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.PhoneAndroid,
+                                contentDescription = null,
+                                tint = warningColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Daily Screen Time Limit",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = warningColor,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Used ${globalLimitUsageMinutes}m of ${globalLimitMinutes}m today",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "You've reached your daily phone usage goal. Great job being mindful!",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // "I'm Done" button (primary - return to home)
+                Button(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentGreen)
+                ) {
+                    Icon(Icons.Filled.Check, null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "I'm Done for Today",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Emergency override button - with friction (5s countdown + cooldown)
+                if (globalLimitOverrideAvailable) {
+                    TextButton(
+                        onClick = {
+                            if (canUseGlobalLimitOverride) {
+                                // Activate 5-minute emergency override window with 15-min cooldown
+                                coroutineScope.launch {
+                                    val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                                        .format(java.util.Date())
+                                    val now = System.currentTimeMillis()
+                                    val expiresAt = now + (5 * 60 * 1000L) // 5 min window
+                                    val cooldownUntil = now + (15 * 60 * 1000L) // 15 min cooldown
+                                    database.globalDailyUsageDao().activateOverride(
+                                        date = today,
+                                        overrideTime = now,
+                                        expiresAt = expiresAt,
+                                        cooldownUntil = cooldownUntil
+                                    )
+                                }
+                                // Allow through
+                                (context as? ComponentActivity)?.finish()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = canUseGlobalLimitOverride
+                    ) {
+                        Text(
+                            text = when {
+                                canUseGlobalLimitOverride -> "Emergency 5-min Access"
+                                else -> "Wait ${globalLimitOverrideCountdown}s..."
+                            },
+                            color = if (canUseGlobalLimitOverride) warningColor else TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (!canUseGlobalLimitOverride) FontWeight.Bold else null
+                        )
+                    }
+                } else {
+                    // Cooldown active
+                    val cooldownMinutes = (globalLimitOverrideCooldown / 60000).toInt()
+                    Text(
+                        text = "Next override available in ${cooldownMinutes}m",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary.copy(alpha = 0.6f),
                         textAlign = TextAlign.Center,

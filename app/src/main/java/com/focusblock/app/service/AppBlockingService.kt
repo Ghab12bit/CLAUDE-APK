@@ -238,6 +238,20 @@ class AppBlockingService : Service() {
             return BlockedByType.HARD_MODE
         }
 
+        // Check Global Daily Limit (high priority)
+        val globalSettings = repository.getGlobalDailyLimitSettingsSync()
+        if (globalSettings != null && globalSettings.isEnabled) {
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                .format(java.util.Date())
+            val globalUsage = repository.getGlobalDailyUsageSync(today)
+            if (globalUsage != null && globalUsage.totalUsageMinutes >= globalSettings.dailyLimitMinutes) {
+                // Check if excluded
+                if (!isExcludedFromGlobalLimit(packageName, globalSettings)) {
+                    return BlockedByType.GLOBAL_LIMIT
+                }
+            }
+        }
+
         // Check if Strict Mode is enabled
         if (repository.isStrictModeEnabled()) {
             return BlockedByType.STRICT_MODE
@@ -253,6 +267,34 @@ class AppBlockingService : Service() {
         }
 
         return BlockedByType.SCHEDULE
+    }
+
+    private fun isExcludedFromGlobalLimit(packageName: String, settings: com.focusblock.app.database.entity.GlobalDailyLimitSettings): Boolean {
+        // Always exclude FocusBlock itself and system launchers
+        if (packageName == "com.focusblock.app") return true
+        if (packageName.contains("launcher")) return true
+
+        // Check system apps exclusion
+        if (settings.excludeSystemApps) {
+            if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.SYSTEM_APPS.contains(packageName)) {
+                return true
+            }
+        }
+
+        // Check productive apps exclusion
+        if (settings.excludeProductiveApps) {
+            if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.PRODUCTIVE_APPS.contains(packageName)) {
+                return true
+            }
+        }
+
+        // Check user-defined exclusions
+        val excludedPackages = settings.excludedPackages.split(",").filter { it.isNotBlank() }
+        if (excludedPackages.contains(packageName)) {
+            return true
+        }
+
+        return false
     }
 
     private fun showBlockingScreen(packageName: String, appName: String, blockedByType: BlockedByType) {

@@ -2194,7 +2194,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
 
-        val notification = NotificationCompat.Builder(this, FocusBlockApp.NOTIFICATION_CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_ALERTS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Approaching Daily Limit")
             .setContentText("$remainingMinutes minutes remaining. Consider wrapping up.")
@@ -2225,7 +2225,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
 
-        val notification = NotificationCompat.Builder(this, FocusBlockApp.NOTIFICATION_CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_ALERTS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Daily Usage Goal Reached")
             .setContentText("You've reached your $limitMinutes minute daily goal.")
@@ -2494,7 +2494,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 "You've used your phone ${formatMinutesNicely(diff)} less today compared to yesterday. Keep it up!"
         }
 
-        val notification = NotificationCompat.Builder(this, FocusBlockApp.NOTIFICATION_CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_MINDFUL_REMINDER)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(message)

@@ -22,7 +22,10 @@ class FocusBlockRepository @Inject constructor(
     private val focusCycleDao: FocusCycleDao,
     private val focusCycleOverrideDao: FocusCycleOverrideDao,
     private val appTimerSettingsDao: AppTimerSettingsDao,
-    private val appTimerDailyUsageDao: AppTimerDailyUsageDao
+    private val appTimerDailyUsageDao: AppTimerDailyUsageDao,
+    private val globalDailyLimitSettingsDao: GlobalDailyLimitSettingsDao,
+    private val globalDailyUsageDao: GlobalDailyUsageDao,
+    private val dailyUsageSummaryDao: DailyUsageSummaryDao
 ) {
     // Blocked Apps
     fun getAllBlockedApps(): Flow<List<BlockedApp>> = blockedAppDao.getAllBlockedApps()
@@ -279,4 +282,33 @@ class FocusBlockRepository @Inject constructor(
     suspend fun markAppTimerEscalationPopupShown(date: String) = appTimerDailyUsageDao.markEscalationPopupShown(date)
     suspend fun markAppTimerAddedToQuickBlock(date: String) = appTimerDailyUsageDao.markAddedToQuickBlock(date)
     suspend fun deleteOldAppTimerUsage(beforeDate: String) = appTimerDailyUsageDao.deleteOldUsage(beforeDate)
+
+    // Global Daily Limit Settings
+    fun getGlobalDailyLimitSettings(): Flow<GlobalDailyLimitSettings?> = globalDailyLimitSettingsDao.getSettings()
+    suspend fun getGlobalDailyLimitSettingsSync(): GlobalDailyLimitSettings? = globalDailyLimitSettingsDao.getSettingsSync()
+    suspend fun saveGlobalDailyLimitSettings(settings: GlobalDailyLimitSettings) = globalDailyLimitSettingsDao.insert(settings)
+    suspend fun updateGlobalDailyLimitSettings(settings: GlobalDailyLimitSettings) = globalDailyLimitSettingsDao.update(settings)
+    suspend fun setGlobalDailyLimitEnabled(enabled: Boolean) = globalDailyLimitSettingsDao.setEnabled(enabled)
+    suspend fun setGlobalDailyLimit(minutes: Int) = globalDailyLimitSettingsDao.setDailyLimit(minutes)
+
+    // Global Daily Usage
+    fun getGlobalDailyUsage(date: String): Flow<GlobalDailyUsage?> = globalDailyUsageDao.getUsageForDate(date)
+    suspend fun getGlobalDailyUsageSync(date: String): GlobalDailyUsage? = globalDailyUsageDao.getUsageForDateSync(date)
+    suspend fun insertGlobalDailyUsage(usage: GlobalDailyUsage) = globalDailyUsageDao.insert(usage)
+    suspend fun updateGlobalDailyUsage(date: String, minutes: Int) = globalDailyUsageDao.updateUsage(date, minutes)
+    suspend fun markGlobalLimitReached(date: String) = globalDailyUsageDao.markLimitReached(date)
+    suspend fun markGlobalWarningShown(date: String) = globalDailyUsageDao.markWarningShown(date)
+    suspend fun activateGlobalOverride(date: String, overrideTime: Long, expiresAt: Long, cooldownUntil: Long) =
+        globalDailyUsageDao.activateOverride(date, overrideTime, expiresAt, cooldownUntil)
+    suspend fun clearGlobalOverride(date: String) = globalDailyUsageDao.clearOverride(date)
+    suspend fun deleteOldGlobalUsage(beforeDate: String) = globalDailyUsageDao.deleteOldUsage(beforeDate)
+
+    // Daily Usage Summary (for Today vs Yesterday comparison)
+    fun getDailyUsageSummary(date: String): Flow<DailyUsageSummary?> = dailyUsageSummaryDao.getSummaryForDate(date)
+    suspend fun getDailyUsageSummarySync(date: String): DailyUsageSummary? = dailyUsageSummaryDao.getSummaryForDateSync(date)
+    suspend fun getRecentDailySummaries(limit: Int): List<DailyUsageSummary> = dailyUsageSummaryDao.getRecentSummaries(limit)
+    suspend fun insertDailyUsageSummary(summary: DailyUsageSummary) = dailyUsageSummaryDao.insert(summary)
+    suspend fun updateDailySummaryScreenTime(date: String, minutes: Int) = dailyUsageSummaryDao.updateScreenTime(date, minutes)
+    suspend fun markComparisonSent(date: String, result: String) = dailyUsageSummaryDao.markComparisonSent(date, result)
+    suspend fun deleteOldDailySummaries(beforeDate: String) = dailyUsageSummaryDao.deleteOldSummaries(beforeDate)
 }

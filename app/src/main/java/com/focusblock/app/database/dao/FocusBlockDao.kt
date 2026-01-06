@@ -430,3 +430,102 @@ interface AppTimerDailyUsageDao {
     @Query("DELETE FROM app_timer_daily_usage WHERE date < :beforeDate")
     suspend fun deleteOldUsage(beforeDate: String)
 }
+
+// ========== GLOBAL DAILY LIMIT DAOs ==========
+
+@Dao
+interface GlobalDailyLimitSettingsDao {
+    @Query("SELECT * FROM global_daily_limit_settings WHERE id = 1")
+    fun getSettings(): Flow<GlobalDailyLimitSettings?>
+
+    @Query("SELECT * FROM global_daily_limit_settings WHERE id = 1")
+    suspend fun getSettingsSync(): GlobalDailyLimitSettings?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(settings: GlobalDailyLimitSettings)
+
+    @Update
+    suspend fun update(settings: GlobalDailyLimitSettings)
+
+    @Query("UPDATE global_daily_limit_settings SET isEnabled = :enabled, updatedAt = :timestamp WHERE id = 1")
+    suspend fun setEnabled(enabled: Boolean, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE global_daily_limit_settings SET dailyLimitMinutes = :minutes, updatedAt = :timestamp WHERE id = 1")
+    suspend fun setDailyLimit(minutes: Int, timestamp: Long = System.currentTimeMillis())
+}
+
+@Dao
+interface GlobalDailyUsageDao {
+    @Query("SELECT * FROM global_daily_usage WHERE date = :date")
+    fun getUsageForDate(date: String): Flow<GlobalDailyUsage?>
+
+    @Query("SELECT * FROM global_daily_usage WHERE date = :date")
+    suspend fun getUsageForDateSync(date: String): GlobalDailyUsage?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(usage: GlobalDailyUsage)
+
+    @Update
+    suspend fun update(usage: GlobalDailyUsage)
+
+    @Query("UPDATE global_daily_usage SET totalUsageMinutes = :minutes, lastUpdated = :timestamp WHERE date = :date")
+    suspend fun updateUsage(date: String, minutes: Int, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE global_daily_usage SET limitReached = 1, limitNotificationShown = 1, lastUpdated = :timestamp WHERE date = :date")
+    suspend fun markLimitReached(date: String, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE global_daily_usage SET warningShown = 1, lastUpdated = :timestamp WHERE date = :date")
+    suspend fun markWarningShown(date: String, timestamp: Long = System.currentTimeMillis())
+
+    @Query("""
+        UPDATE global_daily_usage SET
+            overrideCount = overrideCount + 1,
+            lastOverrideTime = :overrideTime,
+            overrideExpiresAt = :expiresAt,
+            overrideCooldownUntil = :cooldownUntil,
+            lastUpdated = :timestamp
+        WHERE date = :date
+    """)
+    suspend fun activateOverride(
+        date: String,
+        overrideTime: Long,
+        expiresAt: Long,
+        cooldownUntil: Long,
+        timestamp: Long = System.currentTimeMillis()
+    )
+
+    @Query("UPDATE global_daily_usage SET overrideExpiresAt = NULL, lastUpdated = :timestamp WHERE date = :date")
+    suspend fun clearOverride(date: String, timestamp: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM global_daily_usage WHERE date < :beforeDate")
+    suspend fun deleteOldUsage(beforeDate: String)
+}
+
+// ========== DAILY USAGE SUMMARY DAO (for Today vs Yesterday comparison) ==========
+
+@Dao
+interface DailyUsageSummaryDao {
+    @Query("SELECT * FROM daily_usage_summary WHERE date = :date")
+    fun getSummaryForDate(date: String): Flow<DailyUsageSummary?>
+
+    @Query("SELECT * FROM daily_usage_summary WHERE date = :date")
+    suspend fun getSummaryForDateSync(date: String): DailyUsageSummary?
+
+    @Query("SELECT * FROM daily_usage_summary ORDER BY date DESC LIMIT :limit")
+    suspend fun getRecentSummaries(limit: Int): List<DailyUsageSummary>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(summary: DailyUsageSummary)
+
+    @Update
+    suspend fun update(summary: DailyUsageSummary)
+
+    @Query("UPDATE daily_usage_summary SET totalScreenTimeMinutes = :minutes, lastUpdated = :timestamp WHERE date = :date")
+    suspend fun updateScreenTime(date: String, minutes: Int, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE daily_usage_summary SET comparisonNotificationSent = 1, comparisonResult = :result, lastUpdated = :timestamp WHERE date = :date")
+    suspend fun markComparisonSent(date: String, result: String, timestamp: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM daily_usage_summary WHERE date < :beforeDate")
+    suspend fun deleteOldSummaries(beforeDate: String)
+}

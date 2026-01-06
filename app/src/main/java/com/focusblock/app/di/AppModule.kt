@@ -103,4 +103,22 @@ object AppModule {
     fun provideAppTimerDailyUsageDao(database: FocusBlockDatabase): AppTimerDailyUsageDao {
         return database.appTimerDailyUsageDao()
     }
+
+    @Provides
+    @Singleton
+    fun provideGlobalDailyLimitSettingsDao(database: FocusBlockDatabase): GlobalDailyLimitSettingsDao {
+        return database.globalDailyLimitSettingsDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideGlobalDailyUsageDao(database: FocusBlockDatabase): GlobalDailyUsageDao {
+        return database.globalDailyUsageDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideDailyUsageSummaryDao(database: FocusBlockDatabase): DailyUsageSummaryDao {
+        return database.dailyUsageSummaryDao()
+    }
 }

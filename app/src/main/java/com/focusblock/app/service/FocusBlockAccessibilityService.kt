@@ -55,6 +55,19 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // ========== SCHEDULE ENFORCEMENT ==========
         private const val SCHEDULE_CHECK_INTERVAL_MS = 60_000L // Check every minute
 
+        // ========== GLOBAL DAILY USAGE LIMIT ==========
+        private const val GLOBAL_LIMIT_CHECK_INTERVAL_MS = 30_000L // Check every 30 seconds
+        private const val GLOBAL_LIMIT_WARNING_NOTIFICATION_ID = 4004
+        private const val GLOBAL_LIMIT_REACHED_NOTIFICATION_ID = 4005
+        private const val OVERRIDE_DURATION_MS = 5 * 60 * 1000L // 5 minutes emergency override
+        private const val OVERRIDE_COOLDOWN_MS = 15 * 60 * 1000L // 15 minutes between overrides
+
+        // ========== DAILY USAGE COMPARISON (TODAY VS YESTERDAY) ==========
+        private const val USAGE_COMPARISON_CHECK_INTERVAL_MS = 5 * 60 * 1000L // Check every 5 minutes
+        private const val USAGE_COMPARISON_NOTIFICATION_ID = 4006
+        private const val MEANINGFUL_USAGE_THRESHOLD_MINUTES = 30 // Min usage to compare
+        private const val SIGNIFICANT_DIFFERENCE_PERCENT = 15 // 15% difference to trigger notification
+
         var isServiceRunning = false
             private set
 
@@ -153,6 +166,22 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private var scheduleCheckRunnable: Runnable? = null
     private var lastScheduleCheck: Long = 0L
 
+    // ========== GLOBAL DAILY USAGE LIMIT ==========
+    private val globalLimitHandler = Handler(Looper.getMainLooper())
+    private var globalLimitRunnable: Runnable? = null
+    @Volatile private var cachedGlobalLimitEnabled: Boolean = false
+    @Volatile private var cachedGlobalLimitMinutes: Int = 120
+    @Volatile private var cachedGlobalLimitWarningMinutes: Int = 15
+    @Volatile private var cachedGlobalLimitExcludedPackages: Set<String> = emptySet()
+    @Volatile private var cachedGlobalLimitExcludeSystemApps: Boolean = true
+    @Volatile private var cachedGlobalLimitExcludeProductiveApps: Boolean = true
+    private var lastGlobalUsageMinutes: Int = 0
+    private var globalLimitEnforcementActive: Boolean = false
+
+    // ========== DAILY USAGE COMPARISON ==========
+    private val usageComparisonHandler = Handler(Looper.getMainLooper())
+    private var usageComparisonRunnable: Runnable? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.d(TAG, "Accessibility service connected")
@@ -187,6 +216,13 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
         // Start schedule enforcement check
         startScheduleCheck()
+
+        // Start Global Daily Limit monitoring
+        refreshGlobalLimitCache()
+        startGlobalLimitCheck()
+
+        // Start Daily Usage Comparison check
+        startUsageComparisonCheck()
 
         // Show toast to confirm service is running
         mainHandler.post {
@@ -1565,6 +1601,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         stopSessionDurationCheck() // Clean up session duration timer
         stopAppTimerCheck() // Clean up App Timer check
         stopScheduleCheck() // Clean up schedule enforcement check
+        stopGlobalLimitCheck() // Clean up Global Limit check
+        stopUsageComparisonCheck() // Clean up Usage Comparison check
         dismissAppTimerNotification() // Dismiss App Timer notification
         activeSessions.clear() // Clear session tracking
         serviceScope.cancel()
@@ -1598,6 +1636,33 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         if (blockedApp?.isInAllowlist == true) {
             Log.d(TAG, "App is in allowlist, allowing: $packageName")
             return false
+        }
+
+        // ============ GLOBAL DAILY LIMIT ENFORCEMENT (HIGHEST PRIORITY) ============
+        // Check if this app should be blocked due to Global Daily Limit
+        // This enforces even when all other modes are OFF
+        if (cachedGlobalLimitEnabled && !isExcludedFromGlobalLimit(packageName)) {
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                .format(java.util.Date())
+            val globalDailyUsage = database.globalDailyUsageDao().getUsageForDateSync(today)
+            val currentUsage = lastGlobalUsageMinutes // Use cached value for speed
+            val limitMinutes = cachedGlobalLimitMinutes
+
+            if (currentUsage >= limitMinutes) {
+                // Check if override is active and not expired
+                val overrideExpires = globalDailyUsage?.overrideExpiresAt
+                val now = System.currentTimeMillis()
+
+                if (overrideExpires != null && now < overrideExpires) {
+                    // Override is active - allow for now
+                    Log.d(TAG, "Global Limit: Override active for $packageName (expires in ${(overrideExpires - now)/1000}s)")
+                    // Don't return false yet - let other modes check too
+                } else {
+                    // No active override - block the app
+                    Log.i(TAG, "Global Limit blocking: $packageName (usage: $currentUsage min >= limit: $limitMinutes min)")
+                    return true
+                }
+            }
         }
 
         // ============ APP TIMER ENFORCEMENT ============
@@ -1874,6 +1939,585 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             Log.i(TAG, "BlockedAppActivity started successfully for: $appName")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start BlockedAppActivity", e)
+        }
+    }
+
+    // ========== GLOBAL DAILY USAGE LIMIT METHODS ==========
+
+    /**
+     * Refresh Global Daily Limit settings cache from database
+     */
+    private fun refreshGlobalLimitCache() {
+        immediateScope.launch {
+            try {
+                val settings = database.globalDailyLimitSettingsDao().getSettingsSync()
+                if (settings != null) {
+                    cachedGlobalLimitEnabled = settings.isEnabled
+                    cachedGlobalLimitMinutes = settings.dailyLimitMinutes
+                    cachedGlobalLimitWarningMinutes = settings.warningMinutesBefore
+                    cachedGlobalLimitExcludeSystemApps = settings.excludeSystemApps
+                    cachedGlobalLimitExcludeProductiveApps = settings.excludeProductiveApps
+                    cachedGlobalLimitExcludedPackages = settings.excludedPackages
+                        .split(",")
+                        .filter { it.isNotBlank() }
+                        .toSet()
+                    Log.d(TAG, "Global Limit cache refreshed: enabled=$cachedGlobalLimitEnabled, limit=$cachedGlobalLimitMinutes min")
+                } else {
+                    cachedGlobalLimitEnabled = false
+                    Log.d(TAG, "Global Limit not configured")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to refresh Global Limit cache", e)
+            }
+        }
+    }
+
+    /**
+     * Start periodic Global Daily Limit check
+     */
+    private fun startGlobalLimitCheck() {
+        stopGlobalLimitCheck()
+
+        globalLimitRunnable = object : Runnable {
+            override fun run() {
+                checkGlobalDailyLimit()
+                globalLimitHandler.postDelayed(this, GLOBAL_LIMIT_CHECK_INTERVAL_MS)
+            }
+        }
+        globalLimitHandler.post(globalLimitRunnable!!)
+        Log.d(TAG, "Global Daily Limit monitoring started")
+    }
+
+    private fun stopGlobalLimitCheck() {
+        globalLimitRunnable?.let {
+            globalLimitHandler.removeCallbacks(it)
+        }
+        globalLimitRunnable = null
+    }
+
+    /**
+     * Check global daily usage and enforce limit
+     * This tracks TOTAL phone usage, not per-app
+     */
+    private fun checkGlobalDailyLimit() {
+        if (!cachedGlobalLimitEnabled) return
+
+        immediateScope.launch {
+            try {
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    .format(java.util.Date())
+
+                // Calculate total screen time today
+                val totalUsageMinutes = calculateTotalScreenTime()
+                lastGlobalUsageMinutes = totalUsageMinutes
+
+                // Get or create daily usage record
+                var dailyUsage = database.globalDailyUsageDao().getUsageForDateSync(today)
+                if (dailyUsage == null) {
+                    dailyUsage = com.focusblock.app.database.entity.GlobalDailyUsage(
+                        date = today,
+                        totalUsageMinutes = totalUsageMinutes
+                    )
+                    database.globalDailyUsageDao().insert(dailyUsage)
+                } else {
+                    database.globalDailyUsageDao().updateUsage(today, totalUsageMinutes)
+                    dailyUsage = dailyUsage.copy(totalUsageMinutes = totalUsageMinutes)
+                }
+
+                // Also update the daily summary for comparison feature
+                updateDailyUsageSummary(today, totalUsageMinutes)
+
+                val limitMinutes = cachedGlobalLimitMinutes
+                val warningMinutes = limitMinutes - cachedGlobalLimitWarningMinutes
+                val now = System.currentTimeMillis()
+
+                // Check if override is active
+                val overrideExpires = dailyUsage.overrideExpiresAt
+                val hasActiveOverride = overrideExpires != null && now < overrideExpires
+
+                if (hasActiveOverride) {
+                    globalLimitEnforcementActive = false
+                    Log.d(TAG, "Global Limit: Override active until ${java.util.Date(overrideExpires!!)}")
+                    return@launch
+                }
+
+                // Check and enforce limit
+                when {
+                    // Limit reached - enforce blocking
+                    totalUsageMinutes >= limitMinutes -> {
+                        if (!dailyUsage.limitNotificationShown) {
+                            database.globalDailyUsageDao().markLimitReached(today)
+                            showGlobalLimitReachedNotification(totalUsageMinutes, limitMinutes)
+                        }
+                        globalLimitEnforcementActive = true
+
+                        // Block current non-excluded app if user is actively using one
+                        val currentPackage = lastForegroundPackage
+                        if (currentPackage != null && !isExcludedFromGlobalLimit(currentPackage)) {
+                            Log.i(TAG, "Global Limit: Enforcing block on $currentPackage (usage: $totalUsageMinutes >= limit: $limitMinutes)")
+                            blockApp(currentPackage)
+                        }
+                    }
+                    // Warning threshold - show notification
+                    totalUsageMinutes >= warningMinutes && !dailyUsage.warningShown -> {
+                        database.globalDailyUsageDao().markWarningShown(today)
+                        showGlobalLimitWarningNotification(totalUsageMinutes, limitMinutes)
+                        globalLimitEnforcementActive = false
+                    }
+                    else -> {
+                        globalLimitEnforcementActive = false
+                    }
+                }
+
+                Log.v(TAG, "Global Limit check: usage=$totalUsageMinutes min, limit=$limitMinutes min, enforcing=$globalLimitEnforcementActive")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking Global Daily Limit", e)
+            }
+        }
+    }
+
+    /**
+     * Calculate total screen time today using UsageEvents API
+     * Excludes system apps, productive apps, and user-excluded packages based on settings
+     */
+    private fun calculateTotalScreenTime(): Int {
+        try {
+            val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+
+            // Get today's start time (midnight)
+            val calendar = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }
+            val startTime = calendar.timeInMillis
+            val endTime = System.currentTimeMillis()
+
+            // Query events for accurate tracking
+            val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
+            val event = UsageEvents.Event()
+
+            // Track foreground start times for each app
+            val activeApps = mutableMapOf<String, Long>()
+            val appUsageMillis = mutableMapOf<String, Long>()
+
+            while (usageEvents.hasNextEvent()) {
+                usageEvents.getNextEvent(event)
+                val packageName = event.packageName ?: continue
+
+                // Skip excluded packages
+                if (isExcludedFromGlobalLimit(packageName)) continue
+
+                when (event.eventType) {
+                    UsageEvents.Event.MOVE_TO_FOREGROUND,
+                    UsageEvents.Event.ACTIVITY_RESUMED -> {
+                        activeApps[packageName] = event.timeStamp
+                    }
+                    UsageEvents.Event.MOVE_TO_BACKGROUND,
+                    UsageEvents.Event.ACTIVITY_PAUSED -> {
+                        val foregroundStart = activeApps.remove(packageName)
+                        if (foregroundStart != null && foregroundStart < event.timeStamp) {
+                            val duration = event.timeStamp - foregroundStart
+                            // Only count reasonable sessions (< 4 hours continuous)
+                            if (duration < 4 * 60 * 60 * 1000) {
+                                appUsageMillis[packageName] = (appUsageMillis[packageName] ?: 0L) + duration
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Add time for apps still in foreground
+            val now = System.currentTimeMillis()
+            for ((packageName, foregroundStart) in activeApps) {
+                if (isExcludedFromGlobalLimit(packageName)) continue
+                val duration = now - foregroundStart
+                if (duration > 0 && duration < 4 * 60 * 60 * 1000) {
+                    appUsageMillis[packageName] = (appUsageMillis[packageName] ?: 0L) + duration
+                }
+            }
+
+            val totalMillis = appUsageMillis.values.sum()
+            val totalMinutes = (totalMillis / 60_000).toInt()
+
+            Log.d(TAG, "Total screen time calculated: ${totalMinutes}m")
+            return totalMinutes
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to calculate total screen time", e)
+            return 0
+        }
+    }
+
+    /**
+     * Check if a package is excluded from global limit tracking
+     */
+    private fun isExcludedFromGlobalLimit(packageName: String): Boolean {
+        // Always exclude our own app
+        if (packageName == "com.focusblock.app") return true
+
+        // Check user-defined exclusions
+        if (cachedGlobalLimitExcludedPackages.contains(packageName)) return true
+
+        // Check system apps if enabled
+        if (cachedGlobalLimitExcludeSystemApps) {
+            if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.SYSTEM_APPS.any {
+                packageName == it || packageName.startsWith(it.substringBefore(".") + ".")
+            }) return true
+        }
+
+        // Check productive apps if enabled
+        if (cachedGlobalLimitExcludeProductiveApps) {
+            if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.PRODUCTIVE_APPS.contains(packageName)) return true
+        }
+
+        return false
+    }
+
+    /**
+     * Show warning notification when approaching global limit
+     */
+    private fun showGlobalLimitWarningNotification(currentMinutes: Int, limitMinutes: Int) {
+        val remainingMinutes = limitMinutes - currentMinutes
+        Log.i(TAG, "Global Limit: Showing warning notification - $remainingMinutes min remaining")
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Approaching Daily Limit")
+            .setContentText("$remainingMinutes minutes remaining. Consider wrapping up.")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("You have $remainingMinutes minutes of screen time remaining today. Consider finishing up and taking a break."))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(GLOBAL_LIMIT_WARNING_NOTIFICATION_ID, notification)
+    }
+
+    /**
+     * Show notification when global limit is reached
+     */
+    private fun showGlobalLimitReachedNotification(currentMinutes: Int, limitMinutes: Int) {
+        Log.i(TAG, "Global Limit: Showing limit reached notification")
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Daily Usage Goal Reached")
+            .setContentText("You've reached your $limitMinutes minute daily goal.")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("You've reached your daily usage goal of $limitMinutes minutes. Great job being mindful of your screen time! Distracting apps will be blocked for the rest of the day."))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(GLOBAL_LIMIT_REACHED_NOTIFICATION_ID, notification)
+        vibrateDevice()
+    }
+
+    /**
+     * Check if global limit enforcement should block current app
+     * Called from onAccessibilityEvent to enforce blocking
+     */
+    private fun shouldBlockForGlobalLimit(packageName: String): Boolean {
+        if (!cachedGlobalLimitEnabled || !globalLimitEnforcementActive) return false
+        if (isExcludedFromGlobalLimit(packageName)) return false
+        return lastGlobalUsageMinutes >= cachedGlobalLimitMinutes
+    }
+
+    /**
+     * Activate emergency override for Global Daily Limit
+     * Called from the blocking screen or app to allow temporary access
+     *
+     * Override behavior:
+     * - Requires confirmation (friction)
+     * - Lasts for 5 minutes
+     * - 15-minute cooldown between overrides
+     * - Doesn't permanently disable the limit
+     *
+     * @return Pair<Boolean, String> - (success, message)
+     */
+    fun activateGlobalLimitOverride(): Pair<Boolean, String> {
+        if (!cachedGlobalLimitEnabled) {
+            return Pair(false, "Global limit is not enabled")
+        }
+
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        val now = System.currentTimeMillis()
+
+        // Launch in scope to handle database operations
+        immediateScope.launch {
+            try {
+                var dailyUsage = database.globalDailyUsageDao().getUsageForDateSync(today)
+                if (dailyUsage == null) {
+                    dailyUsage = com.focusblock.app.database.entity.GlobalDailyUsage(date = today)
+                    database.globalDailyUsageDao().insert(dailyUsage)
+                }
+
+                // Check cooldown - prevent rapid repeated overrides
+                val cooldownUntil = dailyUsage.overrideCooldownUntil
+                if (cooldownUntil != null && now < cooldownUntil) {
+                    val remainingSeconds = (cooldownUntil - now) / 1000
+                    Log.w(TAG, "Global Limit: Override on cooldown for ${remainingSeconds}s more")
+                    return@launch
+                }
+
+                // Activate override
+                val expiresAt = now + OVERRIDE_DURATION_MS
+                val newCooldownUntil = now + OVERRIDE_COOLDOWN_MS
+
+                database.globalDailyUsageDao().activateOverride(
+                    date = today,
+                    overrideTime = now,
+                    expiresAt = expiresAt,
+                    cooldownUntil = newCooldownUntil
+                )
+
+                globalLimitEnforcementActive = false
+                Log.i(TAG, "Global Limit: Emergency override activated (expires in ${OVERRIDE_DURATION_MS/1000}s)")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to activate Global Limit override", e)
+            }
+        }
+
+        return Pair(true, "Override activated for ${OVERRIDE_DURATION_MS / 60000} minutes")
+    }
+
+    /**
+     * Check if Global Limit override is on cooldown
+     */
+    suspend fun isGlobalLimitOverrideOnCooldown(): Boolean {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        val dailyUsage = database.globalDailyUsageDao().getUsageForDateSync(today)
+        val cooldownUntil = dailyUsage?.overrideCooldownUntil ?: return false
+        return System.currentTimeMillis() < cooldownUntil
+    }
+
+    /**
+     * Get remaining cooldown time in seconds
+     */
+    suspend fun getGlobalLimitOverrideCooldownSeconds(): Long {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        val dailyUsage = database.globalDailyUsageDao().getUsageForDateSync(today)
+        val cooldownUntil = dailyUsage?.overrideCooldownUntil ?: return 0
+        val remaining = cooldownUntil - System.currentTimeMillis()
+        return if (remaining > 0) remaining / 1000 else 0
+    }
+
+    /**
+     * Get current global usage minutes
+     */
+    fun getCurrentGlobalUsageMinutes(): Int = lastGlobalUsageMinutes
+
+    /**
+     * Get global limit minutes
+     */
+    fun getGlobalLimitMinutes(): Int = cachedGlobalLimitMinutes
+
+    /**
+     * Check if global limit is enabled
+     */
+    fun isGlobalLimitEnabled(): Boolean = cachedGlobalLimitEnabled
+
+    // ========== DAILY USAGE COMPARISON (TODAY VS YESTERDAY) METHODS ==========
+
+    /**
+     * Start periodic usage comparison check
+     */
+    private fun startUsageComparisonCheck() {
+        stopUsageComparisonCheck()
+
+        usageComparisonRunnable = object : Runnable {
+            override fun run() {
+                checkUsageComparison()
+                usageComparisonHandler.postDelayed(this, USAGE_COMPARISON_CHECK_INTERVAL_MS)
+            }
+        }
+        // Delay first check by 1 minute to let other systems initialize
+        usageComparisonHandler.postDelayed(usageComparisonRunnable!!, 60_000L)
+        Log.d(TAG, "Daily Usage Comparison monitoring started")
+    }
+
+    private fun stopUsageComparisonCheck() {
+        usageComparisonRunnable?.let {
+            usageComparisonHandler.removeCallbacks(it)
+        }
+        usageComparisonRunnable = null
+    }
+
+    /**
+     * Update daily usage summary for comparison feature
+     */
+    private suspend fun updateDailyUsageSummary(date: String, totalMinutes: Int) {
+        try {
+            var summary = database.dailyUsageSummaryDao().getSummaryForDateSync(date)
+            if (summary == null) {
+                summary = com.focusblock.app.database.entity.DailyUsageSummary(
+                    date = date,
+                    totalScreenTimeMinutes = totalMinutes
+                )
+                database.dailyUsageSummaryDao().insert(summary)
+            } else {
+                database.dailyUsageSummaryDao().updateScreenTime(date, totalMinutes)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating daily usage summary", e)
+        }
+    }
+
+    /**
+     * Check today vs yesterday usage and send notification if significant difference
+     * Triggers once per day with sensible thresholds
+     */
+    private fun checkUsageComparison() {
+        immediateScope.launch {
+            try {
+                val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                val today = dateFormat.format(java.util.Date())
+
+                // Get today's summary
+                val todaySummary = database.dailyUsageSummaryDao().getSummaryForDateSync(today)
+
+                // Skip if notification already sent today
+                if (todaySummary?.comparisonNotificationSent == true) {
+                    return@launch
+                }
+
+                // Get current hour - only check after 6 PM for meaningful daily comparison
+                val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                if (currentHour < 18) {
+                    Log.v(TAG, "Usage comparison: Too early for daily comparison (hour: $currentHour)")
+                    return@launch
+                }
+
+                // Calculate yesterday's date
+                val calendar = java.util.Calendar.getInstance().apply {
+                    add(java.util.Calendar.DAY_OF_YEAR, -1)
+                }
+                val yesterday = dateFormat.format(calendar.time)
+
+                // Get yesterday's summary
+                val yesterdaySummary = database.dailyUsageSummaryDao().getSummaryForDateSync(yesterday)
+
+                // Skip if yesterday's data is not meaningful
+                if (yesterdaySummary == null || yesterdaySummary.totalScreenTimeMinutes < MEANINGFUL_USAGE_THRESHOLD_MINUTES) {
+                    Log.v(TAG, "Usage comparison: Yesterday's usage not meaningful (${yesterdaySummary?.totalScreenTimeMinutes ?: 0} min)")
+                    return@launch
+                }
+
+                val todayMinutes = todaySummary?.totalScreenTimeMinutes ?: 0
+                val yesterdayMinutes = yesterdaySummary.totalScreenTimeMinutes
+
+                // Skip if today's usage is not meaningful yet
+                if (todayMinutes < MEANINGFUL_USAGE_THRESHOLD_MINUTES) {
+                    Log.v(TAG, "Usage comparison: Today's usage not meaningful yet ($todayMinutes min)")
+                    return@launch
+                }
+
+                // Calculate percentage difference
+                val difference = todayMinutes - yesterdayMinutes
+                val percentDiff = (difference.toFloat() / yesterdayMinutes * 100).toInt()
+
+                // Only notify if difference is significant
+                if (kotlin.math.abs(percentDiff) < SIGNIFICANT_DIFFERENCE_PERCENT) {
+                    Log.v(TAG, "Usage comparison: Difference not significant ($percentDiff%)")
+                    return@launch
+                }
+
+                // Determine result and send notification
+                val result = if (difference > 0) "higher" else "lower"
+                database.dailyUsageSummaryDao().markComparisonSent(today, result)
+
+                mainHandler.post {
+                    showUsageComparisonNotification(todayMinutes, yesterdayMinutes, result)
+                }
+
+                Log.i(TAG, "Usage comparison: Sent $result notification (today: $todayMinutes, yesterday: $yesterdayMinutes, diff: $percentDiff%)")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking usage comparison", e)
+            }
+        }
+    }
+
+    /**
+     * Show notification comparing today's usage to yesterday's
+     */
+    private fun showUsageComparisonNotification(todayMinutes: Int, yesterdayMinutes: Int, result: String) {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        val (title, message) = if (result == "higher") {
+            val diff = todayMinutes - yesterdayMinutes
+            "Screen Time Higher Today" to
+                "Your screen time today (${formatMinutesNicely(todayMinutes)}) is ${formatMinutesNicely(diff)} more than yesterday. Consider winding down."
+        } else {
+            val diff = yesterdayMinutes - todayMinutes
+            "Great Progress! 🎉" to
+                "You've used your phone ${formatMinutesNicely(diff)} less today compared to yesterday. Keep it up!"
+        }
+
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(USAGE_COMPARISON_NOTIFICATION_ID, notification)
+    }
+
+    /**
+     * Format minutes nicely for display (e.g., "2h 30m" or "45m")
+     */
+    private fun formatMinutesNicely(minutes: Int): String {
+        return when {
+            minutes >= 60 -> {
+                val hours = minutes / 60
+                val mins = minutes % 60
+                if (mins > 0) "${hours}h ${mins}m" else "${hours}h"
+            }
+            else -> "${minutes}m"
         }
     }
 }

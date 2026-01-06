@@ -30,7 +30,11 @@ data class SettingsUiState(
     ),
     val pomodoroWorkMinutes: Int = 25,
     val pomodoroShortBreak: Int = 5,
-    val pomodoroLongBreak: Int = 15
+    val pomodoroLongBreak: Int = 15,
+    // Global Daily Limit settings
+    val isGlobalDailyLimitEnabled: Boolean = false,
+    val globalDailyLimitMinutes: Int = 120, // Default 2 hours
+    val globalDailyLimitWarningMinutes: Int = 15
 )
 
 @HiltViewModel
@@ -48,6 +52,7 @@ class SettingsViewModel @Inject constructor(
         loadSettings()
         loadInstalledApps()
         startPermissionMonitoring()
+        loadGlobalDailyLimitSettings()
     }
 
     private fun loadSettings() {
@@ -234,6 +239,73 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             repository.setSetting(AppSettings.KEY_POMODORO_LONG_BREAK, minutes.toString())
             _uiState.update { it.copy(pomodoroLongBreak = minutes) }
+        }
+    }
+
+    // ========== GLOBAL DAILY LIMIT SETTINGS ==========
+
+    private fun loadGlobalDailyLimitSettings() {
+        viewModelScope.launch {
+            repository.getGlobalDailyLimitSettings().collect { settings ->
+                if (settings != null) {
+                    _uiState.update { it.copy(
+                        isGlobalDailyLimitEnabled = settings.isEnabled,
+                        globalDailyLimitMinutes = settings.dailyLimitMinutes,
+                        globalDailyLimitWarningMinutes = settings.warningMinutesBefore
+                    )}
+                }
+            }
+        }
+    }
+
+    fun setGlobalDailyLimitEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            val currentSettings = repository.getGlobalDailyLimitSettingsSync()
+            if (currentSettings != null) {
+                repository.updateGlobalDailyLimitSettings(currentSettings.copy(
+                    isEnabled = enabled,
+                    updatedAt = System.currentTimeMillis()
+                ))
+            } else {
+                repository.saveGlobalDailyLimitSettings(
+                    com.focusblock.app.database.entity.GlobalDailyLimitSettings(
+                        isEnabled = enabled
+                    )
+                )
+            }
+            _uiState.update { it.copy(isGlobalDailyLimitEnabled = enabled) }
+        }
+    }
+
+    fun setGlobalDailyLimit(minutes: Int) {
+        viewModelScope.launch {
+            val currentSettings = repository.getGlobalDailyLimitSettingsSync()
+            if (currentSettings != null) {
+                repository.updateGlobalDailyLimitSettings(currentSettings.copy(
+                    dailyLimitMinutes = minutes,
+                    updatedAt = System.currentTimeMillis()
+                ))
+            } else {
+                repository.saveGlobalDailyLimitSettings(
+                    com.focusblock.app.database.entity.GlobalDailyLimitSettings(
+                        dailyLimitMinutes = minutes
+                    )
+                )
+            }
+            _uiState.update { it.copy(globalDailyLimitMinutes = minutes) }
+        }
+    }
+
+    fun setGlobalDailyLimitWarning(minutes: Int) {
+        viewModelScope.launch {
+            val currentSettings = repository.getGlobalDailyLimitSettingsSync()
+            if (currentSettings != null) {
+                repository.updateGlobalDailyLimitSettings(currentSettings.copy(
+                    warningMinutesBefore = minutes,
+                    updatedAt = System.currentTimeMillis()
+                ))
+            }
+            _uiState.update { it.copy(globalDailyLimitWarningMinutes = minutes) }
         }
     }
 }

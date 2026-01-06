@@ -65,7 +65,7 @@ data class BlockLog(
 )
 
 enum class BlockedByType {
-    QUICK_BLOCK, SCHEDULE, STRICT_MODE, HARD_MODE, FOCUS_CYCLE, APP_TIMER
+    QUICK_BLOCK, SCHEDULE, STRICT_MODE, HARD_MODE, FOCUS_CYCLE, APP_TIMER, GLOBAL_LIMIT
 }
 
 @Entity(tableName = "usage_stats")
@@ -256,5 +256,104 @@ data class AppTimerDailyUsage(
     val addedToQuickBlock: Boolean = false,
     val dailyOverrideUsed: Boolean = false, // User has used their one daily override
     val overrideExpiresAt: Long? = null, // When the current override expires (15 min window)
+    val lastUpdated: Long = System.currentTimeMillis()
+)
+
+// ========== GLOBAL DAILY USAGE LIMIT ==========
+
+/**
+ * Global Daily Limit Settings - total phone usage limit independent of all modes
+ * Works even when App Timer, Focus Cycle, and Quick Block are all OFF
+ *
+ * This tracks TOTAL phone usage (not per-app) and enforces a daily cap
+ * Example: "Maximum 2 hours phone usage per day"
+ */
+@Entity(tableName = "global_daily_limit_settings")
+data class GlobalDailyLimitSettings(
+    @PrimaryKey
+    val id: Int = 1, // Singleton - only one settings record
+    val isEnabled: Boolean = false,
+    val dailyLimitMinutes: Int = 120, // Default 2 hours total phone usage
+    val warningMinutesBefore: Int = 15, // Show warning 15 min before limit
+    val excludeSystemApps: Boolean = true, // Don't count system apps (settings, phone, etc.)
+    val excludeProductiveApps: Boolean = true, // Don't count productive apps (notes, calendar, etc.)
+    val excludedPackages: String = "", // User-defined excluded packages (comma-separated)
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+) {
+    companion object {
+        // System apps that should always be excluded from tracking
+        val SYSTEM_APPS = listOf(
+            "com.android.settings",
+            "com.android.systemui",
+            "com.android.dialer",
+            "com.android.contacts",
+            "com.google.android.dialer",
+            "com.samsung.android.dialer",
+            "com.android.phone",
+            "com.android.mms",
+            "com.google.android.apps.messaging",
+            "com.samsung.android.messaging",
+            "com.android.camera",
+            "com.android.camera2",
+            "com.sec.android.app.camera",
+            "com.android.launcher",
+            "com.android.launcher3",
+            "com.google.android.apps.nexuslauncher",
+            "com.sec.android.app.launcher",
+            "com.focusblock.app" // Our own app
+        )
+
+        // Productive apps that can be optionally excluded
+        val PRODUCTIVE_APPS = listOf(
+            "com.google.android.calendar",
+            "com.samsung.android.calendar",
+            "com.google.android.keep",
+            "com.google.android.apps.docs",
+            "com.google.android.apps.docs.editors.docs",
+            "com.google.android.apps.docs.editors.sheets",
+            "com.microsoft.office.outlook",
+            "com.microsoft.office.word",
+            "com.microsoft.office.excel",
+            "com.notion.id",
+            "com.todoist",
+            "com.google.android.apps.tasks"
+        )
+    }
+}
+
+/**
+ * Global Daily Usage Tracking - tracks total phone usage per day
+ * Survives app restart, device reboot
+ */
+@Entity(tableName = "global_daily_usage")
+data class GlobalDailyUsage(
+    @PrimaryKey
+    val date: String, // YYYY-MM-DD format
+    val totalUsageMinutes: Int = 0,
+    val limitReached: Boolean = false,
+    val warningShown: Boolean = false,
+    val limitNotificationShown: Boolean = false,
+    // Override tracking - allows temporary access after limit is reached
+    val overrideCount: Int = 0, // Number of times user overrode today
+    val lastOverrideTime: Long? = null, // When last override was activated
+    val overrideExpiresAt: Long? = null, // When current override window ends
+    val overrideCooldownUntil: Long? = null, // Prevent rapid repeated overrides
+    val lastUpdated: Long = System.currentTimeMillis()
+)
+
+// ========== DAILY USAGE COMPARISON (TODAY VS YESTERDAY) ==========
+
+/**
+ * Tracks daily comparison notifications to ensure once-per-day trigger
+ * Also stores aggregate daily totals for comparison
+ */
+@Entity(tableName = "daily_usage_summary")
+data class DailyUsageSummary(
+    @PrimaryKey
+    val date: String, // YYYY-MM-DD format
+    val totalScreenTimeMinutes: Int = 0, // Total phone usage for this day
+    val comparisonNotificationSent: Boolean = false, // Whether we sent today vs yesterday notification
+    val comparisonResult: String? = null, // "higher", "lower", or null if not compared
     val lastUpdated: Long = System.currentTimeMillis()
 )

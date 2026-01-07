@@ -43,8 +43,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         private const val CACHE_REFRESH_INTERVAL_MS = 5000L // Refresh cache every 5 seconds
 
         // ========== MINDFUL REMINDER THRESHOLDS ==========
-        private const val GENTLE_REMINDER_THRESHOLD_MINUTES = 30 // First gentle nudge at 30 min
-        private const val FIRM_REMINDER_THRESHOLD_MINUTES = 60 // Firm reminder at 60 min
+        private const val GENTLE_REMINDER_THRESHOLD_MINUTES = 20 // First gentle nudge at 20 min
+        private const val FIRM_REMINDER_THRESHOLD_MINUTES = 40 // Firm reminder at 40 min
         private const val SESSION_CHECK_INTERVAL_MS = 60_000L // Check every minute
         private const val GENTLE_REMINDER_NOTIFICATION_ID = 4001
         private const val FIRM_REMINDER_NOTIFICATION_ID = 4002
@@ -2227,14 +2227,14 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Check user-defined exclusions
         if (cachedGlobalLimitExcludedPackages.contains(packageName)) return true
 
-        // Check system apps if enabled
+        // Check system apps if enabled (exact match or subpackage match)
         if (cachedGlobalLimitExcludeSystemApps) {
             if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.SYSTEM_APPS.any {
-                packageName == it || packageName.startsWith(it.substringBefore(".") + ".")
+                packageName == it || packageName.startsWith("$it.")
             }) return true
         }
 
-        // Check productive apps if enabled
+        // Check productive apps if enabled (exact match only)
         if (cachedGlobalLimitExcludeProductiveApps) {
             if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.PRODUCTIVE_APPS.contains(packageName)) return true
         }

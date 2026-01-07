@@ -1957,22 +1957,25 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private fun refreshGlobalLimitCache() {
         immediateScope.launch {
             try {
-                val settings = database.globalDailyLimitSettingsDao().getSettingsSync()
-                if (settings != null) {
-                    cachedGlobalLimitEnabled = settings.isEnabled
-                    cachedGlobalLimitMinutes = settings.dailyLimitMinutes
-                    cachedGlobalLimitWarningMinutes = settings.warningMinutesBefore
-                    cachedGlobalLimitExcludeSystemApps = settings.excludeSystemApps
-                    cachedGlobalLimitExcludeProductiveApps = settings.excludeProductiveApps
-                    cachedGlobalLimitExcludedPackages = settings.excludedPackages
-                        .split(",")
-                        .filter { it.isNotBlank() }
-                        .toSet()
-                    Log.d(TAG, "Global Limit cache refreshed: enabled=$cachedGlobalLimitEnabled, limit=$cachedGlobalLimitMinutes min")
-                } else {
-                    cachedGlobalLimitEnabled = false
-                    Log.d(TAG, "Global Limit not configured")
+                var settings = database.globalDailyLimitSettingsDao().getSettingsSync()
+
+                // Auto-create default settings if none exist (enabled by default with 3h limit)
+                if (settings == null) {
+                    settings = com.focusblock.app.database.entity.GlobalDailyLimitSettings()
+                    database.globalDailyLimitSettingsDao().insert(settings)
+                    Log.i(TAG, "Global Limit: Created default settings (enabled=true, limit=180min)")
                 }
+
+                cachedGlobalLimitEnabled = settings.isEnabled
+                cachedGlobalLimitMinutes = settings.dailyLimitMinutes
+                cachedGlobalLimitWarningMinutes = settings.warningMinutesBefore
+                cachedGlobalLimitExcludeSystemApps = settings.excludeSystemApps
+                cachedGlobalLimitExcludeProductiveApps = settings.excludeProductiveApps
+                cachedGlobalLimitExcludedPackages = settings.excludedPackages
+                    .split(",")
+                    .filter { it.isNotBlank() }
+                    .toSet()
+                Log.d(TAG, "Global Limit cache refreshed: enabled=$cachedGlobalLimitEnabled, limit=$cachedGlobalLimitMinutes min")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to refresh Global Limit cache", e)
             }

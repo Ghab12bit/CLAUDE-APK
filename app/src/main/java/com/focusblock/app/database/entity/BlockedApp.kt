@@ -272,8 +272,8 @@ data class AppTimerDailyUsage(
 data class GlobalDailyLimitSettings(
     @PrimaryKey
     val id: Int = 1, // Singleton - only one settings record
-    val isEnabled: Boolean = false,
-    val dailyLimitMinutes: Int = 120, // Default 2 hours total phone usage
+    val isEnabled: Boolean = true, // Enabled by default - no UI required
+    val dailyLimitMinutes: Int = 180, // Default 3 hours total phone usage
     val warningMinutesBefore: Int = 15, // Show warning 15 min before limit
     val excludeSystemApps: Boolean = true, // Don't count system apps (settings, phone, etc.)
     val excludeProductiveApps: Boolean = true, // Don't count productive apps (notes, calendar, etc.)

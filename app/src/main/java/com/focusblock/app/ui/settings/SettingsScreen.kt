@@ -138,7 +138,7 @@ fun SettingsScreen(
                     title = "Daily Usage Limit",
                     subtitle = if (uiState.isGlobalDailyLimitEnabled)
                         "Limit: ${formatDailyLimit(uiState.globalDailyLimitMinutes)}"
-                    else "Set total daily phone usage cap",
+                    else "Set daily limit for distracting apps",
                     isChecked = uiState.isGlobalDailyLimitEnabled,
                     onCheckedChange = { viewModel.setGlobalDailyLimitEnabled(it) }
                 )
@@ -151,6 +151,15 @@ fun SettingsScreen(
                         title = "Daily Limit",
                         subtitle = formatDailyLimit(uiState.globalDailyLimitMinutes),
                         onClick = { showDailyLimitPicker = true }
+                    )
+
+                    Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
+
+                    SettingsItem(
+                        icon = Icons.Outlined.Block,
+                        title = "Apps Tracked",
+                        subtitle = "Social media, videos, games & more",
+                        onClick = { /* TODO: Add app picker */ }
                     )
                 }
             }

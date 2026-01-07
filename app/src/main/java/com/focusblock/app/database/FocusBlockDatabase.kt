@@ -28,7 +28,7 @@ import com.focusblock.app.database.entity.*
         GlobalDailyUsage::class,
         DailyUsageSummary::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class FocusBlockDatabase : RoomDatabase() {

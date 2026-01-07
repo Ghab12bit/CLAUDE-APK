@@ -265,24 +265,63 @@ data class AppTimerDailyUsage(
  * Global Daily Limit Settings - total phone usage limit independent of all modes
  * Works even when App Timer, Focus Cycle, and Quick Block are all OFF
  *
- * This tracks TOTAL phone usage (not per-app) and enforces a daily cap
- * Example: "Maximum 2 hours phone usage per day"
+ * NEW APPROACH: Only tracks specific distracting apps (whitelist)
+ * Instead of blocking everything except exclusions
  */
 @Entity(tableName = "global_daily_limit_settings")
 data class GlobalDailyLimitSettings(
     @PrimaryKey
     val id: Int = 1, // Singleton - only one settings record
-    val isEnabled: Boolean = true, // Enabled by default - no UI required
-    val dailyLimitMinutes: Int = 180, // Default 3 hours total phone usage
+    val isEnabled: Boolean = true, // Enabled by default
+    val dailyLimitMinutes: Int = 180, // Default 3 hours
     val warningMinutesBefore: Int = 15, // Show warning 15 min before limit
-    val excludeSystemApps: Boolean = true, // Don't count system apps (settings, phone, etc.)
-    val excludeProductiveApps: Boolean = true, // Don't count productive apps (notes, calendar, etc.)
-    val excludedPackages: String = "", // User-defined excluded packages (comma-separated)
+    // NEW: Apps to track (comma-separated package names)
+    // Only these apps count toward the daily limit
+    val trackedPackages: String = "", // Empty = use default distracting apps
+    val useAppTimerApps: Boolean = true, // Share app list with App Timer
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {
     companion object {
-        // System apps that should always be excluded from tracking
+        // Default distracting apps to track
+        // These are the apps that typically waste time
+        val DEFAULT_DISTRACTING_APPS = listOf(
+            // Social Media
+            "com.instagram.android",
+            "com.facebook.katana",
+            "com.facebook.orca", // Messenger
+            "com.twitter.android",
+            "com.snapchat.android",
+            "com.zhiliaoapp.musically", // TikTok
+            "com.linkedin.android",
+            "com.pinterest",
+            // Video/Entertainment
+            "com.google.android.youtube",
+            "com.netflix.mediaclient",
+            "com.amazon.avod.thirdpartyclient", // Prime Video
+            "com.disney.disneyplus",
+            "tv.twitch.android.app",
+            "com.hulu.plus",
+            "com.hotstar.android",
+            // Reddit & Forums
+            "com.reddit.frontpage",
+            "com.rubenmayayo.reddit", // Boost for Reddit
+            "com.andrewshu.android.reddit", // Reddit is Fun
+            // Dating
+            "com.tinder",
+            "com.bumble.app",
+            // News/Content
+            "com.buzzfeed.android",
+            "flipboard.app",
+            // Games (common ones)
+            "com.supercell.clashofclans",
+            "com.supercell.clashroyale",
+            "com.king.candycrushsaga",
+            "com.pubg.imobile", // BGMI
+            "com.tencent.ig" // PUBG Mobile
+        )
+
+        // System apps that are NEVER tracked (always excluded)
         val SYSTEM_APPS = listOf(
             "com.android.settings",
             "com.android.systemui",
@@ -301,23 +340,10 @@ data class GlobalDailyLimitSettings(
             "com.android.launcher3",
             "com.google.android.apps.nexuslauncher",
             "com.sec.android.app.launcher",
+            "com.samsung.android.app.cocktailbarservice", // Samsung Edge
+            "com.samsung.android.sidegesturepad", // Samsung one-hand
+            "com.samsung.android.app.routines",
             "com.focusblock.app" // Our own app
-        )
-
-        // Productive apps that can be optionally excluded
-        val PRODUCTIVE_APPS = listOf(
-            "com.google.android.calendar",
-            "com.samsung.android.calendar",
-            "com.google.android.keep",
-            "com.google.android.apps.docs",
-            "com.google.android.apps.docs.editors.docs",
-            "com.google.android.apps.docs.editors.sheets",
-            "com.microsoft.office.outlook",
-            "com.microsoft.office.word",
-            "com.microsoft.office.excel",
-            "com.notion.id",
-            "com.todoist",
-            "com.google.android.apps.tasks"
         )
     }
 }

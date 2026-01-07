@@ -175,9 +175,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     @Volatile private var cachedGlobalLimitEnabled: Boolean = false
     @Volatile private var cachedGlobalLimitMinutes: Int = 120
     @Volatile private var cachedGlobalLimitWarningMinutes: Int = 15
-    @Volatile private var cachedGlobalLimitExcludedPackages: Set<String> = emptySet()
-    @Volatile private var cachedGlobalLimitExcludeSystemApps: Boolean = true
-    @Volatile private var cachedGlobalLimitExcludeProductiveApps: Boolean = true
+    // NEW: Whitelist approach - only track these specific apps
+    @Volatile private var cachedGlobalLimitTrackedPackages: Set<String> = emptySet()
+    @Volatile private var cachedGlobalLimitUseAppTimerApps: Boolean = true
     private var lastGlobalUsageMinutes: Int = 0
     private var globalLimitEnforcementActive: Boolean = false
 
@@ -2008,17 +2008,39 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 cachedGlobalLimitEnabled = settings.isEnabled
                 cachedGlobalLimitMinutes = settings.dailyLimitMinutes
                 cachedGlobalLimitWarningMinutes = settings.warningMinutesBefore
-                cachedGlobalLimitExcludeSystemApps = settings.excludeSystemApps
-                cachedGlobalLimitExcludeProductiveApps = settings.excludeProductiveApps
-                cachedGlobalLimitExcludedPackages = settings.excludedPackages
+                cachedGlobalLimitUseAppTimerApps = settings.useAppTimerApps
+
+                // Build the list of apps to track (WHITELIST approach)
+                val trackedAppsSet = mutableSetOf<String>()
+
+                // Add user-defined tracked packages
+                val userTracked = settings.trackedPackages
                     .split(",")
                     .filter { it.isNotBlank() }
-                    .toSet()
+                if (userTracked.isNotEmpty()) {
+                    trackedAppsSet.addAll(userTracked)
+                }
+
+                // If sharing with App Timer, add those apps too
+                if (settings.useAppTimerApps) {
+                    val appTimerSettings = database.appTimerSettingsDao().getSettingsSync()
+                    if (appTimerSettings != null && appTimerSettings.timerApps.isNotBlank()) {
+                        trackedAppsSet.addAll(appTimerSettings.timerApps.split(",").filter { it.isNotBlank() })
+                    }
+                }
+
+                // If no apps configured, use defaults
+                if (trackedAppsSet.isEmpty()) {
+                    trackedAppsSet.addAll(com.focusblock.app.database.entity.GlobalDailyLimitSettings.DEFAULT_DISTRACTING_APPS)
+                }
+
+                cachedGlobalLimitTrackedPackages = trackedAppsSet
+                Log.d(TAG, "Global Limit: Tracking ${trackedAppsSet.size} apps")
 
                 // Also calculate current screen time so enforcement works immediately
                 if (cachedGlobalLimitEnabled) {
                     lastGlobalUsageMinutes = calculateTotalScreenTime()
-                    Log.d(TAG, "Global Limit cache refreshed: enabled=true, limit=$cachedGlobalLimitMinutes min, currentUsage=$lastGlobalUsageMinutes min")
+                    Log.d(TAG, "Global Limit cache refreshed: enabled=true, limit=$cachedGlobalLimitMinutes min, currentUsage=$lastGlobalUsageMinutes min, tracking=${trackedAppsSet.size} apps")
                 } else {
                     Log.d(TAG, "Global Limit cache refreshed: enabled=false")
                 }
@@ -2219,27 +2241,24 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
     /**
      * Check if a package is excluded from global limit tracking
+     * NEW: Uses WHITELIST approach - only apps in cachedGlobalLimitTrackedPackages are tracked
      */
     private fun isExcludedFromGlobalLimit(packageName: String): Boolean {
         // Always exclude our own app
         if (packageName == "com.focusblock.app") return true
 
-        // Check user-defined exclusions
-        if (cachedGlobalLimitExcludedPackages.contains(packageName)) return true
+        // Always exclude system apps (settings, dialer, camera, launcher, etc.)
+        if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.SYSTEM_APPS.any {
+            packageName == it || packageName.startsWith("$it.")
+        }) return true
 
-        // Check system apps if enabled (exact match or subpackage match)
-        if (cachedGlobalLimitExcludeSystemApps) {
-            if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.SYSTEM_APPS.any {
-                packageName == it || packageName.startsWith("$it.")
-            }) return true
+        // WHITELIST: Only track apps that are in the tracked list
+        // If the app is NOT in the tracked list, exclude it
+        if (!cachedGlobalLimitTrackedPackages.contains(packageName)) {
+            return true // Exclude - not in whitelist
         }
 
-        // Check productive apps if enabled (exact match only)
-        if (cachedGlobalLimitExcludeProductiveApps) {
-            if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.PRODUCTIVE_APPS.contains(packageName)) return true
-        }
-
-        return false
+        return false // Include - app is in the whitelist
     }
 
     /**

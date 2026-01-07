@@ -1,11 +1,13 @@
 package com.focusblock.app.viewmodel
 
 import android.app.Application
+import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.focusblock.app.database.entity.AppSettings
 import com.focusblock.app.database.entity.BlockedApp
 import com.focusblock.app.database.repository.FocusBlockRepository
+import com.focusblock.app.service.FocusBlockAccessibilityService
 import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.PermissionUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -258,6 +260,16 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Notify the Accessibility Service to refresh its cache immediately
+     * This ensures settings changes take effect right away
+     */
+    private fun notifyServiceToRefreshGlobalLimitCache() {
+        val intent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+        intent.`package` = application.packageName
+        application.sendBroadcast(intent)
+    }
+
     fun setGlobalDailyLimitEnabled(enabled: Boolean) {
         viewModelScope.launch {
             val currentSettings = repository.getGlobalDailyLimitSettingsSync()
@@ -274,6 +286,8 @@ class SettingsViewModel @Inject constructor(
                 )
             }
             _uiState.update { it.copy(isGlobalDailyLimitEnabled = enabled) }
+            // Notify service to refresh cache immediately
+            notifyServiceToRefreshGlobalLimitCache()
         }
     }
 
@@ -293,6 +307,8 @@ class SettingsViewModel @Inject constructor(
                 )
             }
             _uiState.update { it.copy(globalDailyLimitMinutes = minutes) }
+            // Notify service to refresh cache immediately
+            notifyServiceToRefreshGlobalLimitCache()
         }
     }
 
@@ -306,6 +322,8 @@ class SettingsViewModel @Inject constructor(
                 ))
             }
             _uiState.update { it.copy(globalDailyLimitWarningMinutes = minutes) }
+            // Notify service to refresh cache immediately
+            notifyServiceToRefreshGlobalLimitCache()
         }
     }
 }

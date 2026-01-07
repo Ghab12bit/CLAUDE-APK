@@ -6,8 +6,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -51,6 +53,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         private const val APP_TIMER_CHECK_INTERVAL_MS = 10_000L // Check every 10 seconds for responsive tracking
         private const val APP_TIMER_NOTIFICATION_ID = 4003
         const val ACTION_EXTEND_APP_TIMER = "com.focusblock.app.ACTION_EXTEND_APP_TIMER"
+        const val ACTION_REFRESH_GLOBAL_LIMIT_CACHE = "com.focusblock.app.ACTION_REFRESH_GLOBAL_LIMIT_CACHE"
 
         // ========== SCHEDULE ENFORCEMENT ==========
         private const val SCHEDULE_CHECK_INTERVAL_MS = 60_000L // Check every minute
@@ -182,6 +185,20 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private val usageComparisonHandler = Handler(Looper.getMainLooper())
     private var usageComparisonRunnable: Runnable? = null
 
+    // ========== SETTINGS CHANGE RECEIVER ==========
+    private val settingsChangeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                ACTION_REFRESH_GLOBAL_LIMIT_CACHE -> {
+                    Log.i(TAG, "Received broadcast to refresh Global Limit cache")
+                    refreshGlobalLimitCache()
+                    // Also trigger an immediate check
+                    checkGlobalDailyLimit()
+                }
+            }
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.d(TAG, "Accessibility service connected")
@@ -223,6 +240,15 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
         // Start Daily Usage Comparison check
         startUsageComparisonCheck()
+
+        // Register broadcast receiver for settings changes
+        val filter = IntentFilter(ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(settingsChangeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(settingsChangeReceiver, filter)
+        }
+        Log.d(TAG, "Settings change receiver registered")
 
         // Show toast to confirm service is running
         mainHandler.post {
@@ -1605,6 +1631,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         stopUsageComparisonCheck() // Clean up Usage Comparison check
         dismissAppTimerNotification() // Dismiss App Timer notification
         activeSessions.clear() // Clear session tracking
+        try {
+            unregisterReceiver(settingsChangeReceiver) // Unregister settings change receiver
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to unregister settings change receiver", e)
+        }
         serviceScope.cancel()
         immediateScope.cancel()
         super.onDestroy()
@@ -1645,7 +1676,15 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
                 .format(java.util.Date())
             val globalDailyUsage = database.globalDailyUsageDao().getUsageForDateSync(today)
-            val currentUsage = lastGlobalUsageMinutes // Use cached value for speed
+            // Use cached value for speed, but calculate fresh if cache is stale (0)
+            val currentUsage = if (lastGlobalUsageMinutes == 0) {
+                val freshUsage = calculateTotalScreenTime()
+                lastGlobalUsageMinutes = freshUsage
+                Log.d(TAG, "Global Limit: Calculated fresh usage on demand: $freshUsage min")
+                freshUsage
+            } else {
+                lastGlobalUsageMinutes
+            }
             val limitMinutes = cachedGlobalLimitMinutes
 
             if (currentUsage >= limitMinutes) {
@@ -1975,7 +2014,14 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     .split(",")
                     .filter { it.isNotBlank() }
                     .toSet()
-                Log.d(TAG, "Global Limit cache refreshed: enabled=$cachedGlobalLimitEnabled, limit=$cachedGlobalLimitMinutes min")
+
+                // Also calculate current screen time so enforcement works immediately
+                if (cachedGlobalLimitEnabled) {
+                    lastGlobalUsageMinutes = calculateTotalScreenTime()
+                    Log.d(TAG, "Global Limit cache refreshed: enabled=true, limit=$cachedGlobalLimitMinutes min, currentUsage=$lastGlobalUsageMinutes min")
+                } else {
+                    Log.d(TAG, "Global Limit cache refreshed: enabled=false")
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to refresh Global Limit cache", e)
             }
@@ -2005,7 +2051,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         globalLimitRunnable = null
     }
 
-    // Counter for periodic cache refresh (every 10 cycles = ~5 minutes)
+    // Counter for periodic cache refresh (every 2 cycles = ~1 minute)
     private var globalLimitCacheRefreshCounter = 0
 
     /**
@@ -2013,9 +2059,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
      * This tracks TOTAL phone usage, not per-app
      */
     private fun checkGlobalDailyLimit() {
-        // Periodically refresh cache to pick up settings changes
+        // Periodically refresh cache to pick up settings changes (fallback in case broadcast fails)
         globalLimitCacheRefreshCounter++
-        if (globalLimitCacheRefreshCounter >= 10) {
+        if (globalLimitCacheRefreshCounter >= 2) {
             globalLimitCacheRefreshCounter = 0
             refreshGlobalLimitCache()
         }

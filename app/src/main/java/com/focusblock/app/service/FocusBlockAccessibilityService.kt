@@ -2002,11 +2002,21 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         globalLimitRunnable = null
     }
 
+    // Counter for periodic cache refresh (every 10 cycles = ~5 minutes)
+    private var globalLimitCacheRefreshCounter = 0
+
     /**
      * Check global daily usage and enforce limit
      * This tracks TOTAL phone usage, not per-app
      */
     private fun checkGlobalDailyLimit() {
+        // Periodically refresh cache to pick up settings changes
+        globalLimitCacheRefreshCounter++
+        if (globalLimitCacheRefreshCounter >= 10) {
+            globalLimitCacheRefreshCounter = 0
+            refreshGlobalLimitCache()
+        }
+
         if (!cachedGlobalLimitEnabled) return
 
         immediateScope.launch {

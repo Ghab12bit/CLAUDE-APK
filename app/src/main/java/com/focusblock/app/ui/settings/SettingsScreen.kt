@@ -43,6 +43,7 @@ fun SettingsScreen(
     var showHardModeDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showPomodoroPicker by remember { mutableStateOf<String?>(null) } // "work", "short", "long"
+    var showDailyLimitPicker by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -122,6 +123,36 @@ fun SettingsScreen(
                     subtitle = "${uiState.allowlistCount} apps always allowed",
                     onClick = { showAllowlistDialog = true }
                 )
+            }
+        }
+
+        // Screen Time section - Global Daily Limit
+        item {
+            SettingsSectionHeader(title = "Screen Time")
+        }
+
+        item {
+            SettingsCard {
+                SettingsToggleItem(
+                    icon = Icons.Outlined.PhoneAndroid,
+                    title = "Daily Usage Limit",
+                    subtitle = if (uiState.isGlobalDailyLimitEnabled)
+                        "Limit: ${formatDailyLimit(uiState.globalDailyLimitMinutes)}"
+                    else "Set total daily phone usage cap",
+                    isChecked = uiState.isGlobalDailyLimitEnabled,
+                    onCheckedChange = { viewModel.setGlobalDailyLimitEnabled(it) }
+                )
+
+                if (uiState.isGlobalDailyLimitEnabled) {
+                    Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
+
+                    SettingsItem(
+                        icon = Icons.Outlined.Timer,
+                        title = "Daily Limit",
+                        subtitle = formatDailyLimit(uiState.globalDailyLimitMinutes),
+                        onClick = { showDailyLimitPicker = true }
+                    )
+                }
             }
         }
 
@@ -428,6 +459,72 @@ fun SettingsScreen(
                 }
             }
         )
+    }
+
+    // Daily Limit Picker Dialog
+    if (showDailyLimitPicker) {
+        val limitOptions = listOf(30, 60, 90, 120, 150, 180, 240, 300, 360) // 30m to 6h
+        AlertDialog(
+            onDismissRequest = { showDailyLimitPicker = false },
+            title = { Text("Daily Usage Limit", color = TextPrimary) },
+            containerColor = CardDark,
+            text = {
+                Column {
+                    Text(
+                        "Total phone usage allowed per day (excludes system apps)",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    limitOptions.forEach { minutes ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.setGlobalDailyLimit(minutes)
+                                    showDailyLimitPicker = false
+                                }
+                                .padding(vertical = 12.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = minutes == uiState.globalDailyLimitMinutes,
+                                onClick = null,
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = Primary,
+                                    unselectedColor = TextSecondary
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = formatDailyLimit(minutes),
+                                color = TextPrimary,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDailyLimitPicker = false }) {
+                    Text("Cancel", color = Primary)
+                }
+            }
+        )
+    }
+}
+
+/**
+ * Format daily limit minutes for display
+ */
+private fun formatDailyLimit(minutes: Int): String {
+    return when {
+        minutes >= 60 -> {
+            val hours = minutes / 60
+            val mins = minutes % 60
+            if (mins > 0) "${hours}h ${mins}m" else "${hours} hour${if (hours > 1) "s" else ""}"
+        }
+        else -> "$minutes minutes"
     }
 }
 

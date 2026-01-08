@@ -323,27 +323,53 @@ data class GlobalDailyLimitSettings(
 
         // System apps that are NEVER tracked (always excluded)
         val SYSTEM_APPS = listOf(
+            // Android core
             "com.android.settings",
             "com.android.systemui",
             "com.android.dialer",
             "com.android.contacts",
-            "com.google.android.dialer",
-            "com.samsung.android.dialer",
             "com.android.phone",
             "com.android.mms",
-            "com.google.android.apps.messaging",
-            "com.samsung.android.messaging",
             "com.android.camera",
             "com.android.camera2",
-            "com.sec.android.app.camera",
             "com.android.launcher",
             "com.android.launcher3",
+            "com.android.vending", // Play Store
+            // Google apps
+            "com.google.android.dialer",
+            "com.google.android.apps.messaging",
             "com.google.android.apps.nexuslauncher",
+            "com.google.android.gms", // Google Play Services
+            "com.google.android.gsf", // Google Services Framework
+            // Samsung utilities (NEVER block these)
+            "com.samsung.android.dialer",
+            "com.samsung.android.messaging",
+            "com.samsung.android.contacts",
+            "com.sec.android.app.camera",
             "com.sec.android.app.launcher",
-            "com.samsung.android.app.cocktailbarservice", // Samsung Edge
-            "com.samsung.android.sidegesturepad", // Samsung one-hand
-            "com.samsung.android.app.routines",
-            "com.focusblock.app" // Our own app
+            "com.samsung.android.app.cocktailbarservice", // Edge Panel
+            "com.samsung.android.sidegesturepad", // Side gesture
+            "com.samsung.android.onehandoperation", // One Hand Operation+
+            "com.samsung.android.app.routines", // Bixby Routines
+            "com.samsung.android.app.smartcapture", // Screenshot
+            "com.samsung.android.app.clipboardedge", // Clipboard
+            "com.samsung.android.honeyboard", // Samsung Keyboard
+            "com.samsung.android.app.taskedge", // Task Edge
+            "com.samsung.android.samsungpass", // Samsung Pass
+            "com.samsung.android.authfw", // Auth Framework
+            "com.samsung.android.app.galaxyfinder", // Finder
+            "com.samsung.android.game.gametools", // Game Tools
+            "com.samsung.android.goodlock", // Good Lock
+            "com.sec.android.app.popupcalculator", // Calculator
+            "com.sec.android.app.clockpackage", // Clock
+            "com.samsung.android.calendar", // Calendar
+            "com.samsung.android.app.notes", // Notes
+            // Other OEM utilities
+            "com.miui.home", // Xiaomi
+            "com.oppo.launcher", // Oppo
+            "com.huawei.android.launcher", // Huawei
+            // Our own app
+            "com.focusblock.app"
         )
     }
 }

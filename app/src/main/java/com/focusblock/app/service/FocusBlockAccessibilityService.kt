@@ -1642,13 +1642,29 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     private fun shouldIgnorePackage(packageName: String): Boolean {
-        return packageName == this.packageName ||
-                packageName == "com.android.systemui" ||
-                packageName.startsWith("com.android.launcher") ||
-                packageName.startsWith("com.sec.android.app.launcher") ||
-                packageName.startsWith("com.google.android.apps.nexuslauncher") ||
-                packageName == "com.android.settings" ||
-                packageName.startsWith("com.samsung.android.app.routines")
+        // Always ignore our own app
+        if (packageName == this.packageName) return true
+
+        // Ignore Android system UI and settings
+        if (packageName == "com.android.systemui") return true
+        if (packageName == "com.android.settings") return true
+
+        // Ignore all launchers
+        if (packageName.contains("launcher")) return true
+
+        // Ignore Samsung system utilities (One Hand Operation+, Edge Panel, Routines, etc.)
+        if (packageName.startsWith("com.samsung.android.")) {
+            // Only track Samsung browser - it can be distracting
+            if (packageName == "com.samsung.android.app.sbrowser") return false
+            return true // Ignore all other Samsung utilities
+        }
+        if (packageName.startsWith("com.sec.android.")) return true
+
+        // Ignore Google Play Services
+        if (packageName == "com.google.android.gms") return true
+        if (packageName == "com.google.android.gsf") return true
+
+        return false
     }
 
     private suspend fun shouldBlockApp(packageName: String): Boolean {

@@ -23,6 +23,7 @@ import com.focusblock.app.ui.overlay.BlockedAppActivity
 import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.TimeUtils
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -269,32 +270,45 @@ class AppBlockingService : Service() {
         return BlockedByType.SCHEDULE
     }
 
+    /**
+     * Check if a package is excluded from global limit tracking
+     * Uses WHITELIST approach - only apps in tracked list are blocked
+     */
     private fun isExcludedFromGlobalLimit(packageName: String, settings: com.focusblock.app.database.entity.GlobalDailyLimitSettings): Boolean {
-        // Always exclude FocusBlock itself and system launchers
+        // Always exclude FocusBlock itself
         if (packageName == "com.focusblock.app") return true
-        if (packageName.contains("launcher")) return true
 
-        // Check system apps exclusion
-        if (settings.excludeSystemApps) {
-            if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.SYSTEM_APPS.contains(packageName)) {
-                return true
+        // Always exclude system apps
+        if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.SYSTEM_APPS.any {
+            packageName == it || packageName.startsWith("$it.")
+        }) return true
+
+        // Build tracked apps list (WHITELIST)
+        val trackedApps = mutableSetOf<String>()
+
+        // Add user-defined tracked packages
+        val userTracked = settings.trackedPackages.split(",").filter { it.isNotBlank() }
+        if (userTracked.isNotEmpty()) {
+            trackedApps.addAll(userTracked)
+        }
+
+        // If sharing with App Timer, add those apps too
+        if (settings.useAppTimerApps) {
+            runBlocking {
+                val appTimerSettings = repository.getAppTimerSettingsSync()
+                if (appTimerSettings != null && appTimerSettings.timerApps.isNotBlank()) {
+                    trackedApps.addAll(appTimerSettings.timerApps.split(",").filter { it.isNotBlank() })
+                }
             }
         }
 
-        // Check productive apps exclusion
-        if (settings.excludeProductiveApps) {
-            if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.PRODUCTIVE_APPS.contains(packageName)) {
-                return true
-            }
+        // If no apps configured, use defaults
+        if (trackedApps.isEmpty()) {
+            trackedApps.addAll(com.focusblock.app.database.entity.GlobalDailyLimitSettings.DEFAULT_DISTRACTING_APPS)
         }
 
-        // Check user-defined exclusions
-        val excludedPackages = settings.excludedPackages.split(",").filter { it.isNotBlank() }
-        if (excludedPackages.contains(packageName)) {
-            return true
-        }
-
-        return false
+        // WHITELIST: If app is NOT in tracked list, exclude it
+        return !trackedApps.contains(packageName)
     }
 
     private fun showBlockingScreen(packageName: String, appName: String, blockedByType: BlockedByType) {

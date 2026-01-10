@@ -40,6 +40,7 @@ import com.focusblock.app.ui.components.PomodoroSetupDialog
 import com.focusblock.app.ui.components.StrictModeSetupDialog
 import com.focusblock.app.ui.components.FocusCycleSetupDialog
 import com.focusblock.app.ui.components.StrictModePauseDialog
+import com.focusblock.app.database.entity.SuggestedBlockingApp
 import com.focusblock.app.service.FocusBlockAccessibilityService
 import com.focusblock.app.ui.theme.*
 import com.focusblock.app.utils.AppUtils
@@ -278,6 +279,33 @@ fun HomeScreen(
                     subtitle = "apps",
                     modifier = Modifier.weight(1f),
                     onClick = { showBlockedAppsDialog = true }
+                )
+            }
+        }
+
+        // ========== DAILY LIMIT CARD ==========
+        item(key = "daily_limit_card") {
+            DailyLimitCard(
+                isEnabled = uiState.isGlobalDailyLimitEnabled,
+                limitMinutes = uiState.globalDailyLimitMinutes,
+                currentUsageMinutes = uiState.currentDailyUsageMinutes,
+                progress = uiState.dailyLimitProgress,
+                suggestedLimitMinutes = uiState.suggestedDailyLimitMinutes,
+                onToggleEnabled = { viewModel.setGlobalDailyLimitEnabled(it) },
+                onSetLimit = { viewModel.setGlobalDailyLimit(it) },
+                onApplySuggested = { viewModel.applySuggestedDailyLimit() },
+                onAnalyzeUsage = { viewModel.analyzeUsageAndGenerateSuggestions() }
+            )
+        }
+
+        // ========== SMART SUGGESTIONS CARD ==========
+        if (uiState.showSmartSuggestionsCard && uiState.suggestedApps.isNotEmpty()) {
+            item(key = "smart_suggestions_card") {
+                SmartSuggestionsCard(
+                    suggestions = uiState.suggestedApps,
+                    onAccept = { viewModel.acceptSuggestion(it) },
+                    onDismiss = { viewModel.dismissSuggestion(it) },
+                    onAcceptAll = { viewModel.acceptAllSuggestions() }
                 )
             }
         }
@@ -4671,6 +4699,450 @@ fun InsightsPreviewCard(
                         color = Primary
                     )
                 }
+            }
+        }
+    }
+}
+
+// ========== DAILY LIMIT CARD ==========
+
+@Composable
+fun DailyLimitCard(
+    isEnabled: Boolean,
+    limitMinutes: Int,
+    currentUsageMinutes: Int,
+    progress: Float,
+    suggestedLimitMinutes: Int,
+    onToggleEnabled: (Boolean) -> Unit,
+    onSetLimit: (Int) -> Unit,
+    onApplySuggested: () -> Unit,
+    onAnalyzeUsage: () -> Unit
+) {
+    var showLimitPicker by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Primary.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Timer,
+                            contentDescription = null,
+                            tint = Primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Daily Screen Limit",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (isEnabled) "Active" else "Disabled",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isEnabled) SuccessGreen else TextSecondary
+                        )
+                    }
+                }
+                Switch(
+                    checked = isEnabled,
+                    onCheckedChange = onToggleEnabled,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = Primary,
+                        uncheckedThumbColor = Color.White,
+                        uncheckedTrackColor = TextSecondary.copy(alpha = 0.3f)
+                    )
+                )
+            }
+
+            if (isEnabled) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Progress bar
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        val hours = currentUsageMinutes / 60
+                        val mins = currentUsageMinutes % 60
+                        Text(
+                            text = if (hours > 0) "${hours}h ${mins}m used" else "${mins}m used",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary
+                        )
+                        val limitHours = limitMinutes / 60
+                        val limitMins = limitMinutes % 60
+                        Text(
+                            text = if (limitHours > 0) "${limitHours}h ${limitMins}m limit" else "${limitMins}m limit",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = when {
+                            progress >= 1f -> ErrorRed
+                            progress >= 0.85f -> AccentOrange
+                            else -> Primary
+                        },
+                        trackColor = SurfaceElevated
+                    )
+
+                    if (progress >= 0.85f && progress < 1f) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Almost at your limit!",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = AccentOrange
+                        )
+                    } else if (progress >= 1f) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Limit reached - apps will be blocked",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ErrorRed
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Action buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    OutlinedButton(
+                        onClick = { showLimitPicker = true },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Primary),
+                        border = BorderStroke(1.dp, Primary.copy(alpha = 0.5f))
+                    ) {
+                        Text("Change Limit")
+                    }
+
+                    if (suggestedLimitMinutes > 0 && suggestedLimitMinutes != limitMinutes) {
+                        TextButton(onClick = onApplySuggested) {
+                            Text(
+                                text = "Apply ${suggestedLimitMinutes / 60}h ${suggestedLimitMinutes % 60}m goal",
+                                color = SuccessGreen
+                            )
+                        }
+                    } else {
+                        TextButton(onClick = onAnalyzeUsage) {
+                            Text("Analyze Usage", color = TextSecondary)
+                        }
+                    }
+                }
+            } else {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Set a daily screen time limit. When reached, distracting apps will be blocked.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+        }
+    }
+
+    // Limit picker dialog
+    if (showLimitPicker) {
+        DailyLimitPickerDialog(
+            currentLimit = limitMinutes,
+            onDismiss = { showLimitPicker = false },
+            onConfirm = { minutes ->
+                onSetLimit(minutes)
+                showLimitPicker = false
+            }
+        )
+    }
+}
+
+@Composable
+fun DailyLimitPickerDialog(
+    currentLimit: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    var hours by remember { mutableStateOf(currentLimit / 60) }
+    var minutes by remember { mutableStateOf(currentLimit % 60) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Set Daily Limit",
+                style = MaterialTheme.typography.titleLarge,
+                color = TextPrimary
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "How much screen time per day?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Hours picker
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        IconButton(onClick = { if (hours < 12) hours++ }) {
+                            Icon(Icons.Filled.KeyboardArrowUp, null, tint = Primary)
+                        }
+                        Text(
+                            text = "$hours",
+                            style = MaterialTheme.typography.headlineLarge,
+                            color = Primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text("hours", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                        IconButton(onClick = { if (hours > 0) hours-- }) {
+                            Icon(Icons.Filled.KeyboardArrowDown, null, tint = Primary)
+                        }
+                    }
+
+                    Text(
+                        text = ":",
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+
+                    // Minutes picker (in 15-min increments)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        IconButton(onClick = { minutes = (minutes + 15).coerceAtMost(45) }) {
+                            Icon(Icons.Filled.KeyboardArrowUp, null, tint = Primary)
+                        }
+                        Text(
+                            text = "%02d".format(minutes),
+                            style = MaterialTheme.typography.headlineLarge,
+                            color = Primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text("mins", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                        IconButton(onClick = { minutes = (minutes - 15).coerceAtLeast(0) }) {
+                            Icon(Icons.Filled.KeyboardArrowDown, null, tint = Primary)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(hours * 60 + minutes) },
+                colors = ButtonDefaults.buttonColors(containerColor = Primary)
+            ) {
+                Text("Set Limit")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextSecondary)
+            }
+        },
+        containerColor = CardDark,
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+// ========== SMART SUGGESTIONS CARD ==========
+
+@Composable
+fun SmartSuggestionsCard(
+    suggestions: List<SuggestedBlockingApp>,
+    onAccept: (String) -> Unit,
+    onDismiss: (String) -> Unit,
+    onAcceptAll: () -> Unit
+) {
+    val context = LocalContext.current
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(AccentOrange.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Lightbulb,
+                            contentDescription = null,
+                            tint = AccentOrange,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Smart Suggestions",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "${suggestions.size} apps to consider blocking",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+                TextButton(onClick = onAcceptAll) {
+                    Text("Add All", color = Primary)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            suggestions.take(3).forEach { suggestion ->
+                val appIcon = remember(suggestion.packageName) {
+                    AppUtils.getAppIcon(context, suggestion.packageName)
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // App icon
+                    appIcon?.let { drawable ->
+                        Image(
+                            bitmap = drawable.toBitmap(36, 36).asImageBitmap(),
+                            contentDescription = suggestion.appName,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                        )
+                    } ?: Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SurfaceElevated),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Android,
+                            contentDescription = null,
+                            tint = TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = suggestion.appName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = suggestion.suggestionReason,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                    }
+
+                    // Accept button
+                    IconButton(
+                        onClick = { onAccept(suggestion.packageName) },
+                        modifier = Modifier
+                            .size(32.dp)
+                            .background(SuccessGreen.copy(alpha = 0.2f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = "Add",
+                            tint = SuccessGreen,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Dismiss button
+                    IconButton(
+                        onClick = { onDismiss(suggestion.packageName) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Dismiss",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                if (suggestion != suggestions.take(3).last()) {
+                    HorizontalDivider(
+                        color = TextSecondary.copy(alpha = 0.2f),
+                        thickness = 0.5.dp
+                    )
+                }
+            }
+
+            if (suggestions.size > 3) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "+ ${suggestions.size - 3} more suggestions",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
             }
         }
     }

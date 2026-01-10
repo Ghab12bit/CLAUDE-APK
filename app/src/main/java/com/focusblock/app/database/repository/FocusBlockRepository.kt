@@ -25,7 +25,10 @@ class FocusBlockRepository @Inject constructor(
     private val appTimerDailyUsageDao: AppTimerDailyUsageDao,
     private val globalDailyLimitSettingsDao: GlobalDailyLimitSettingsDao,
     private val globalDailyUsageDao: GlobalDailyUsageDao,
-    private val dailyUsageSummaryDao: DailyUsageSummaryDao
+    private val dailyUsageSummaryDao: DailyUsageSummaryDao,
+    private val smartSuggestionsSettingsDao: SmartSuggestionsSettingsDao,
+    private val essentialAppWhitelistDao: EssentialAppWhitelistDao,
+    private val suggestedBlockingAppDao: SuggestedBlockingAppDao
 ) {
     // Blocked Apps
     fun getAllBlockedApps(): Flow<List<BlockedApp>> = blockedAppDao.getAllBlockedApps()
@@ -311,4 +314,32 @@ class FocusBlockRepository @Inject constructor(
     suspend fun updateDailySummaryScreenTime(date: String, minutes: Int) = dailyUsageSummaryDao.updateScreenTime(date, minutes)
     suspend fun markComparisonSent(date: String, result: String) = dailyUsageSummaryDao.markComparisonSent(date, result)
     suspend fun deleteOldDailySummaries(beforeDate: String) = dailyUsageSummaryDao.deleteOldSummaries(beforeDate)
+
+    // Smart Suggestions Settings
+    fun getSmartSuggestionsSettings(): Flow<SmartSuggestionsSettings?> = smartSuggestionsSettingsDao.getSettings()
+    suspend fun getSmartSuggestionsSettingsSync(): SmartSuggestionsSettings? = smartSuggestionsSettingsDao.getSettingsSync()
+    suspend fun saveSmartSuggestionsSettings(settings: SmartSuggestionsSettings) = smartSuggestionsSettingsDao.insert(settings)
+    suspend fun updateSmartSuggestionsSettings(settings: SmartSuggestionsSettings) = smartSuggestionsSettingsDao.update(settings)
+    suspend fun markSmartOnboardingComplete() = smartSuggestionsSettingsDao.markOnboardingComplete()
+    suspend fun updateSmartAnalysis(date: String, avgMinutes: Int, suggestedLimit: Int) =
+        smartSuggestionsSettingsDao.updateAnalysis(date, avgMinutes, suggestedLimit)
+
+    // Essential Apps Whitelist
+    fun getAllWhitelistedApps(): Flow<List<EssentialAppWhitelist>> = essentialAppWhitelistDao.getAllWhitelistedApps()
+    suspend fun getAllWhitelistedAppsSync(): List<EssentialAppWhitelist> = essentialAppWhitelistDao.getAllWhitelistedAppsSync()
+    suspend fun getWhitelistedPackageNames(): List<String> = essentialAppWhitelistDao.getWhitelistedPackageNames()
+    suspend fun isAppWhitelisted(packageName: String): Boolean = essentialAppWhitelistDao.isWhitelisted(packageName)
+    suspend fun addToWhitelist(app: EssentialAppWhitelist) = essentialAppWhitelistDao.insert(app)
+    suspend fun addAllToWhitelist(apps: List<EssentialAppWhitelist>) = essentialAppWhitelistDao.insertAll(apps)
+    suspend fun removeFromWhitelist(packageName: String) = essentialAppWhitelistDao.deleteByPackage(packageName)
+
+    // Suggested Blocking Apps
+    fun getActiveSuggestions(): Flow<List<SuggestedBlockingApp>> = suggestedBlockingAppDao.getActiveSuggestions()
+    suspend fun getActiveSuggestionsSync(): List<SuggestedBlockingApp> = suggestedBlockingAppDao.getActiveSuggestionsSync()
+    suspend fun getAcceptedSuggestions(): List<SuggestedBlockingApp> = suggestedBlockingAppDao.getAcceptedSuggestions()
+    suspend fun addSuggestion(suggestion: SuggestedBlockingApp) = suggestedBlockingAppDao.insert(suggestion)
+    suspend fun addAllSuggestions(suggestions: List<SuggestedBlockingApp>) = suggestedBlockingAppDao.insertAll(suggestions)
+    suspend fun acceptSuggestion(packageName: String) = suggestedBlockingAppDao.acceptSuggestion(packageName)
+    suspend fun dismissSuggestion(packageName: String) = suggestedBlockingAppDao.dismissSuggestion(packageName)
+    suspend fun clearAllSuggestions() = suggestedBlockingAppDao.clearAll()
 }

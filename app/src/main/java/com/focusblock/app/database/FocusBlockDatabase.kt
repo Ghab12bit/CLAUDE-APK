@@ -23,12 +23,16 @@ import com.focusblock.app.database.entity.*
         FocusCycleOverride::class,
         AppTimerSettings::class,
         AppTimerDailyUsage::class,
-        // New entities for Global Daily Limit and Usage Comparison
+        // Entities for Global Daily Limit and Usage Comparison
         GlobalDailyLimitSettings::class,
         GlobalDailyUsage::class,
-        DailyUsageSummary::class
+        DailyUsageSummary::class,
+        // Smart Suggestions entities
+        SmartSuggestionsSettings::class,
+        EssentialAppWhitelist::class,
+        SuggestedBlockingApp::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class FocusBlockDatabase : RoomDatabase() {
@@ -47,10 +51,14 @@ abstract class FocusBlockDatabase : RoomDatabase() {
     abstract fun focusCycleOverrideDao(): FocusCycleOverrideDao
     abstract fun appTimerSettingsDao(): AppTimerSettingsDao
     abstract fun appTimerDailyUsageDao(): AppTimerDailyUsageDao
-    // New DAOs for Global Daily Limit and Usage Comparison
+    // DAOs for Global Daily Limit and Usage Comparison
     abstract fun globalDailyLimitSettingsDao(): GlobalDailyLimitSettingsDao
     abstract fun globalDailyUsageDao(): GlobalDailyUsageDao
     abstract fun dailyUsageSummaryDao(): DailyUsageSummaryDao
+    // Smart Suggestions DAOs
+    abstract fun smartSuggestionsSettingsDao(): SmartSuggestionsSettingsDao
+    abstract fun essentialAppWhitelistDao(): EssentialAppWhitelistDao
+    abstract fun suggestedBlockingAppDao(): SuggestedBlockingAppDao
 
     companion object {
         @Volatile

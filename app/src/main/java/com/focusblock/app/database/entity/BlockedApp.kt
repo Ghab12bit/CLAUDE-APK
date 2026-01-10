@@ -413,3 +413,85 @@ data class DailyUsageSummary(
     val comparisonResult: String? = null, // "higher", "lower", or null if not compared
     val lastUpdated: Long = System.currentTimeMillis()
 )
+
+// ========== SMART SUGGESTIONS ==========
+
+/**
+ * Smart Suggestions Settings - tracks user's smart onboarding preferences
+ * and adaptive daily limits based on 7-day usage analysis
+ */
+@Entity(tableName = "smart_suggestions_settings")
+data class SmartSuggestionsSettings(
+    @PrimaryKey
+    val id: Int = 1, // Singleton
+    val isEnabled: Boolean = true, // Smart suggestions enabled
+    val hasCompletedOnboarding: Boolean = false, // User completed initial setup
+    val lastAnalysisDate: String? = null, // Last time we analyzed usage (YYYY-MM-DD)
+    val averageDailyUsageMinutes: Int = 0, // 7-day average usage
+    val suggestedDailyLimitMinutes: Int = 0, // 80% of average (20% reduction goal)
+    val autoAddToQuickBlock: Boolean = true, // Auto-add suggested apps to Quick Block
+    val lastUpdated: Long = System.currentTimeMillis()
+)
+
+/**
+ * Essential Apps Whitelist - apps that should NEVER be suggested for blocking
+ * User can customize this list
+ */
+@Entity(tableName = "essential_apps_whitelist")
+data class EssentialAppWhitelist(
+    @PrimaryKey
+    val packageName: String,
+    val appName: String,
+    val isDefault: Boolean = false, // True if pre-populated, false if user-added
+    val addedAt: Long = System.currentTimeMillis()
+) {
+    companion object {
+        // Default essential apps that should never be blocked
+        val DEFAULT_ESSENTIAL_APPS = listOf(
+            // Navigation & Maps
+            "com.google.android.apps.maps" to "Google Maps",
+            "com.waze" to "Waze",
+            // Communication (non-social)
+            "com.google.android.dialer" to "Phone",
+            "com.samsung.android.dialer" to "Phone",
+            "com.android.phone" to "Phone",
+            "com.google.android.apps.messaging" to "Messages",
+            "com.samsung.android.messaging" to "Messages",
+            // Utilities
+            "com.google.android.deskclock" to "Clock",
+            "com.sec.android.app.clockpackage" to "Clock",
+            "com.android.deskclock" to "Clock",
+            "com.google.android.calculator" to "Calculator",
+            "com.sec.android.app.popupcalculator" to "Calculator",
+            // Productivity
+            "com.google.android.calendar" to "Calendar",
+            "com.samsung.android.calendar" to "Calendar",
+            "com.google.android.gm" to "Gmail",
+            "com.microsoft.office.outlook" to "Outlook",
+            // Camera
+            "com.google.android.GoogleCamera" to "Camera",
+            "com.sec.android.app.camera" to "Camera",
+            // Health & Fitness
+            "com.google.android.apps.fitness" to "Google Fit",
+            "com.samsung.android.shealth" to "Samsung Health",
+            // Banking/Finance (general patterns)
+            "com.google.android.apps.walletnfcrel" to "Google Pay"
+        )
+    }
+}
+
+/**
+ * Suggested App for Blocking - stores apps identified by smart analysis
+ */
+@Entity(tableName = "suggested_blocking_apps")
+data class SuggestedBlockingApp(
+    @PrimaryKey
+    val packageName: String,
+    val appName: String,
+    val averageDailyMinutes: Int, // Average usage in last 7 days
+    val category: String, // "social", "entertainment", "gaming", etc.
+    val suggestionReason: String, // "Top time consumer", "Social media", etc.
+    val isAccepted: Boolean = false, // User accepted this suggestion
+    val isDismissed: Boolean = false, // User dismissed this suggestion
+    val suggestedAt: Long = System.currentTimeMillis()
+)

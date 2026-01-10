@@ -121,4 +121,23 @@ object AppModule {
     fun provideDailyUsageSummaryDao(database: FocusBlockDatabase): DailyUsageSummaryDao {
         return database.dailyUsageSummaryDao()
     }
+
+    // Smart Suggestions DAOs
+    @Provides
+    @Singleton
+    fun provideSmartSuggestionsSettingsDao(database: FocusBlockDatabase): SmartSuggestionsSettingsDao {
+        return database.smartSuggestionsSettingsDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideEssentialAppWhitelistDao(database: FocusBlockDatabase): EssentialAppWhitelistDao {
+        return database.essentialAppWhitelistDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideSuggestedBlockingAppDao(database: FocusBlockDatabase): SuggestedBlockingAppDao {
+        return database.suggestedBlockingAppDao()
+    }
 }

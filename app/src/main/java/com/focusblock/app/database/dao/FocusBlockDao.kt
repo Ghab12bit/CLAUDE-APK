@@ -532,3 +532,90 @@ interface DailyUsageSummaryDao {
     @Query("DELETE FROM daily_usage_summary WHERE date < :beforeDate")
     suspend fun deleteOldSummaries(beforeDate: String)
 }
+
+// ========== SMART SUGGESTIONS DAOs ==========
+
+@Dao
+interface SmartSuggestionsSettingsDao {
+    @Query("SELECT * FROM smart_suggestions_settings WHERE id = 1")
+    fun getSettings(): Flow<SmartSuggestionsSettings?>
+
+    @Query("SELECT * FROM smart_suggestions_settings WHERE id = 1")
+    suspend fun getSettingsSync(): SmartSuggestionsSettings?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(settings: SmartSuggestionsSettings)
+
+    @Update
+    suspend fun update(settings: SmartSuggestionsSettings)
+
+    @Query("UPDATE smart_suggestions_settings SET hasCompletedOnboarding = 1 WHERE id = 1")
+    suspend fun markOnboardingComplete()
+
+    @Query("""
+        UPDATE smart_suggestions_settings SET
+            lastAnalysisDate = :date,
+            averageDailyUsageMinutes = :avgMinutes,
+            suggestedDailyLimitMinutes = :suggestedLimit,
+            lastUpdated = :timestamp
+        WHERE id = 1
+    """)
+    suspend fun updateAnalysis(date: String, avgMinutes: Int, suggestedLimit: Int, timestamp: Long = System.currentTimeMillis())
+}
+
+@Dao
+interface EssentialAppWhitelistDao {
+    @Query("SELECT * FROM essential_apps_whitelist ORDER BY appName ASC")
+    fun getAllWhitelistedApps(): Flow<List<EssentialAppWhitelist>>
+
+    @Query("SELECT * FROM essential_apps_whitelist ORDER BY appName ASC")
+    suspend fun getAllWhitelistedAppsSync(): List<EssentialAppWhitelist>
+
+    @Query("SELECT packageName FROM essential_apps_whitelist")
+    suspend fun getWhitelistedPackageNames(): List<String>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM essential_apps_whitelist WHERE packageName = :packageName)")
+    suspend fun isWhitelisted(packageName: String): Boolean
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(app: EssentialAppWhitelist)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(apps: List<EssentialAppWhitelist>)
+
+    @Delete
+    suspend fun delete(app: EssentialAppWhitelist)
+
+    @Query("DELETE FROM essential_apps_whitelist WHERE packageName = :packageName")
+    suspend fun deleteByPackage(packageName: String)
+}
+
+@Dao
+interface SuggestedBlockingAppDao {
+    @Query("SELECT * FROM suggested_blocking_apps WHERE isDismissed = 0 ORDER BY averageDailyMinutes DESC")
+    fun getActiveSuggestions(): Flow<List<SuggestedBlockingApp>>
+
+    @Query("SELECT * FROM suggested_blocking_apps WHERE isDismissed = 0 ORDER BY averageDailyMinutes DESC")
+    suspend fun getActiveSuggestionsSync(): List<SuggestedBlockingApp>
+
+    @Query("SELECT * FROM suggested_blocking_apps WHERE isAccepted = 1")
+    suspend fun getAcceptedSuggestions(): List<SuggestedBlockingApp>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(suggestion: SuggestedBlockingApp)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(suggestions: List<SuggestedBlockingApp>)
+
+    @Query("UPDATE suggested_blocking_apps SET isAccepted = 1 WHERE packageName = :packageName")
+    suspend fun acceptSuggestion(packageName: String)
+
+    @Query("UPDATE suggested_blocking_apps SET isDismissed = 1 WHERE packageName = :packageName")
+    suspend fun dismissSuggestion(packageName: String)
+
+    @Query("DELETE FROM suggested_blocking_apps")
+    suspend fun clearAll()
+
+    @Query("DELETE FROM suggested_blocking_apps WHERE suggestedAt < :beforeTime")
+    suspend fun deleteOldSuggestions(beforeTime: Long)
+}

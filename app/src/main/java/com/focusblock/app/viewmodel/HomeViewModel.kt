@@ -15,6 +15,7 @@ import com.focusblock.app.R
 import com.focusblock.app.database.entity.*
 import com.focusblock.app.database.repository.FocusBlockRepository
 import com.focusblock.app.service.AppBlockingService
+import com.focusblock.app.service.FocusBlockAccessibilityService
 import com.focusblock.app.service.FocusCycleOverlayService
 import com.focusblock.app.ui.MainActivity
 import com.focusblock.app.utils.AppUtils
@@ -131,7 +132,19 @@ data class HomeUiState(
     val isAppTimerEnabled: Boolean = false,
     val appTimerLimitMinutes: Int = 30,
     val appTimerUsageMinutes: Int = 0,
-    val appTimerAppsCount: Int = 0
+    val appTimerAppsCount: Int = 0,
+    // Smart Suggestions state
+    val smartSuggestionsEnabled: Boolean = true,
+    val hasCompletedOnboarding: Boolean = false,
+    val averageDailyUsageMinutes: Int = 0,
+    val suggestedDailyLimitMinutes: Int = 0,
+    val suggestedApps: List<SuggestedBlockingApp> = emptyList(),
+    val showSmartSuggestionsCard: Boolean = false,
+    // Global Daily Limit (moved to homepage for better visibility)
+    val isGlobalDailyLimitEnabled: Boolean = false,
+    val globalDailyLimitMinutes: Int = 180,
+    val currentDailyUsageMinutes: Int = 0,
+    val dailyLimitProgress: Float = 0f // 0.0 to 1.0
 )
 
 enum class FocusCyclePhase {
@@ -183,6 +196,8 @@ class HomeViewModel @Inject constructor(
         loadInsights()
         startTimerUpdates()
         refreshEmergencyUnlockStatus()
+        loadSmartSuggestions()
+        loadGlobalDailyLimitForHome()
     }
 
     private fun loadData() {
@@ -1415,5 +1430,374 @@ class HomeViewModel @Inject constructor(
      */
     fun isFocusCycleBlocking(): Boolean {
         return _uiState.value.focusCyclePhase == FocusCyclePhase.BREAK
+    }
+
+    // ========== SMART SUGGESTIONS ==========
+
+    /**
+     * Load smart suggestions settings and analyze usage
+     */
+    private fun loadSmartSuggestions() {
+        viewModelScope.launch {
+            // Initialize default whitelist if needed
+            initializeEssentialAppsWhitelist()
+
+            // Load settings
+            repository.getSmartSuggestionsSettings().collect { settings ->
+                if (settings != null) {
+                    _uiState.update { it.copy(
+                        smartSuggestionsEnabled = settings.isEnabled,
+                        hasCompletedOnboarding = settings.hasCompletedOnboarding,
+                        averageDailyUsageMinutes = settings.averageDailyUsageMinutes,
+                        suggestedDailyLimitMinutes = settings.suggestedDailyLimitMinutes
+                    )}
+                } else {
+                    // Initialize with defaults
+                    repository.saveSmartSuggestionsSettings(SmartSuggestionsSettings())
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            // Load active suggestions
+            repository.getActiveSuggestions().collect { suggestions ->
+                _uiState.update { it.copy(
+                    suggestedApps = suggestions,
+                    showSmartSuggestionsCard = suggestions.isNotEmpty()
+                )}
+            }
+        }
+    }
+
+    /**
+     * Initialize essential apps whitelist with defaults
+     */
+    private suspend fun initializeEssentialAppsWhitelist() {
+        val existingWhitelist = repository.getAllWhitelistedAppsSync()
+        if (existingWhitelist.isEmpty()) {
+            val defaultApps = EssentialAppWhitelist.DEFAULT_ESSENTIAL_APPS.map { (pkg, name) ->
+                EssentialAppWhitelist(
+                    packageName = pkg,
+                    appName = name,
+                    isDefault = true
+                )
+            }
+            repository.addAllToWhitelist(defaultApps)
+        }
+    }
+
+    /**
+     * Analyze last 7 days of usage and generate smart suggestions
+     * This calculates average usage and suggests a 20% reduction goal
+     */
+    fun analyzeUsageAndGenerateSuggestions() {
+        viewModelScope.launch {
+            try {
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    .format(java.util.Date())
+
+                // Get last 7 days summaries
+                val summaries = repository.getRecentDailySummaries(7)
+                if (summaries.isEmpty()) {
+                    showToast("Not enough usage data. Use your phone for a few days first.")
+                    return@launch
+                }
+
+                // Calculate average daily usage
+                val totalMinutes = summaries.sumOf { it.totalScreenTimeMinutes }
+                val averageMinutes = totalMinutes / summaries.size
+
+                // Calculate suggested limit (80% of average = 20% reduction)
+                val suggestedLimit = (averageMinutes * 0.8).toInt().coerceAtLeast(30) // Min 30 min
+
+                // Update settings
+                repository.updateSmartAnalysis(today, averageMinutes, suggestedLimit)
+
+                // Generate app suggestions based on usage patterns
+                generateAppSuggestions()
+
+                _uiState.update { it.copy(
+                    averageDailyUsageMinutes = averageMinutes,
+                    suggestedDailyLimitMinutes = suggestedLimit
+                )}
+
+                showToast("Analysis complete! Avg: ${averageMinutes}min, Goal: ${suggestedLimit}min")
+
+            } catch (e: Exception) {
+                showToast("Error analyzing usage: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Generate app suggestions based on usage patterns
+     * Identifies top time-consuming apps, especially social/entertainment
+     */
+    private suspend fun generateAppSuggestions() {
+        try {
+            // Get whitelist to exclude essential apps
+            val whitelistedPackages = repository.getWhitelistedPackageNames().toSet()
+
+            // Get installed apps with usage
+            val apps = installedApps.value
+            if (apps.isEmpty()) return
+
+            // Social/Entertainment categories (keywords to identify distracting apps)
+            val socialKeywords = setOf(
+                "instagram", "facebook", "twitter", "tiktok", "snapchat",
+                "reddit", "pinterest", "tumblr", "whatsapp", "telegram",
+                "discord", "messenger", "wechat", "line", "viber"
+            )
+            val entertainmentKeywords = setOf(
+                "youtube", "netflix", "twitch", "hulu", "disney", "spotify",
+                "prime video", "game", "gaming", "vlc", "player"
+            )
+
+            // Filter apps that are likely distracting
+            val distractingApps = apps.filter { app ->
+                val pkgLower = app.packageName.lowercase()
+                val nameLower = app.appName.lowercase()
+
+                // Skip whitelisted and system apps
+                if (whitelistedPackages.contains(app.packageName)) return@filter false
+                if (app.packageName.startsWith("com.android.") ||
+                    app.packageName.startsWith("com.google.android.gms") ||
+                    app.packageName.startsWith("com.samsung.android.")) return@filter false
+
+                // Check if it's a social or entertainment app
+                socialKeywords.any { pkgLower.contains(it) || nameLower.contains(it) } ||
+                entertainmentKeywords.any { pkgLower.contains(it) || nameLower.contains(it) }
+            }
+
+            // Create suggestions (max 5 apps)
+            val suggestions = distractingApps.take(5).map { app ->
+                val category = when {
+                    socialKeywords.any { app.packageName.lowercase().contains(it) } -> "social"
+                    entertainmentKeywords.any { app.packageName.lowercase().contains(it) } -> "entertainment"
+                    else -> "other"
+                }
+
+                SuggestedBlockingApp(
+                    packageName = app.packageName,
+                    appName = app.appName,
+                    averageDailyMinutes = 0, // Would need usage stats to calculate
+                    category = category,
+                    suggestionReason = when (category) {
+                        "social" -> "Social media apps are top time wasters"
+                        "entertainment" -> "Entertainment apps reduce productivity"
+                        else -> "Identified as potentially distracting"
+                    }
+                )
+            }
+
+            // Clear old and add new suggestions
+            repository.clearAllSuggestions()
+            repository.addAllSuggestions(suggestions)
+
+        } catch (e: Exception) {
+            // Silently fail - suggestions are optional
+        }
+    }
+
+    /**
+     * Accept a suggestion and add app to Quick Block
+     */
+    fun acceptSuggestion(packageName: String) {
+        viewModelScope.launch {
+            repository.acceptSuggestion(packageName)
+
+            // Add to blocked apps list
+            val appName = AppUtils.getAppName(application, packageName)
+            repository.insertBlockedApp(BlockedApp(
+                packageName = packageName,
+                appName = appName,
+                isBlocked = true
+            ))
+
+            showToast("$appName added to block list")
+        }
+    }
+
+    /**
+     * Dismiss a suggestion
+     */
+    fun dismissSuggestion(packageName: String) {
+        viewModelScope.launch {
+            repository.dismissSuggestion(packageName)
+        }
+    }
+
+    /**
+     * Accept all suggestions and add to Quick Block
+     */
+    fun acceptAllSuggestions() {
+        viewModelScope.launch {
+            val suggestions = repository.getActiveSuggestionsSync()
+
+            // Add all suggested apps to blocked list
+            val blockedApps = suggestions.map { suggestion ->
+                repository.acceptSuggestion(suggestion.packageName)
+                BlockedApp(
+                    packageName = suggestion.packageName,
+                    appName = suggestion.appName,
+                    isBlocked = true
+                )
+            }
+
+            repository.insertBlockedApps(blockedApps)
+            showToast("${suggestions.size} apps added to block list")
+        }
+    }
+
+    /**
+     * Apply suggested daily limit to Global Daily Limit
+     */
+    fun applySuggestedDailyLimit() {
+        viewModelScope.launch {
+            val suggestedLimit = _uiState.value.suggestedDailyLimitMinutes
+            if (suggestedLimit <= 0) {
+                showToast("Run analysis first to get a suggested limit")
+                return@launch
+            }
+
+            // Update Global Daily Limit settings
+            val currentSettings = repository.getGlobalDailyLimitSettingsSync()
+            if (currentSettings != null) {
+                repository.updateGlobalDailyLimitSettings(currentSettings.copy(
+                    isEnabled = true,
+                    dailyLimitMinutes = suggestedLimit,
+                    updatedAt = System.currentTimeMillis()
+                ))
+            } else {
+                repository.saveGlobalDailyLimitSettings(
+                    GlobalDailyLimitSettings(
+                        isEnabled = true,
+                        dailyLimitMinutes = suggestedLimit
+                    )
+                )
+            }
+
+            _uiState.update { it.copy(
+                isGlobalDailyLimitEnabled = true,
+                globalDailyLimitMinutes = suggestedLimit
+            )}
+
+            // Notify service
+            val intent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+            intent.`package` = application.packageName
+            application.sendBroadcast(intent)
+
+            showToast("Daily limit set to ${suggestedLimit} minutes (20% reduction)")
+        }
+    }
+
+    // ========== GLOBAL DAILY LIMIT (HOMEPAGE) ==========
+
+    /**
+     * Load Global Daily Limit settings for homepage display
+     */
+    private fun loadGlobalDailyLimitForHome() {
+        viewModelScope.launch {
+            repository.getGlobalDailyLimitSettings().collect { settings ->
+                if (settings != null) {
+                    _uiState.update { it.copy(
+                        isGlobalDailyLimitEnabled = settings.isEnabled,
+                        globalDailyLimitMinutes = settings.dailyLimitMinutes
+                    )}
+                }
+            }
+        }
+
+        // Load current usage
+        viewModelScope.launch {
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                .format(java.util.Date())
+
+            repository.getGlobalDailyUsage(today).collect { usage ->
+                val currentMinutes = usage?.totalUsageMinutes ?: 0
+                val limitMinutes = _uiState.value.globalDailyLimitMinutes
+                val progress = if (limitMinutes > 0) {
+                    (currentMinutes.toFloat() / limitMinutes).coerceIn(0f, 1f)
+                } else 0f
+
+                _uiState.update { it.copy(
+                    currentDailyUsageMinutes = currentMinutes,
+                    dailyLimitProgress = progress
+                )}
+            }
+        }
+    }
+
+    /**
+     * Set Global Daily Limit enabled/disabled from homepage
+     */
+    fun setGlobalDailyLimitEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            val currentSettings = repository.getGlobalDailyLimitSettingsSync()
+            if (currentSettings != null) {
+                repository.updateGlobalDailyLimitSettings(currentSettings.copy(
+                    isEnabled = enabled,
+                    updatedAt = System.currentTimeMillis()
+                ))
+            } else {
+                repository.saveGlobalDailyLimitSettings(
+                    GlobalDailyLimitSettings(isEnabled = enabled)
+                )
+            }
+            _uiState.update { it.copy(isGlobalDailyLimitEnabled = enabled) }
+
+            // Notify service
+            val intent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+            intent.`package` = application.packageName
+            application.sendBroadcast(intent)
+        }
+    }
+
+    /**
+     * Set Global Daily Limit minutes from homepage
+     */
+    fun setGlobalDailyLimit(minutes: Int) {
+        viewModelScope.launch {
+            val currentSettings = repository.getGlobalDailyLimitSettingsSync()
+            if (currentSettings != null) {
+                repository.updateGlobalDailyLimitSettings(currentSettings.copy(
+                    dailyLimitMinutes = minutes,
+                    updatedAt = System.currentTimeMillis()
+                ))
+            } else {
+                repository.saveGlobalDailyLimitSettings(
+                    GlobalDailyLimitSettings(dailyLimitMinutes = minutes)
+                )
+            }
+            _uiState.update { it.copy(globalDailyLimitMinutes = minutes) }
+
+            // Notify service
+            val intent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+            intent.`package` = application.packageName
+            application.sendBroadcast(intent)
+        }
+    }
+
+    /**
+     * Add app to essential whitelist (never suggest blocking)
+     */
+    fun addToEssentialWhitelist(packageName: String, appName: String) {
+        viewModelScope.launch {
+            repository.addToWhitelist(EssentialAppWhitelist(
+                packageName = packageName,
+                appName = appName,
+                isDefault = false
+            ))
+            showToast("$appName added to essential apps")
+        }
+    }
+
+    /**
+     * Remove app from essential whitelist
+     */
+    fun removeFromEssentialWhitelist(packageName: String) {
+        viewModelScope.launch {
+            repository.removeFromWhitelist(packageName)
+        }
     }
 }

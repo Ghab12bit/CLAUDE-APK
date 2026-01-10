@@ -22,7 +22,9 @@ import androidx.core.app.NotificationCompat
 import com.focusblock.app.FocusBlockApp
 import com.focusblock.app.R
 import com.focusblock.app.database.FocusBlockDatabase
+import com.focusblock.app.database.entity.AppSettings
 import com.focusblock.app.database.entity.BlockLog
+import com.focusblock.app.database.entity.BlockedApp
 import com.focusblock.app.database.entity.BlockedByType
 import com.focusblock.app.database.entity.FocusCycle
 import com.focusblock.app.ui.MainActivity
@@ -74,6 +76,30 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // ========== EXCESSIVE USAGE NOTIFICATION (3+ HOURS) ==========
         private const val EXCESSIVE_USAGE_THRESHOLD_MINUTES = 180 // 3 hours
         private const val EXCESSIVE_USAGE_NOTIFICATION_ID = 4007
+
+        // ========== AUTO-BLOCK ON EXCESS SOCIAL MEDIA USAGE ==========
+        private const val AUTO_BLOCK_NOTIFICATION_ID = 4008
+        // Social media apps that should be auto-blocked when exceeding yesterday's usage
+        private val SOCIAL_MEDIA_PACKAGES = setOf(
+            "com.instagram.android",
+            "com.facebook.katana",
+            "com.facebook.orca",
+            "com.twitter.android",
+            "com.zhiliaoapp.musically", // TikTok
+            "com.ss.android.ugc.trill", // TikTok (alternate)
+            "com.snapchat.android",
+            "com.reddit.frontpage",
+            "com.pinterest",
+            "com.tumblr",
+            "com.linkedin.android",
+            "com.discord",
+            "com.whatsapp",
+            "com.viber.voip",
+            "org.telegram.messenger",
+            "com.google.android.youtube",
+            "com.netflix.mediaclient",
+            "tv.twitch.android.app"
+        )
 
         var isServiceRunning = false
             private set
@@ -157,6 +183,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private var pendingSessionEnd: String? = null // Package that might end session (with debounce)
     private val SESSION_SWITCH_DEBOUNCE_MS = 3000L // 3 seconds debounce for app switches
     private val SESSION_IDLE_TIMEOUT_MS = 60_000L // 1 minute of no activity = session ends
+
+    // ========== AUTO-BLOCK ON EXCESS USAGE ==========
+    // Track if auto-blocking has been triggered today (resets at midnight)
+    @Volatile private var autoBlockTriggeredDate: String? = null
+    @Volatile private var autoBlockedPackages: MutableSet<String> = mutableSetOf()
 
     // ========== APP TIMER TRACKING ==========
     private val appTimerHandler = Handler(Looper.getMainLooper())
@@ -2545,7 +2576,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
     /**
      * Check today vs yesterday usage and send notification if significant difference
-     * Triggers once per day with sensible thresholds
+     * Also triggers AUTO-BLOCKING if today exceeds yesterday due to social media usage
      */
     private fun checkUsageComparison() {
         immediateScope.launch {
@@ -2553,20 +2584,14 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
                 val today = dateFormat.format(java.util.Date())
 
+                // Reset auto-block state at midnight
+                if (autoBlockTriggeredDate != today) {
+                    autoBlockTriggeredDate = null
+                    autoBlockedPackages.clear()
+                }
+
                 // Get today's summary
                 val todaySummary = database.dailyUsageSummaryDao().getSummaryForDateSync(today)
-
-                // Skip if notification already sent today
-                if (todaySummary?.comparisonNotificationSent == true) {
-                    return@launch
-                }
-
-                // Get current hour - only check after 6 PM for meaningful daily comparison
-                val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-                if (currentHour < 18) {
-                    Log.v(TAG, "Usage comparison: Too early for daily comparison (hour: $currentHour)")
-                    return@launch
-                }
 
                 // Calculate yesterday's date
                 val calendar = java.util.Calendar.getInstance().apply {
@@ -2577,18 +2602,34 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 // Get yesterday's summary
                 val yesterdaySummary = database.dailyUsageSummaryDao().getSummaryForDateSync(yesterday)
 
-                // Skip if yesterday's data is not meaningful
-                if (yesterdaySummary == null || yesterdaySummary.totalScreenTimeMinutes < MEANINGFUL_USAGE_THRESHOLD_MINUTES) {
-                    Log.v(TAG, "Usage comparison: Yesterday's usage not meaningful (${yesterdaySummary?.totalScreenTimeMinutes ?: 0} min)")
+                val todayMinutes = todaySummary?.totalScreenTimeMinutes ?: 0
+                val yesterdayMinutes = yesterdaySummary?.totalScreenTimeMinutes ?: 0
+
+                // ========== AUTO-BLOCK CHECK (runs continuously) ==========
+                // If today exceeds yesterday AND auto-block hasn't triggered yet today
+                if (yesterdayMinutes > 0 && todayMinutes > yesterdayMinutes && autoBlockTriggeredDate != today) {
+                    checkAndAutoBlockSocialApps(today, todayMinutes, yesterdayMinutes)
+                }
+
+                // ========== DAILY COMPARISON NOTIFICATION (once per day after 6 PM) ==========
+                // Skip if notification already sent today
+                if (todaySummary?.comparisonNotificationSent == true) {
                     return@launch
                 }
 
-                val todayMinutes = todaySummary?.totalScreenTimeMinutes ?: 0
-                val yesterdayMinutes = yesterdaySummary.totalScreenTimeMinutes
+                // Get current hour - only check after 6 PM for meaningful daily comparison
+                val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                if (currentHour < 18) {
+                    return@launch
+                }
+
+                // Skip if yesterday's data is not meaningful
+                if (yesterdayMinutes < MEANINGFUL_USAGE_THRESHOLD_MINUTES) {
+                    return@launch
+                }
 
                 // Skip if today's usage is not meaningful yet
                 if (todayMinutes < MEANINGFUL_USAGE_THRESHOLD_MINUTES) {
-                    Log.v(TAG, "Usage comparison: Today's usage not meaningful yet ($todayMinutes min)")
                     return@launch
                 }
 
@@ -2598,7 +2639,6 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
                 // Only notify if difference is significant
                 if (kotlin.math.abs(percentDiff) < SIGNIFICANT_DIFFERENCE_PERCENT) {
-                    Log.v(TAG, "Usage comparison: Difference not significant ($percentDiff%)")
                     return@launch
                 }
 
@@ -2616,6 +2656,192 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 Log.e(TAG, "Error checking usage comparison", e)
             }
         }
+    }
+
+    /**
+     * Check if excess usage is from social media apps and auto-block them
+     * Also activates Hard Mode when triggered
+     */
+    private suspend fun checkAndAutoBlockSocialApps(today: String, todayMinutes: Int, yesterdayMinutes: Int) {
+        try {
+            val excessMinutes = todayMinutes - yesterdayMinutes
+            if (excessMinutes <= 0) return
+
+            Log.i(TAG, "Auto-block check: Today ($todayMinutes) exceeds yesterday ($yesterdayMinutes) by $excessMinutes min")
+
+            // Get per-app usage for today to identify which apps caused the excess
+            val socialAppUsage = getSocialAppUsageToday()
+
+            // Calculate total social media usage today
+            val totalSocialMinutes = socialAppUsage.values.sum()
+
+            Log.i(TAG, "Auto-block check: Social media usage today = $totalSocialMinutes min")
+
+            // If social media accounts for the excess (or more), trigger auto-block
+            if (totalSocialMinutes >= excessMinutes) {
+                Log.w(TAG, "AUTO-BLOCK TRIGGERED: Social media ($totalSocialMinutes min) accounts for excess usage ($excessMinutes min)")
+
+                // Get social apps that were used today
+                val usedSocialApps = socialAppUsage.filter { it.value > 5 }.keys // Apps used >5 min
+
+                if (usedSocialApps.isEmpty()) {
+                    Log.i(TAG, "Auto-block: No significant social media usage to block")
+                    return
+                }
+
+                // Add to blocked apps
+                for (packageName in usedSocialApps) {
+                    val appName = try {
+                        packageManager.getApplicationLabel(
+                            packageManager.getApplicationInfo(packageName, 0)
+                        ).toString()
+                    } catch (e: Exception) {
+                        packageName.substringAfterLast(".")
+                    }
+
+                    // Insert as blocked app
+                    database.blockedAppDao().insert(
+                        BlockedApp(
+                            packageName = packageName,
+                            appName = appName,
+                            isBlocked = true
+                        )
+                    )
+
+                    autoBlockedPackages.add(packageName)
+                    Log.i(TAG, "Auto-blocked: $appName ($packageName)")
+                }
+
+                // Mark auto-block as triggered for today
+                autoBlockTriggeredDate = today
+
+                // Activate Hard Mode automatically
+                activateHardModeAutomatically()
+
+                // Show notification
+                mainHandler.post {
+                    showAutoBlockNotification(usedSocialApps.size, excessMinutes, totalSocialMinutes)
+                }
+
+            } else {
+                Log.i(TAG, "Auto-block: Excess is from non-social apps (social: $totalSocialMinutes min < excess: $excessMinutes min)")
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in auto-block check", e)
+        }
+    }
+
+    /**
+     * Get today's usage per social media app
+     */
+    private fun getSocialAppUsageToday(): Map<String, Int> {
+        val result = mutableMapOf<String, Int>()
+
+        try {
+            val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+                ?: return result
+
+            // Get today's start time
+            val todayStart = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+
+            val now = System.currentTimeMillis()
+
+            // Query usage stats
+            val usageStats = usageStatsManager.queryUsageStats(
+                UsageStatsManager.INTERVAL_DAILY,
+                todayStart,
+                now
+            )
+
+            for (stats in usageStats) {
+                if (SOCIAL_MEDIA_PACKAGES.contains(stats.packageName)) {
+                    val minutes = (stats.totalTimeInForeground / 60000).toInt()
+                    if (minutes > 0) {
+                        result[stats.packageName] = minutes
+                    }
+                }
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting social app usage", e)
+        }
+
+        return result
+    }
+
+    /**
+     * Activate Hard Mode automatically when excess social media usage detected
+     */
+    private suspend fun activateHardModeAutomatically() {
+        try {
+            // Set Hard Mode enabled in settings
+            database.settingsDao().insert(
+                AppSettings(
+                    key = AppSettings.KEY_HARD_MODE_ENABLED,
+                    value = "true"
+                )
+            )
+
+            // Also enable Strict Mode with 2 hour duration
+            val twoHoursMs = 2 * 60 * 60 * 1000L
+            val endTime = System.currentTimeMillis() + twoHoursMs
+
+            database.settingsDao().insert(
+                AppSettings(
+                    key = AppSettings.KEY_STRICT_MODE_ENABLED,
+                    value = "true"
+                )
+            )
+            database.settingsDao().insert(
+                AppSettings(
+                    key = AppSettings.KEY_STRICT_MODE_END_TIME,
+                    value = endTime.toString()
+                )
+            )
+
+            Log.w(TAG, "AUTO: Hard Mode and Strict Mode (2h) activated due to excess social media usage")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error activating Hard Mode automatically", e)
+        }
+    }
+
+    /**
+     * Show notification about auto-blocking
+     */
+    private fun showAutoBlockNotification(appsBlocked: Int, excessMinutes: Int, socialMinutes: Int) {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_ALERTS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Auto-Block Activated")
+            .setContentText("$appsBlocked social apps blocked. Hard Mode enabled.")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("You exceeded yesterday's usage by ${formatMinutesNicely(excessMinutes)}. " +
+                        "Social media apps (${formatMinutesNicely(socialMinutes)} today) have been auto-blocked and Hard Mode activated."))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(AUTO_BLOCK_NOTIFICATION_ID, notification)
+        vibrateDevice()
     }
 
     /**

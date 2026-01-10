@@ -1489,6 +1489,7 @@ class HomeViewModel @Inject constructor(
     /**
      * Analyze last 7 days of usage and generate smart suggestions
      * This calculates average usage and suggests a 20% reduction goal
+     * with a minimum daily target of 60-120 minutes (1-2 hours)
      */
     fun analyzeUsageAndGenerateSuggestions() {
         viewModelScope.launch {
@@ -1508,7 +1509,17 @@ class HomeViewModel @Inject constructor(
                 val averageMinutes = totalMinutes / summaries.size
 
                 // Calculate suggested limit (80% of average = 20% reduction)
-                val suggestedLimit = (averageMinutes * 0.8).toInt().coerceAtLeast(30) // Min 30 min
+                // Minimum target: 60 minutes (1 hour)
+                // Maximum target: 120 minutes (2 hours) if user is already low
+                val MINIMUM_DAILY_LIMIT = 60 // 1 hour minimum
+                val TARGET_DAILY_LIMIT = 120 // 2 hours is ideal target
+
+                val calculatedLimit = (averageMinutes * 0.8).toInt()
+                val suggestedLimit = when {
+                    calculatedLimit < MINIMUM_DAILY_LIMIT -> MINIMUM_DAILY_LIMIT
+                    calculatedLimit > TARGET_DAILY_LIMIT && averageMinutes > TARGET_DAILY_LIMIT * 1.5 -> TARGET_DAILY_LIMIT
+                    else -> calculatedLimit
+                }.coerceIn(MINIMUM_DAILY_LIMIT, averageMinutes.coerceAtLeast(MINIMUM_DAILY_LIMIT))
 
                 // Update settings
                 repository.updateSmartAnalysis(today, averageMinutes, suggestedLimit)
@@ -1521,7 +1532,10 @@ class HomeViewModel @Inject constructor(
                     suggestedDailyLimitMinutes = suggestedLimit
                 )}
 
-                showToast("Analysis complete! Avg: ${averageMinutes}min, Goal: ${suggestedLimit}min")
+                val hours = suggestedLimit / 60
+                val mins = suggestedLimit % 60
+                val goalText = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+                showToast("Goal set: $goalText daily (target: 1-2 hours)")
 
             } catch (e: Exception) {
                 showToast("Error analyzing usage: ${e.message}")

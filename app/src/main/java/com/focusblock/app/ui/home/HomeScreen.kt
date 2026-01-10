@@ -471,6 +471,7 @@ fun HomeScreen(
         StrictModeUnlockDialog(
             isLocked = uiState.isStrictModeLocked,
             remainingTime = uiState.strictModeRemainingTime,
+            isEmergencyUnlockAvailable = uiState.isEmergencyUnlockAvailable,
             onDismiss = { showStrictModeUnlockDialog = false },
             onDisableStrictMode = {
                 if (!uiState.isStrictModeLocked) {
@@ -478,6 +479,12 @@ fun HomeScreen(
                     viewModel.stopQuickBlock()
                     showStrictModeUnlockDialog = false
                 }
+            },
+            onAddTime = { minutes ->
+                viewModel.addStrictModeTime(minutes)
+            },
+            onEmergencyUnlock = {
+                viewModel.emergencyUnlock()
             }
         )
     }
@@ -2186,9 +2193,25 @@ fun UnlockPinDialog(
 fun StrictModeUnlockDialog(
     isLocked: Boolean = false,
     remainingTime: Long = 0,
+    isEmergencyUnlockAvailable: Boolean = true,
     onDismiss: () -> Unit,
-    onDisableStrictMode: () -> Unit
+    onDisableStrictMode: () -> Unit,
+    onAddTime: (Int) -> Unit = {},
+    onEmergencyUnlock: () -> Unit = {}
 ) {
+    var showEmergencyConfirmation by remember { mutableStateOf(false) }
+    var emergencyCountdown by remember { mutableStateOf(3) }
+
+    // Countdown timer for emergency unlock friction
+    LaunchedEffect(showEmergencyConfirmation) {
+        if (showEmergencyConfirmation) {
+            emergencyCountdown = 3
+            while (emergencyCountdown > 0) {
+                kotlinx.coroutines.delay(1000)
+                emergencyCountdown--
+            }
+        }
+    }
     // Format remaining time
     val remainingTimeText = if (remainingTime > 0) {
         val hours = (remainingTime / (1000 * 60 * 60)).toInt()
@@ -2237,57 +2260,196 @@ fun StrictModeUnlockDialog(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 if (isLocked) {
-                    // Show locked state with remaining time
-                    Text(
-                        text = "Strict Mode is time-locked and cannot be disabled until the timer expires.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Primary.copy(alpha = 0.1f))
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                    if (showEmergencyConfirmation) {
+                        // Emergency unlock confirmation with countdown
+                        Text(
+                            text = "Are you sure? This will pause Strict Mode.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = AccentRed.copy(alpha = 0.1f)
                         ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Warning,
+                                    contentDescription = null,
+                                    tint = AccentRed,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "You can only use emergency unlock ONCE per day",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = AccentRed,
+                                    textAlign = TextAlign.Center
+                                )
+                                Text(
+                                    text = "Strict Mode will resume automatically tomorrow",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { showEmergencyConfirmation = false },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("Cancel")
+                            }
+                            Button(
+                                onClick = {
+                                    onEmergencyUnlock()
+                                    onDismiss()
+                                },
+                                modifier = Modifier.weight(1f),
+                                enabled = emergencyCountdown == 0,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                            ) {
+                                Text(
+                                    if (emergencyCountdown > 0) "Wait $emergencyCountdown..." else "Confirm",
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    } else {
+                        // Normal locked state view
+                        Text(
+                            text = "Strict Mode is time-locked.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Primary.copy(alpha = 0.1f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Time remaining",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = TextSecondary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = remainingTimeText,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = Primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Time extension buttons
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Need more focus time?",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { onAddTime(30); onDismiss() },
+                                shape = RoundedCornerShape(10.dp),
+                                color = AccentGreen.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "+30m",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = AccentGreen,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 10.dp)
+                                )
+                            }
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { onAddTime(60); onDismiss() },
+                                shape = RoundedCornerShape(10.dp),
+                                color = AccentGreen.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "+1h",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = AccentGreen,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 10.dp)
+                                )
+                            }
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { onAddTime(120); onDismiss() },
+                                shape = RoundedCornerShape(10.dp),
+                                color = AccentGreen.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "+2h",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = AccentGreen,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 10.dp)
+                                )
+                            }
+                        }
+
+                        // Emergency unlock option
+                        if (isEmergencyUnlockAvailable) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Divider(color = Divider)
+                            Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = "Time remaining",
-                                style = MaterialTheme.typography.labelMedium,
+                                text = "Emergency? You have 1 unlock per day",
+                                style = MaterialTheme.typography.labelSmall,
                                 color = TextSecondary
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = remainingTimeText,
-                                style = MaterialTheme.typography.headlineMedium,
-                                color = Primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = AccentRed.copy(alpha = 0.1f)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Info,
-                                contentDescription = null,
-                                tint = AccentRed,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "No PIN, restart, or setting can bypass this lock",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = AccentRed
-                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { showEmergencyConfirmation = true },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = AccentRed
+                                ),
+                                border = BorderStroke(1.dp, AccentRed.copy(alpha = 0.5f))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Warning,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Emergency Unlock", fontWeight = FontWeight.Medium)
+                            }
                         }
                     }
                 } else {
@@ -3121,12 +3283,25 @@ fun AppTimerSetupDialog(
 
     val timerColor = Color(0xFF00BCD4) // Cyan
 
+    // Search state
+    var searchQuery by remember { mutableStateOf("") }
+
     // Filter apps to show - prioritize timer apps
-    val timerApps = remember(apps) {
-        apps.filter { defaultApps.contains(it.packageName) }
+    val timerApps = remember(apps, searchQuery) {
+        apps.filter { app ->
+            defaultApps.contains(app.packageName) &&
+            (searchQuery.isBlank() ||
+             app.appName.contains(searchQuery, ignoreCase = true) ||
+             app.packageName.contains(searchQuery, ignoreCase = true))
+        }
     }
-    val otherApps = remember(apps) {
-        apps.filter { !defaultApps.contains(it.packageName) }
+    val otherApps = remember(apps, searchQuery) {
+        apps.filter { app ->
+            !defaultApps.contains(app.packageName) &&
+            (searchQuery.isBlank() ||
+             app.appName.contains(searchQuery, ignoreCase = true) ||
+             app.packageName.contains(searchQuery, ignoreCase = true))
+        }
     }
 
     AlertDialog(
@@ -3253,11 +3428,79 @@ fun AppTimerSetupDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // App selection
-                Text(
-                    text = "Apps to track (${selectedApps.size} selected)",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = TextSecondary
+                // App selection header with count
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Apps to track (${selectedApps.size} selected)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary
+                    )
+                    Row {
+                        TextButton(
+                            onClick = {
+                                // Select all visible apps
+                                val allVisible = (timerApps + otherApps).map { it.packageName }
+                                selectedApps = selectedApps + allVisible.toSet()
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("All", style = MaterialTheme.typography.labelSmall, color = timerColor)
+                        }
+                        TextButton(
+                            onClick = { selectedApps = emptySet() },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("Clear", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                        }
+                    }
+                }
+
+                // Search bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    placeholder = {
+                        Text(
+                            "Search apps...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = null,
+                            tint = TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Clear,
+                                    contentDescription = "Clear search",
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall.copy(color = TextPrimary),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = timerColor,
+                        unfocusedBorderColor = TextSecondary.copy(alpha = 0.3f),
+                        cursorColor = timerColor
+                    ),
+                    shape = RoundedCornerShape(10.dp)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 

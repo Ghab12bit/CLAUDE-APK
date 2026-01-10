@@ -71,6 +71,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         private const val MEANINGFUL_USAGE_THRESHOLD_MINUTES = 30 // Min usage to compare
         private const val SIGNIFICANT_DIFFERENCE_PERCENT = 15 // 15% difference to trigger notification
 
+        // ========== EXCESSIVE USAGE NOTIFICATION (3+ HOURS) ==========
+        private const val EXCESSIVE_USAGE_THRESHOLD_MINUTES = 180 // 3 hours
+        private const val EXCESSIVE_USAGE_NOTIFICATION_ID = 4007
+
         var isServiceRunning = false
             private set
 
@@ -2173,6 +2177,13 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     }
                 }
 
+                // Check for 3+ hours excessive usage notification (independent of global limit)
+                if (totalUsageMinutes >= EXCESSIVE_USAGE_THRESHOLD_MINUTES &&
+                    !dailyUsage.excessiveUsageNotificationShown) {
+                    database.globalDailyUsageDao().markExcessiveUsageNotificationShown(today)
+                    showExcessiveUsageNotification(totalUsageMinutes)
+                }
+
                 Log.v(TAG, "Global Limit check: usage=$totalUsageMinutes min, limit=$limitMinutes min, enforcing=$globalLimitEnforcementActive")
 
             } catch (e: Exception) {
@@ -2338,6 +2349,43 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             .build()
 
         notificationManager.notify(GLOBAL_LIMIT_REACHED_NOTIFICATION_ID, notification)
+        vibrateDevice()
+    }
+
+    /**
+     * Show notification when user exceeds 3 hours of screen time
+     * This is a strict warning independent of the global limit setting
+     */
+    private fun showExcessiveUsageNotification(currentMinutes: Int) {
+        val hours = currentMinutes / 60
+        val mins = currentMinutes % 60
+        val timeString = if (mins > 0) "${hours}h ${mins}m" else "${hours}h"
+
+        Log.i(TAG, "Excessive Usage: Showing 3+ hours notification - $timeString total")
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_ALERTS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("3+ Hours of Screen Time Today")
+            .setContentText("You've spent $timeString on your phone. Consider taking a break.")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("You've spent $timeString on your phone today. Extended screen time can affect your focus and wellbeing. Consider putting your phone down and doing something offline."))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(EXCESSIVE_USAGE_NOTIFICATION_ID, notification)
         vibrateDevice()
     }
 

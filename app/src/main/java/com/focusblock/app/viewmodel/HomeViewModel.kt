@@ -109,6 +109,7 @@ data class HomeUiState(
     val strictModeRemainingTime: Long = 0,
     val strictModeRemainingPausesToday: Int = 1, // Pauses remaining today
     val strictModeMaxPausesPerDay: Int = 1, // Configurable max pauses
+    val isEmergencyUnlockAvailable: Boolean = true, // One-time daily emergency unlock
     val isHardModeEnabled: Boolean = false,
     val permissionStatus: PermissionUtils.PermissionStatus = PermissionUtils.PermissionStatus(
         hasUsageStats = false,
@@ -181,6 +182,7 @@ class HomeViewModel @Inject constructor(
         loadStrictModePauseLimits()
         loadInsights()
         startTimerUpdates()
+        refreshEmergencyUnlockStatus()
     }
 
     private fun loadData() {
@@ -1107,6 +1109,74 @@ class HomeViewModel @Inject constructor(
     }
 
     fun isStrictModeLocked(): Boolean = _uiState.value.isStrictModeLocked
+
+    /**
+     * Check if emergency unlock is available today
+     */
+    suspend fun isEmergencyUnlockAvailable(): Boolean {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        val usedDate = repository.getSetting(AppSettings.KEY_STRICT_MODE_EMERGENCY_UNLOCK_USED_DATE)
+        return usedDate != today
+    }
+
+    /**
+     * Emergency unlock - pauses Strict Mode (once per day)
+     * Returns true if successful, false if already used today
+     */
+    fun emergencyUnlock(): Boolean {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date())
+
+        // Check if already used today (synchronous check from cached state)
+        if (!_uiState.value.isEmergencyUnlockAvailable) {
+            showToast("Emergency unlock already used today")
+            return false
+        }
+
+        viewModelScope.launch {
+            // Double-check from repository
+            val usedDate = repository.getSetting(AppSettings.KEY_STRICT_MODE_EMERGENCY_UNLOCK_USED_DATE)
+            if (usedDate == today) {
+                showToast("Emergency unlock already used today")
+                _uiState.update { it.copy(isEmergencyUnlockAvailable = false) }
+                return@launch
+            }
+
+            // Mark as used for today
+            repository.setSetting(AppSettings.KEY_STRICT_MODE_EMERGENCY_UNLOCK_USED_DATE, today)
+
+            // Pause strict mode (stores remaining time for later)
+            val remainingTime = _uiState.value.strictModeRemainingTime
+            repository.setStrictModeRemainingOnPause(remainingTime)
+            repository.setStrictModePaused(true)
+            repository.setStrictModePauseReason("emergency_unlock")
+            repository.clearStrictModeEndTime()
+
+            _uiState.update { it.copy(
+                isStrictModePaused = true,
+                isStrictModeLocked = false,
+                isEmergencyUnlockAvailable = false,
+                strictModeEndTime = null
+            )}
+
+            showToast("Emergency unlock used. Strict Mode paused.")
+        }
+        return true
+    }
+
+    /**
+     * Refresh emergency unlock availability (called on app start/day change)
+     */
+    fun refreshEmergencyUnlockStatus() {
+        viewModelScope.launch {
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                .format(java.util.Date())
+            val usedDate = repository.getSetting(AppSettings.KEY_STRICT_MODE_EMERGENCY_UNLOCK_USED_DATE)
+            val available = usedDate != today
+            _uiState.update { it.copy(isEmergencyUnlockAvailable = available) }
+        }
+    }
 
     fun setHardMode(enabled: Boolean, pin: String? = null, unlockTimeMinutes: Int? = null) {
         viewModelScope.launch {

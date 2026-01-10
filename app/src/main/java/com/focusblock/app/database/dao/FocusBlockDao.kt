@@ -477,6 +477,9 @@ interface GlobalDailyUsageDao {
     @Query("UPDATE global_daily_usage SET warningShown = 1, lastUpdated = :timestamp WHERE date = :date")
     suspend fun markWarningShown(date: String, timestamp: Long = System.currentTimeMillis())
 
+    @Query("UPDATE global_daily_usage SET excessiveUsageNotificationShown = 1, lastUpdated = :timestamp WHERE date = :date")
+    suspend fun markExcessiveUsageNotificationShown(date: String, timestamp: Long = System.currentTimeMillis())
+
     @Query("""
         UPDATE global_daily_usage SET
             overrideCount = overrideCount + 1,

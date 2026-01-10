@@ -9,6 +9,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.focusblock.app.database.entity.ExcludedApp
+import com.focusblock.app.database.entity.ExclusionType
 import com.focusblock.app.database.repository.FocusBlockRepository
 import com.focusblock.app.ui.statistics.AppUsageInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -66,7 +68,10 @@ data class InsightsUiState(
     val peakTimeDetails: PeakTimeDetails? = null, // Peak time drilldown data
     // Repeat offender tracking - apps user keeps trying to open despite blocks
     val repeatOffenders: List<RepeatOffenderApp> = emptyList(),
-    val hasRepeatOffenders: Boolean = false
+    val hasRepeatOffenders: Boolean = false,
+    // User-excluded apps from total usage calculation
+    val userExcludedPackages: Set<String> = emptySet(),
+    val showExcludedAppsDialog: Boolean = false
 )
 
 // Data class for repeat offender apps
@@ -137,6 +142,9 @@ class InsightsViewModel @Inject constructor(
     private val usageStatsManager: UsageStatsManager? by lazy {
         application.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
     }
+
+    // User-excluded packages from settings (loaded from database)
+    private var userExcludedPackages: Set<String> = emptySet()
 
     // Keywords to identify distractive apps
     private val distractiveKeywords = setOf(
@@ -237,7 +245,64 @@ class InsightsViewModel @Inject constructor(
     )
 
     init {
+        loadUserExcludedApps()
         loadUsageData()
+    }
+
+    /**
+     * Load user-excluded apps from database
+     */
+    private fun loadUserExcludedApps() {
+        viewModelScope.launch {
+            val excludedPackages = repository.getExcludedPackageNames(ExclusionType.SCREEN_TIME_REPORT)
+            userExcludedPackages = excludedPackages.toSet()
+            _uiState.update { it.copy(userExcludedPackages = userExcludedPackages) }
+        }
+    }
+
+    /**
+     * Exclude an app from total usage calculation
+     */
+    fun excludeAppFromUsage(packageName: String, appName: String) {
+        viewModelScope.launch {
+            val excludedApp = ExcludedApp(
+                packageName = packageName,
+                appName = appName,
+                excludedFrom = ExclusionType.SCREEN_TIME_REPORT
+            )
+            repository.insertExcludedApp(excludedApp)
+            userExcludedPackages = userExcludedPackages + packageName
+            _uiState.update { it.copy(userExcludedPackages = userExcludedPackages) }
+            // Reload data to reflect the exclusion
+            loadUsageData()
+        }
+    }
+
+    /**
+     * Include an app back in total usage calculation
+     */
+    fun includeAppInUsage(packageName: String) {
+        viewModelScope.launch {
+            repository.deleteExcludedAppByPackage(packageName)
+            userExcludedPackages = userExcludedPackages - packageName
+            _uiState.update { it.copy(userExcludedPackages = userExcludedPackages) }
+            // Reload data to reflect the change
+            loadUsageData()
+        }
+    }
+
+    /**
+     * Toggle showing excluded apps dialog
+     */
+    fun toggleExcludedAppsDialog() {
+        _uiState.update { it.copy(showExcludedAppsDialog = !it.showExcludedAppsDialog) }
+    }
+
+    /**
+     * Check if an app is excluded by user
+     */
+    fun isAppExcludedByUser(packageName: String): Boolean {
+        return userExcludedPackages.contains(packageName)
     }
 
     fun setTab(tab: InsightsTab) {
@@ -690,6 +755,9 @@ class InsightsViewModel @Inject constructor(
     }
 
     private fun shouldExcludePackage(packageName: String): Boolean {
+        // Check user-excluded apps first (from Settings)
+        if (userExcludedPackages.contains(packageName)) return true
+
         // Check exact matches
         if (excludedPackages.contains(packageName)) return true
 

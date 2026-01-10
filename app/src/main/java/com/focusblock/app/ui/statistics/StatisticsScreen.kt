@@ -66,6 +66,15 @@ fun StatisticsScreen(
         return
     }
 
+    // Excluded apps dialog (shown as overlay)
+    if (uiState.showExcludedAppsDialog) {
+        ExcludedAppsDialog(
+            excludedPackages = uiState.userExcludedPackages,
+            onIncludeApp = { pkg -> viewModel.includeAppInUsage(pkg) },
+            onDismiss = { viewModel.toggleExcludedAppsDialog() }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -212,7 +221,10 @@ fun StatisticsScreen(
                 MostUsedAppsCard(
                     apps = uiState.mostUsedApps,
                     expanded = uiState.appsExpanded,
-                    onExpandClick = { viewModel.toggleAppsExpanded() }
+                    excludedPackages = uiState.userExcludedPackages,
+                    onExpandClick = { viewModel.toggleAppsExpanded() },
+                    onExcludeApp = { pkg, name -> viewModel.excludeAppFromUsage(pkg, name) },
+                    onManageExcluded = { viewModel.toggleExcludedAppsDialog() }
                 )
             }
 
@@ -718,7 +730,10 @@ fun UsageTimelineCard(
 fun MostUsedAppsCard(
     apps: List<AppUsageInfo>,
     expanded: Boolean,
-    onExpandClick: () -> Unit
+    excludedPackages: Set<String> = emptySet(),
+    onExpandClick: () -> Unit,
+    onExcludeApp: (String, String) -> Unit = { _, _ -> },
+    onManageExcluded: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -729,19 +744,40 @@ fun MostUsedAppsCard(
         Column(
             modifier = Modifier.padding(20.dp)
         ) {
-            Text(
-                text = "Most used apps",
-                style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary,
-                fontWeight = FontWeight.SemiBold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Most used apps",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (excludedPackages.isNotEmpty()) {
+                    TextButton(
+                        onClick = onManageExcluded,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Text(
+                            text = "${excludedPackages.size} hidden",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             val displayApps = if (expanded) apps else apps.take(5)
 
             displayApps.forEach { app ->
-                MostUsedAppRow(app)
+                MostUsedAppRow(
+                    app = app,
+                    onExclude = { onExcludeApp(app.packageName, app.appName) }
+                )
                 if (app != displayApps.last()) {
                     Spacer(modifier = Modifier.height(12.dp))
                 }
@@ -770,12 +806,21 @@ fun MostUsedAppsCard(
 }
 
 @Composable
-fun MostUsedAppRow(app: AppUsageInfo) {
+fun MostUsedAppRow(
+    app: AppUsageInfo,
+    onExclude: () -> Unit = {}
+) {
     val context = LocalContext.current
     val appIcon = remember(app.packageName) { AppUtils.getAppIcon(context, app.packageName) }
+    var showMenu by remember { mutableStateOf(false) }
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { /* Could open app details */ },
+                onLongClick = { showMenu = true }
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // App icon
@@ -841,12 +886,43 @@ fun MostUsedAppRow(app: AppUsageInfo) {
             color = TextSecondary
         )
 
-        Icon(
-            imageVector = Icons.Outlined.ChevronRight,
-            contentDescription = null,
-            tint = TextSecondary,
-            modifier = Modifier.size(20.dp)
-        )
+        // More options button with dropdown
+        Box {
+            IconButton(
+                onClick = { showMenu = true },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = "Options",
+                    tint = TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Outlined.VisibilityOff,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Hide from total", color = TextPrimary)
+                        }
+                    },
+                    onClick = {
+                        showMenu = false
+                        onExclude()
+                    }
+                )
+            }
+        }
     }
 }
 
@@ -1397,3 +1473,123 @@ data class AppUsageInfo(
     val usageMinutes: Int,
     val category: AppCategory
 )
+
+/**
+ * Dialog to manage apps excluded from total usage
+ */
+@Composable
+fun ExcludedAppsDialog(
+    excludedPackages: Set<String>,
+    onIncludeApp: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Hidden Apps",
+                style = MaterialTheme.typography.titleLarge,
+                color = TextPrimary
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 300.dp)
+            ) {
+                Text(
+                    text = "These apps are excluded from your screen time total. Tap to show again.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (excludedPackages.isEmpty()) {
+                    Text(
+                        text = "No hidden apps",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(vertical = 16.dp)
+                    )
+                } else {
+                    excludedPackages.forEach { packageName ->
+                        val appName = try {
+                            context.packageManager.getApplicationLabel(
+                                context.packageManager.getApplicationInfo(packageName, 0)
+                            ).toString()
+                        } catch (e: Exception) {
+                            packageName.substringAfterLast(".")
+                        }
+                        val appIcon = AppUtils.getAppIcon(context, packageName)
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onIncludeApp(packageName) }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            appIcon?.let { drawable ->
+                                Image(
+                                    bitmap = drawable.toBitmap(36, 36).asImageBitmap(),
+                                    contentDescription = appName,
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                )
+                            } ?: Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(SurfaceElevated),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Android,
+                                    contentDescription = null,
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Text(
+                                text = appName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextPrimary,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            Icon(
+                                imageVector = Icons.Outlined.Visibility,
+                                contentDescription = "Show app",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        if (packageName != excludedPackages.last()) {
+                            HorizontalDivider(
+                                color = TextSecondary.copy(alpha = 0.2f),
+                                thickness = 0.5.dp
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done", color = Primary)
+            }
+        },
+        containerColor = CardDark,
+        shape = RoundedCornerShape(20.dp)
+    )
+}

@@ -4993,6 +4993,10 @@ fun SmartSuggestionsCard(
     onAcceptAll: () -> Unit
 ) {
     val context = LocalContext.current
+    var isExpanded by remember { mutableStateOf(false) }
+
+    // Show 3 items when collapsed, all items when expanded
+    val visibleSuggestions = if (isExpanded) suggestions else suggestions.take(3)
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -5045,7 +5049,7 @@ fun SmartSuggestionsCard(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            suggestions.take(3).forEach { suggestion ->
+            visibleSuggestions.forEachIndexed { index, suggestion ->
                 val appIcon = remember(suggestion.packageName) {
                     AppUtils.getAppIcon(context, suggestion.packageName)
                 }
@@ -5106,7 +5110,7 @@ fun SmartSuggestionsCard(
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Check,
-                            contentDescription = "Add",
+                            contentDescription = "Add to block list",
                             tint = SuccessGreen,
                             modifier = Modifier.size(18.dp)
                         )
@@ -5128,7 +5132,7 @@ fun SmartSuggestionsCard(
                     }
                 }
 
-                if (suggestion != suggestions.take(3).last()) {
+                if (index < visibleSuggestions.lastIndex) {
                     Divider(
                         color = TextSecondary.copy(alpha = 0.2f),
                         thickness = 0.5.dp
@@ -5136,14 +5140,25 @@ fun SmartSuggestionsCard(
                 }
             }
 
+            // Show More / Show Less button
             if (suggestions.size > 3) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "+ ${suggestions.size - 3} more suggestions",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
+                TextButton(
+                    onClick = { isExpanded = !isExpanded },
                     modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
+                ) {
+                    Text(
+                        text = if (isExpanded) "Show Less" else "Show ${suggestions.size - 3} More",
+                        color = Primary,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = Primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
     }

@@ -592,10 +592,10 @@ interface EssentialAppWhitelistDao {
 
 @Dao
 interface SuggestedBlockingAppDao {
-    @Query("SELECT * FROM suggested_blocking_apps WHERE isDismissed = 0 ORDER BY averageDailyMinutes DESC")
+    @Query("SELECT * FROM suggested_blocking_apps WHERE isDismissed = 0 AND isAccepted = 0 ORDER BY averageDailyMinutes DESC")
     fun getActiveSuggestions(): Flow<List<SuggestedBlockingApp>>
 
-    @Query("SELECT * FROM suggested_blocking_apps WHERE isDismissed = 0 ORDER BY averageDailyMinutes DESC")
+    @Query("SELECT * FROM suggested_blocking_apps WHERE isDismissed = 0 AND isAccepted = 0 ORDER BY averageDailyMinutes DESC")
     suspend fun getActiveSuggestionsSync(): List<SuggestedBlockingApp>
 
     @Query("SELECT * FROM suggested_blocking_apps WHERE isAccepted = 1")

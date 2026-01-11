@@ -37,6 +37,14 @@ val StatusActive = Color(0xFF3FB950)
 val StatusInactive = Color(0xFF6E7681)
 val StatusWarning = Color(0xFFF0883E)
 val StatusError = Color(0xFFF85149)
+val SuccessGreen = Color(0xFF3FB950)
+val ErrorRed = Color(0xFFF85149)
+val WarningOrange = Color(0xFFF0883E)
+
+// App Category Colors
+val DistractiveColor = Color(0xFF8B5CF6) // Purple
+val NeutralColor = Color(0xFF06B6D4) // Cyan
+val ProductiveColor = Color(0xFF10B981) // Green
 
 // Overlay Colors
 val OverlayBackground = Color(0xE6000000)

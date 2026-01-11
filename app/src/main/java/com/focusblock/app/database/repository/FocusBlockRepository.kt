@@ -294,6 +294,47 @@ class FocusBlockRepository @Inject constructor(
     suspend fun setGlobalDailyLimitEnabled(enabled: Boolean) = globalDailyLimitSettingsDao.setEnabled(enabled)
     suspend fun setGlobalDailyLimit(minutes: Int) = globalDailyLimitSettingsDao.setDailyLimit(minutes)
 
+    // Hard Mode - Prevents easy bypass of limits
+    suspend fun enableHardMode(lockDurationHours: Int, cooldownMinutes: Int = 15) {
+        val lockUntil = System.currentTimeMillis() + (lockDurationHours * 60 * 60 * 1000L)
+        globalDailyLimitSettingsDao.setHardMode(
+            enabled = true,
+            lockUntil = lockUntil,
+            cooldownMinutes = cooldownMinutes
+        )
+    }
+
+    suspend fun requestHardModeUnlock() = globalDailyLimitSettingsDao.requestHardModeUnlock()
+    suspend fun disableHardMode() = globalDailyLimitSettingsDao.disableHardMode()
+    suspend fun isHardModeEnabled(): Boolean = globalDailyLimitSettingsDao.isHardModeEnabled() ?: false
+    suspend fun getHardModeLockUntil(): Long = globalDailyLimitSettingsDao.getHardModeLockUntil() ?: 0L
+    suspend fun getHardModeUnlockRequestedAt(): Long = globalDailyLimitSettingsDao.getHardModeUnlockRequestedAt() ?: 0L
+
+    suspend fun isHardModeLocked(): Boolean {
+        val settings = getGlobalDailyLimitSettingsSync() ?: return false
+        return settings.isHardModeEnabled && settings.hardModeLockUntil > System.currentTimeMillis()
+    }
+
+    suspend fun canDisableHardMode(): Pair<Boolean, Long> {
+        val settings = getGlobalDailyLimitSettingsSync() ?: return Pair(true, 0L)
+        if (!settings.isHardModeEnabled) return Pair(true, 0L)
+
+        val now = System.currentTimeMillis()
+        val unlockRequestedAt = settings.hardModeUnlockRequestedAt
+        val cooldownMs = settings.hardModeCooldownMinutes * 60 * 1000L
+
+        // If no unlock request, can't disable yet
+        if (unlockRequestedAt == 0L) return Pair(false, cooldownMs)
+
+        // Check if cooldown has passed
+        val timeSinceRequest = now - unlockRequestedAt
+        return if (timeSinceRequest >= cooldownMs) {
+            Pair(true, 0L) // Cooldown passed, can disable
+        } else {
+            Pair(false, cooldownMs - timeSinceRequest) // Still in cooldown
+        }
+    }
+
     // Global Daily Usage
     fun getGlobalDailyUsage(date: String): Flow<GlobalDailyUsage?> = globalDailyUsageDao.getUsageForDate(date)
     suspend fun getGlobalDailyUsageSync(date: String): GlobalDailyUsage? = globalDailyUsageDao.getUsageForDateSync(date)

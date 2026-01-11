@@ -452,6 +452,53 @@ interface GlobalDailyLimitSettingsDao {
 
     @Query("UPDATE global_daily_limit_settings SET dailyLimitMinutes = :minutes, updatedAt = :timestamp WHERE id = 1")
     suspend fun setDailyLimit(minutes: Int, timestamp: Long = System.currentTimeMillis())
+
+    // ========== HARD MODE QUERIES ==========
+
+    @Query("""
+        UPDATE global_daily_limit_settings SET
+            isHardModeEnabled = :enabled,
+            hardModeLockUntil = :lockUntil,
+            hardModeCooldownMinutes = :cooldownMinutes,
+            updatedAt = :timestamp
+        WHERE id = 1
+    """)
+    suspend fun setHardMode(
+        enabled: Boolean,
+        lockUntil: Long,
+        cooldownMinutes: Int,
+        timestamp: Long = System.currentTimeMillis()
+    )
+
+    @Query("""
+        UPDATE global_daily_limit_settings SET
+            hardModeUnlockRequestedAt = :requestedAt,
+            updatedAt = :timestamp
+        WHERE id = 1
+    """)
+    suspend fun requestHardModeUnlock(
+        requestedAt: Long = System.currentTimeMillis(),
+        timestamp: Long = System.currentTimeMillis()
+    )
+
+    @Query("""
+        UPDATE global_daily_limit_settings SET
+            isHardModeEnabled = 0,
+            hardModeLockUntil = 0,
+            hardModeUnlockRequestedAt = 0,
+            updatedAt = :timestamp
+        WHERE id = 1
+    """)
+    suspend fun disableHardMode(timestamp: Long = System.currentTimeMillis())
+
+    @Query("SELECT hardModeLockUntil FROM global_daily_limit_settings WHERE id = 1")
+    suspend fun getHardModeLockUntil(): Long?
+
+    @Query("SELECT hardModeUnlockRequestedAt FROM global_daily_limit_settings WHERE id = 1")
+    suspend fun getHardModeUnlockRequestedAt(): Long?
+
+    @Query("SELECT isHardModeEnabled FROM global_daily_limit_settings WHERE id = 1")
+    suspend fun isHardModeEnabled(): Boolean?
 }
 
 @Dao

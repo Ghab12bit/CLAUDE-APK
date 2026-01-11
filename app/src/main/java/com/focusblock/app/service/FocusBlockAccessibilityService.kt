@@ -215,6 +215,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private var lastGlobalUsageMinutes: Int = 0
     private var globalLimitEnforcementActive: Boolean = false
 
+    // ========== HARD MODE - Prevents easy bypass ==========
+    @Volatile private var cachedHardModeEnabled: Boolean = false
+    @Volatile private var cachedHardModeLockUntil: Long = 0L
+    @Volatile private var cachedHardModeCooldownMinutes: Int = 15
+
     // ========== DAILY USAGE COMPARISON ==========
     private val usageComparisonHandler = Handler(Looper.getMainLooper())
     private var usageComparisonRunnable: Runnable? = null
@@ -2055,10 +2060,23 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     Log.i(TAG, "Global Limit: Created default settings (enabled=true, limit=180min)")
                 }
 
-                cachedGlobalLimitEnabled = settings.isEnabled
                 cachedGlobalLimitMinutes = settings.dailyLimitMinutes
                 cachedGlobalLimitWarningMinutes = settings.warningMinutesBefore
                 cachedGlobalLimitUseAppTimerApps = settings.useAppTimerApps
+
+                // Cache Hard Mode settings
+                cachedHardModeEnabled = settings.isHardModeEnabled
+                cachedHardModeLockUntil = settings.hardModeLockUntil
+                cachedHardModeCooldownMinutes = settings.hardModeCooldownMinutes
+
+                // HARD MODE ENFORCEMENT: If Hard Mode is active and locked, enforce limits regardless of toggle
+                val now = System.currentTimeMillis()
+                val isHardModeLocked = cachedHardModeEnabled && cachedHardModeLockUntil > now
+                cachedGlobalLimitEnabled = settings.isEnabled || isHardModeLocked
+
+                if (isHardModeLocked) {
+                    Log.i(TAG, "Hard Mode ACTIVE: Limits enforced until ${java.util.Date(cachedHardModeLockUntil)}")
+                }
 
                 // Build the list of apps to track (only USER-configured apps)
                 val trackedAppsSet = mutableSetOf<String>()
@@ -2104,9 +2122,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                         database.globalDailyUsageDao().updateUsage(today, totalUsageMinutes)
                     }
 
-                    Log.d(TAG, "Global Limit cache refreshed: enabled=true, limit=$cachedGlobalLimitMinutes min, currentUsage=$totalUsageMinutes min, tracking=${trackedAppsSet.size} apps (dynamic=${trackedAppsSet.isEmpty()})")
+                    val hardModeStatus = if (cachedHardModeEnabled) "HardMode=ON(locked=${cachedHardModeLockUntil > System.currentTimeMillis()})" else "HardMode=OFF"
+                    Log.d(TAG, "Global Limit cache refreshed: enabled=true, limit=$cachedGlobalLimitMinutes min, currentUsage=$totalUsageMinutes min, tracking=${trackedAppsSet.size} apps (dynamic=${trackedAppsSet.isEmpty()}), $hardModeStatus")
                 } else {
-                    Log.d(TAG, "Global Limit cache refreshed: enabled=false")
+                    val hardModeStatus = if (cachedHardModeEnabled) "HardMode=ON(locked=${cachedHardModeLockUntil > System.currentTimeMillis()})" else "HardMode=OFF"
+                    Log.d(TAG, "Global Limit cache refreshed: enabled=false, $hardModeStatus")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to refresh Global Limit cache", e)
@@ -2591,6 +2611,34 @@ class FocusBlockAccessibilityService : AccessibilityService() {
      * Check if global limit is enabled
      */
     fun isGlobalLimitEnabled(): Boolean = cachedGlobalLimitEnabled
+
+    // ========== HARD MODE PUBLIC METHODS ==========
+
+    /**
+     * Check if Hard Mode is currently enabled
+     */
+    fun isHardModeEnabled(): Boolean = cachedHardModeEnabled
+
+    /**
+     * Check if Hard Mode lock is currently active (can't disable limits)
+     */
+    fun isHardModeLocked(): Boolean {
+        return cachedHardModeEnabled && cachedHardModeLockUntil > System.currentTimeMillis()
+    }
+
+    /**
+     * Get Hard Mode lock remaining seconds
+     */
+    fun getHardModeLockRemainingSeconds(): Long {
+        if (!cachedHardModeEnabled || cachedHardModeLockUntil <= 0) return 0
+        val remaining = cachedHardModeLockUntil - System.currentTimeMillis()
+        return if (remaining > 0) remaining / 1000 else 0
+    }
+
+    /**
+     * Get Hard Mode cooldown minutes setting
+     */
+    fun getHardModeCooldownMinutes(): Int = cachedHardModeCooldownMinutes
 
     // ========== DAILY USAGE COMPARISON (TODAY VS YESTERDAY) METHODS ==========
 

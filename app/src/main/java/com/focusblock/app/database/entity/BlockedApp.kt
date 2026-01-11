@@ -281,6 +281,15 @@ data class GlobalDailyLimitSettings(
     // Only these apps count toward the daily limit
     val trackedPackages: String = "", // Empty = use default distracting apps
     val useAppTimerApps: Boolean = true, // Share app list with App Timer
+
+    // HARD MODE - Prevents easy bypass of limits
+    val isHardModeEnabled: Boolean = false, // When true, adds friction to disable
+    val hardModeLockUntil: Long = 0L, // Timestamp - can't disable until this time
+    val hardModeUnlockRequestedAt: Long = 0L, // When user requested unlock (cooldown starts)
+    val hardModeCooldownMinutes: Int = 15, // Default 15 min cooldown to unlock
+    val hardModeRequirePhrase: Boolean = true, // Require typing phrase after cooldown
+    val hardModeUnlockPhrase: String = "I choose distraction over my goals", // Phrase to type
+
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {

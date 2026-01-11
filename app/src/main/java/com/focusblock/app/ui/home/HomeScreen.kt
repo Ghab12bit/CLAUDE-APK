@@ -309,10 +309,18 @@ fun HomeScreen(
                 currentUsageMinutes = uiState.currentDailyUsageMinutes,
                 progress = uiState.dailyLimitProgress,
                 suggestedLimitMinutes = uiState.suggestedDailyLimitMinutes,
+                // Hard Mode params
+                isHardModeEnabled = uiState.isHardModeEnabled,
+                isHardModeLocked = uiState.isHardModeLocked,
+                hardModeCooldownRemainingMs = uiState.hardModeCooldownRemainingMs,
+                hardModeUnlockPhrase = uiState.hardModeUnlockPhrase,
                 onToggleEnabled = { viewModel.setGlobalDailyLimitEnabled(it) },
                 onSetLimit = { viewModel.setGlobalDailyLimit(it) },
                 onApplySuggested = { viewModel.applySuggestedDailyLimit() },
-                onAnalyzeUsage = { viewModel.analyzeUsageAndGenerateSuggestions() }
+                onAnalyzeUsage = { viewModel.analyzeUsageAndGenerateSuggestions() },
+                onEnableHardMode = { hours -> viewModel.enableHardMode(hours) },
+                onRequestUnlock = { viewModel.requestHardModeUnlock() },
+                onCompleteUnlock = { phrase -> viewModel.completeHardModeUnlock(phrase) }
             )
         }
 
@@ -589,6 +597,19 @@ fun HomeScreen(
             onConfirm = { usageWindow, breakDuration, selectedPackages, useQuickBlockApps ->
                 viewModel.enableFocusCycle(usageWindow, breakDuration, selectedPackages, useQuickBlockApps)
                 showFocusCycleSetupDialog = false
+            }
+        )
+    }
+
+    // Guided 20% Reduction Prompt Dialog
+    if (uiState.showDailyLimitSuggestionPrompt) {
+        DailyLimitSuggestionDialog(
+            averageUsageMinutes = uiState.averageDailyUsageMinutes,
+            suggestedLimitMinutes = uiState.suggestedDailyLimitMinutes,
+            projectedWeeklySavingsMinutes = uiState.projectedWeeklySavingsMinutes,
+            onDismiss = { viewModel.dismissDailyLimitSuggestionPrompt() },
+            onApply = { enableHardMode, hardModeDurationHours ->
+                viewModel.applySuggestedDailyLimit(enableHardMode, hardModeDurationHours)
             }
         )
     }
@@ -4731,12 +4752,22 @@ fun DailyLimitCard(
     currentUsageMinutes: Int,
     progress: Float,
     suggestedLimitMinutes: Int,
+    // Hard Mode params
+    isHardModeEnabled: Boolean = false,
+    isHardModeLocked: Boolean = false,
+    hardModeCooldownRemainingMs: Long = 0L,
+    hardModeUnlockPhrase: String = "I choose distraction over my goals",
     onToggleEnabled: (Boolean) -> Unit,
     onSetLimit: (Int) -> Unit,
     onApplySuggested: () -> Unit,
-    onAnalyzeUsage: () -> Unit
+    onAnalyzeUsage: () -> Unit,
+    onEnableHardMode: (Int) -> Unit = {},
+    onRequestUnlock: () -> Unit = {},
+    onCompleteUnlock: (String) -> Unit = {}
 ) {
     var showLimitPicker by remember { mutableStateOf(false) }
+    var showHardModeOptions by remember { mutableStateOf(false) }
+    var showUnlockDialog by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -4757,13 +4788,13 @@ fun DailyLimitCard(
                         modifier = Modifier
                             .size(40.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Primary.copy(alpha = 0.2f)),
+                            .background(if (isHardModeLocked) ErrorRed.copy(alpha = 0.2f) else Primary.copy(alpha = 0.2f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Timer,
+                            imageVector = if (isHardModeLocked) Icons.Filled.Lock else Icons.Outlined.Timer,
                             contentDescription = null,
-                            tint = Primary,
+                            tint = if (isHardModeLocked) ErrorRed else Primary,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -4776,18 +4807,33 @@ fun DailyLimitCard(
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = if (isEnabled) "Active" else "Disabled",
+                            text = when {
+                                isHardModeLocked -> "Hard Mode Locked"
+                                isEnabled -> "Active"
+                                else -> "Disabled"
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (isEnabled) SuccessGreen else TextSecondary
+                            color = when {
+                                isHardModeLocked -> ErrorRed
+                                isEnabled -> SuccessGreen
+                                else -> TextSecondary
+                            }
                         )
                     }
                 }
                 Switch(
                     checked = isEnabled,
-                    onCheckedChange = onToggleEnabled,
+                    onCheckedChange = { enabled ->
+                        if (!enabled && isHardModeLocked) {
+                            showUnlockDialog = true
+                        } else {
+                            onToggleEnabled(enabled)
+                        }
+                    },
+                    enabled = !isHardModeLocked || !isEnabled, // Can only turn ON when locked, not OFF
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
-                        checkedTrackColor = Primary,
+                        checkedTrackColor = if (isHardModeLocked) ErrorRed else Primary,
                         uncheckedThumbColor = Color.White,
                         uncheckedTrackColor = TextSecondary.copy(alpha = 0.3f)
                     )
@@ -4861,22 +4907,136 @@ fun DailyLimitCard(
                 ) {
                     OutlinedButton(
                         onClick = { showLimitPicker = true },
+                        enabled = !isHardModeLocked,
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Primary),
-                        border = BorderStroke(1.dp, Primary.copy(alpha = 0.5f))
+                        border = BorderStroke(1.dp, if (isHardModeLocked) TextSecondary.copy(alpha = 0.3f) else Primary.copy(alpha = 0.5f))
                     ) {
                         Text("Change Limit")
                     }
 
-                    if (suggestedLimitMinutes > 0 && suggestedLimitMinutes != limitMinutes) {
+                    if (suggestedLimitMinutes > 0 && suggestedLimitMinutes != limitMinutes && !isHardModeLocked) {
                         TextButton(onClick = onApplySuggested) {
                             Text(
                                 text = "Apply ${suggestedLimitMinutes / 60}h ${suggestedLimitMinutes % 60}m goal",
                                 color = SuccessGreen
                             )
                         }
-                    } else {
+                    } else if (!isHardModeLocked) {
                         TextButton(onClick = onAnalyzeUsage) {
                             Text("Analyze Usage", color = TextSecondary)
+                        }
+                    }
+                }
+
+                // Hard Mode Section
+                Spacer(modifier = Modifier.height(12.dp))
+                Divider(color = SurfaceElevated, thickness = 1.dp)
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (isHardModeLocked) {
+                    // Hard Mode is active - show unlock option
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Filled.Lock,
+                                    contentDescription = null,
+                                    tint = ErrorRed,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Hard Mode Active",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = ErrorRed,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                            Text(
+                                text = "Settings locked. Request unlock to disable.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        TextButton(
+                            onClick = { showUnlockDialog = true }
+                        ) {
+                            Text("Unlock", color = ErrorRed)
+                        }
+                    }
+                } else {
+                    // Hard Mode not active - show enable option
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showHardModeOptions = !showHardModeOptions },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Shield,
+                                    contentDescription = null,
+                                    tint = AccentOrange,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Enable Hard Mode",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = AccentOrange,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                            Text(
+                                text = "Lock settings to prevent easy bypass",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Icon(
+                            imageVector = if (showHardModeOptions) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = TextSecondary
+                        )
+                    }
+
+                    // Hard Mode duration options
+                    if (showHardModeOptions) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Lock settings for:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(
+                                1 to "1 Hour",
+                                24 to "1 Day",
+                                168 to "1 Week"
+                            ).forEach { (hours, label) ->
+                                OutlinedButton(
+                                    onClick = {
+                                        onEnableHardMode(hours)
+                                        showHardModeOptions = false
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentOrange),
+                                    border = BorderStroke(1.dp, AccentOrange.copy(alpha = 0.5f)),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                                ) {
+                                    Text(label, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
                         }
                     }
                 }
@@ -4902,6 +5062,380 @@ fun DailyLimitCard(
             }
         )
     }
+
+    // Hard Mode unlock dialog
+    if (showUnlockDialog) {
+        HardModeUnlockDialog(
+            cooldownRemainingMs = hardModeCooldownRemainingMs,
+            unlockPhrase = hardModeUnlockPhrase,
+            onDismiss = { showUnlockDialog = false },
+            onRequestUnlock = onRequestUnlock,
+            onCompleteUnlock = { phrase ->
+                onCompleteUnlock(phrase)
+                showUnlockDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun HardModeUnlockDialog(
+    cooldownRemainingMs: Long,
+    unlockPhrase: String,
+    onDismiss: () -> Unit,
+    onRequestUnlock: () -> Unit,
+    onCompleteUnlock: (String) -> Unit
+) {
+    var typedPhrase by remember { mutableStateOf("") }
+    val cooldownComplete = cooldownRemainingMs <= 0
+    val cooldownStarted = cooldownRemainingMs > 0 || cooldownComplete
+
+    // Format remaining time
+    val remainingSeconds = (cooldownRemainingMs / 1000).toInt()
+    val remainingMins = remainingSeconds / 60
+    val remainingSecs = remainingSeconds % 60
+    val remainingText = if (remainingMins > 0) "${remainingMins}m ${remainingSecs}s" else "${remainingSecs}s"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Lock,
+                    contentDescription = null,
+                    tint = ErrorRed,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Unlock Hard Mode",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = TextPrimary
+                )
+            }
+        },
+        text = {
+            Column {
+                if (!cooldownStarted) {
+                    // Step 1: Request unlock
+                    Text(
+                        text = "Are you sure you want to disable Hard Mode?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "You'll need to wait 15 minutes before you can unlock. This cooling-off period helps you reconsider.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                } else if (!cooldownComplete) {
+                    // Step 2: Waiting for cooldown
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Timer,
+                            contentDescription = null,
+                            tint = AccentOrange,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Cooling off...",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = AccentOrange
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = remainingText,
+                            style = MaterialTheme.typography.headlineLarge,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Take this time to reconsider. Is disabling really necessary?",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                } else {
+                    // Step 3: Type phrase to unlock
+                    Text(
+                        text = "Cooldown complete. Type the phrase below to confirm you want to disable Hard Mode:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "\"$unlockPhrase\"",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = ErrorRed,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = typedPhrase,
+                        onValueChange = { typedPhrase = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Type the phrase exactly", color = TextSecondary) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Primary,
+                            unfocusedBorderColor = SurfaceElevated,
+                            cursorColor = Primary,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        ),
+                        singleLine = true
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            when {
+                !cooldownStarted -> {
+                    Button(
+                        onClick = onRequestUnlock,
+                        colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
+                    ) {
+                        Text("Start 15min Cooldown")
+                    }
+                }
+                cooldownComplete -> {
+                    Button(
+                        onClick = { onCompleteUnlock(typedPhrase) },
+                        enabled = typedPhrase.trim().lowercase() == unlockPhrase.lowercase(),
+                        colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
+                    ) {
+                        Text("Unlock")
+                    }
+                }
+                else -> {
+                    // During cooldown, no confirm button
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(if (cooldownComplete) "Keep Locked" else "Cancel", color = TextSecondary)
+            }
+        },
+        containerColor = CardDark,
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+fun DailyLimitSuggestionDialog(
+    averageUsageMinutes: Int,
+    suggestedLimitMinutes: Int,
+    projectedWeeklySavingsMinutes: Int,
+    onDismiss: () -> Unit,
+    onApply: (enableHardMode: Boolean, hardModeDurationHours: Int) -> Unit
+) {
+    var enableHardMode by remember { mutableStateOf(true) }
+    var selectedDuration by remember { mutableStateOf(24) } // Default 1 day
+
+    val avgHours = averageUsageMinutes / 60
+    val avgMins = averageUsageMinutes % 60
+    val suggestedHours = suggestedLimitMinutes / 60
+    val suggestedMins = suggestedLimitMinutes % 60
+    val savedHours = projectedWeeklySavingsMinutes / 60
+    val savedMins = projectedWeeklySavingsMinutes % 60
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.TrendingDown,
+                        contentDescription = null,
+                        tint = SuccessGreen,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "Your Personalized Goal",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        },
+        text = {
+            Column {
+                // Current average
+                Text(
+                    text = "Based on your usage:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Stats card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text("Current Average", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                                Text(
+                                    text = if (avgHours > 0) "${avgHours}h ${avgMins}m/day" else "${avgMins}m/day",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = ErrorRed,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("Suggested Goal", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                                Text(
+                                    text = if (suggestedHours > 0) "${suggestedHours}h ${suggestedMins}m/day" else "${suggestedMins}m/day",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = SuccessGreen,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Weekly savings highlight
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = SuccessGreen.copy(alpha = 0.15f)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Star,
+                            contentDescription = null,
+                            tint = SuccessGreen,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "You could save",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TextSecondary
+                            )
+                            Text(
+                                text = if (savedHours > 0) "${savedHours}h ${savedMins}m per week!" else "${savedMins}m per week!",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = SuccessGreen,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Hard Mode option
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (enableHardMode) AccentOrange.copy(alpha = 0.1f) else SurfaceElevated)
+                        .clickable { enableHardMode = !enableHardMode }
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = enableHardMode,
+                        onCheckedChange = { enableHardMode = it },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = AccentOrange,
+                            uncheckedColor = TextSecondary
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Enable Hard Mode",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Lock settings to prevent easy bypass",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+
+                // Hard Mode duration selector (if enabled)
+                if (enableHardMode) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Lock for:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            24 to "1 Day",
+                            72 to "3 Days",
+                            168 to "1 Week"
+                        ).forEach { (hours, label) ->
+                            FilterChip(
+                                selected = selectedDuration == hours,
+                                onClick = { selectedDuration = hours },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                modifier = Modifier.weight(1f),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = AccentOrange.copy(alpha = 0.3f),
+                                    selectedLabelColor = AccentOrange
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onApply(enableHardMode, selectedDuration) },
+                colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Apply Goal")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Maybe Later", color = TextSecondary)
+            }
+        },
+        containerColor = CardDark,
+        shape = RoundedCornerShape(20.dp)
+    )
 }
 
 @Composable

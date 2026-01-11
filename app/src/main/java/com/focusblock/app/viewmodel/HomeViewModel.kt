@@ -111,7 +111,18 @@ data class HomeUiState(
     val strictModeRemainingPausesToday: Int = 1, // Pauses remaining today
     val strictModeMaxPausesPerDay: Int = 1, // Configurable max pauses
     val isEmergencyUnlockAvailable: Boolean = true, // One-time daily emergency unlock
+    // Hard Mode - prevents easy bypass of limits
     val isHardModeEnabled: Boolean = false,
+    val isHardModeLocked: Boolean = false, // Can't disable limits while locked
+    val hardModeLockUntil: Long = 0L, // Timestamp when lock expires
+    val hardModeUnlockRequestedAt: Long = 0L, // When user requested unlock
+    val hardModeCooldownMinutes: Int = 15, // Cooldown to disable
+    val hardModeCooldownRemainingMs: Long = 0L, // Remaining cooldown time
+    val showHardModeUnlockDialog: Boolean = false,
+    val hardModeUnlockPhrase: String = "I choose distraction over my goals",
+    // Guided 20% reduction prompt
+    val showDailyLimitSuggestionPrompt: Boolean = false,
+    val projectedWeeklySavingsMinutes: Int = 0,
     val permissionStatus: PermissionUtils.PermissionStatus = PermissionUtils.PermissionStatus(
         hasUsageStats = false,
         hasOverlay = false,
@@ -1557,15 +1568,15 @@ class HomeViewModel @Inject constructor(
                 // Generate app suggestions based on usage patterns
                 generateAppSuggestions()
 
+                // Calculate weekly savings
+                val weeklyReduction = (averageMinutes - suggestedLimit) * 7
+
                 _uiState.update { it.copy(
                     averageDailyUsageMinutes = averageMinutes,
-                    suggestedDailyLimitMinutes = suggestedLimit
+                    suggestedDailyLimitMinutes = suggestedLimit,
+                    projectedWeeklySavingsMinutes = weeklyReduction,
+                    showDailyLimitSuggestionPrompt = true // Show the guided prompt
                 )}
-
-                val hours = suggestedLimit / 60
-                val mins = suggestedLimit % 60
-                val goalText = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
-                showToast("Goal set: $goalText daily (target: 1-2 hours)")
 
             } catch (e: Exception) {
                 showToast("Error analyzing usage: ${e.message}")
@@ -1791,9 +1802,26 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             repository.getGlobalDailyLimitSettings().collect { settings ->
                 if (settings != null) {
+                    val now = System.currentTimeMillis()
+                    val isLocked = settings.isHardModeEnabled && settings.hardModeLockUntil > now
+
+                    // Calculate cooldown remaining if unlock was requested
+                    val cooldownRemainingMs = if (settings.hardModeUnlockRequestedAt > 0) {
+                        val cooldownMs = settings.hardModeCooldownMinutes * 60 * 1000L
+                        val elapsed = now - settings.hardModeUnlockRequestedAt
+                        (cooldownMs - elapsed).coerceAtLeast(0)
+                    } else 0L
+
                     _uiState.update { it.copy(
-                        isGlobalDailyLimitEnabled = settings.isEnabled,
-                        globalDailyLimitMinutes = settings.dailyLimitMinutes
+                        isGlobalDailyLimitEnabled = settings.isEnabled || isLocked, // Force enabled if hard mode locked
+                        globalDailyLimitMinutes = settings.dailyLimitMinutes,
+                        isHardModeEnabled = settings.isHardModeEnabled,
+                        isHardModeLocked = isLocked,
+                        hardModeLockUntil = settings.hardModeLockUntil,
+                        hardModeUnlockRequestedAt = settings.hardModeUnlockRequestedAt,
+                        hardModeCooldownMinutes = settings.hardModeCooldownMinutes,
+                        hardModeCooldownRemainingMs = cooldownRemainingMs,
+                        hardModeUnlockPhrase = settings.hardModeUnlockPhrase
                     )}
                 }
             }
@@ -1817,13 +1845,37 @@ class HomeViewModel @Inject constructor(
                 )}
             }
         }
+
+        // Update Hard Mode cooldown timer periodically
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1000) // Update every second
+                val state = _uiState.value
+                if (state.hardModeUnlockRequestedAt > 0 && state.hardModeCooldownRemainingMs > 0) {
+                    val now = System.currentTimeMillis()
+                    val cooldownMs = state.hardModeCooldownMinutes * 60 * 1000L
+                    val elapsed = now - state.hardModeUnlockRequestedAt
+                    val remaining = (cooldownMs - elapsed).coerceAtLeast(0)
+                    _uiState.update { it.copy(hardModeCooldownRemainingMs = remaining) }
+                }
+            }
+        }
     }
 
     /**
      * Set Global Daily Limit enabled/disabled from homepage
+     * CHECKS HARD MODE - cannot disable if Hard Mode is locked
      */
     fun setGlobalDailyLimitEnabled(enabled: Boolean) {
         viewModelScope.launch {
+            // Check if Hard Mode prevents disabling
+            if (!enabled && _uiState.value.isHardModeLocked) {
+                // Show unlock dialog instead of allowing disable
+                _uiState.update { it.copy(showHardModeUnlockDialog = true) }
+                showToast("Hard Mode is active. Complete unlock process to disable.")
+                return@launch
+            }
+
             val currentSettings = repository.getGlobalDailyLimitSettingsSync()
             if (currentSettings != null) {
                 repository.updateGlobalDailyLimitSettings(currentSettings.copy(
@@ -1842,6 +1894,191 @@ class HomeViewModel @Inject constructor(
             intent.`package` = application.packageName
             application.sendBroadcast(intent)
         }
+    }
+
+    // ========== HARD MODE METHODS ==========
+
+    /**
+     * Enable Hard Mode with lock duration
+     * @param lockDurationHours How long before settings can be changed (1, 24, 48, 168 for 1 week)
+     * @param cooldownMinutes How long user must wait after requesting unlock (default 15)
+     */
+    fun enableHardMode(lockDurationHours: Int, cooldownMinutes: Int = 15) {
+        viewModelScope.launch {
+            // First enable the daily limit if not already enabled
+            val currentSettings = repository.getGlobalDailyLimitSettingsSync()
+            if (currentSettings != null && !currentSettings.isEnabled) {
+                repository.setGlobalDailyLimitEnabled(true)
+            }
+
+            repository.enableHardMode(lockDurationHours, cooldownMinutes)
+
+            showToast("Hard Mode enabled for ${formatDuration(lockDurationHours)}. Settings locked.")
+
+            // Notify service
+            val intent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+            intent.`package` = application.packageName
+            application.sendBroadcast(intent)
+        }
+    }
+
+    /**
+     * Request to unlock Hard Mode - starts cooldown timer
+     */
+    fun requestHardModeUnlock() {
+        viewModelScope.launch {
+            val settings = repository.getGlobalDailyLimitSettingsSync() ?: return@launch
+
+            // Check if already in cooldown
+            if (settings.hardModeUnlockRequestedAt > 0) {
+                val elapsed = System.currentTimeMillis() - settings.hardModeUnlockRequestedAt
+                val cooldownMs = settings.hardModeCooldownMinutes * 60 * 1000L
+                if (elapsed < cooldownMs) {
+                    val remainingSec = ((cooldownMs - elapsed) / 1000).toInt()
+                    val mins = remainingSec / 60
+                    val secs = remainingSec % 60
+                    showToast("Already waiting. ${mins}m ${secs}s remaining.")
+                    return@launch
+                }
+            }
+
+            repository.requestHardModeUnlock()
+
+            val mins = settings.hardModeCooldownMinutes
+            showToast("Unlock started. Wait ${mins} minutes, then type the phrase.")
+
+            _uiState.update { it.copy(
+                hardModeUnlockRequestedAt = System.currentTimeMillis(),
+                hardModeCooldownRemainingMs = settings.hardModeCooldownMinutes * 60 * 1000L
+            )}
+        }
+    }
+
+    /**
+     * Complete Hard Mode unlock after cooldown with phrase verification
+     * @param typedPhrase The phrase user typed
+     */
+    fun completeHardModeUnlock(typedPhrase: String) {
+        viewModelScope.launch {
+            val settings = repository.getGlobalDailyLimitSettingsSync() ?: return@launch
+
+            // Verify cooldown has passed
+            val now = System.currentTimeMillis()
+            val cooldownMs = settings.hardModeCooldownMinutes * 60 * 1000L
+            val elapsed = now - settings.hardModeUnlockRequestedAt
+
+            if (elapsed < cooldownMs) {
+                showToast("Cooldown not complete yet. Please wait.")
+                return@launch
+            }
+
+            // Verify phrase matches
+            if (typedPhrase.trim().lowercase() != settings.hardModeUnlockPhrase.lowercase()) {
+                showToast("Phrase doesn't match. Please type exactly: ${settings.hardModeUnlockPhrase}")
+                return@launch
+            }
+
+            // Unlock successful
+            repository.disableHardMode()
+
+            _uiState.update { it.copy(
+                isHardModeEnabled = false,
+                isHardModeLocked = false,
+                hardModeUnlockRequestedAt = 0L,
+                hardModeCooldownRemainingMs = 0L,
+                showHardModeUnlockDialog = false
+            )}
+
+            showToast("Hard Mode disabled. Settings unlocked.")
+
+            // Notify service
+            val intent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+            intent.`package` = application.packageName
+            application.sendBroadcast(intent)
+        }
+    }
+
+    /**
+     * Show/hide Hard Mode unlock dialog
+     */
+    fun setShowHardModeUnlockDialog(show: Boolean) {
+        _uiState.update { it.copy(showHardModeUnlockDialog = show) }
+    }
+
+    /**
+     * Format duration hours to readable string
+     */
+    private fun formatDuration(hours: Int): String {
+        return when {
+            hours < 24 -> "$hours hour${if (hours > 1) "s" else ""}"
+            hours < 168 -> "${hours / 24} day${if (hours >= 48) "s" else ""}"
+            else -> "1 week"
+        }
+    }
+
+    // ========== GUIDED 20% REDUCTION PROMPT ==========
+
+    /**
+     * Show the guided prompt for 20% reduction after analyzing usage
+     */
+    fun showDailyLimitSuggestionPrompt() {
+        val average = _uiState.value.averageDailyUsageMinutes
+        val suggested = _uiState.value.suggestedDailyLimitMinutes
+        if (average > 0 && suggested > 0) {
+            val weeklyReduction = (average - suggested) * 7
+            _uiState.update { it.copy(
+                showDailyLimitSuggestionPrompt = true,
+                projectedWeeklySavingsMinutes = weeklyReduction
+            )}
+        }
+    }
+
+    /**
+     * Apply the suggested 20% reduction and optionally enable Hard Mode
+     */
+    fun applySuggestedDailyLimit(enableHardModeAfter: Boolean = false, hardModeDurationHours: Int = 24) {
+        viewModelScope.launch {
+            val suggestedLimit = _uiState.value.suggestedDailyLimitMinutes
+            if (suggestedLimit <= 0) {
+                showToast("No suggestion available. Analyze usage first.")
+                return@launch
+            }
+
+            // Enable and set the limit
+            val currentSettings = repository.getGlobalDailyLimitSettingsSync()
+            val updatedSettings = (currentSettings ?: GlobalDailyLimitSettings()).copy(
+                isEnabled = true,
+                dailyLimitMinutes = suggestedLimit,
+                updatedAt = System.currentTimeMillis()
+            )
+            repository.saveGlobalDailyLimitSettings(updatedSettings)
+
+            _uiState.update { it.copy(
+                isGlobalDailyLimitEnabled = true,
+                globalDailyLimitMinutes = suggestedLimit,
+                showDailyLimitSuggestionPrompt = false
+            )}
+
+            showToast("Daily limit set to ${suggestedLimit / 60}h ${suggestedLimit % 60}m (20% reduction)")
+
+            // Enable Hard Mode if requested
+            if (enableHardModeAfter) {
+                repository.enableHardMode(hardModeDurationHours)
+                showToast("Hard Mode enabled for ${formatDuration(hardModeDurationHours)}")
+            }
+
+            // Notify service
+            val intent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+            intent.`package` = application.packageName
+            application.sendBroadcast(intent)
+        }
+    }
+
+    /**
+     * Dismiss the suggestion prompt
+     */
+    fun dismissDailyLimitSuggestionPrompt() {
+        _uiState.update { it.copy(showDailyLimitSuggestionPrompt = false) }
     }
 
     /**

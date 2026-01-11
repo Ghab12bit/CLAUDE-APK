@@ -235,7 +235,7 @@ class AppBlockingService : Service() {
 
     private suspend fun determineBlockedByType(packageName: String): BlockedByType {
         // Check if Hard Mode is enabled
-        if (repository.isHardModeEnabled()) {
+        if (repository.isLegacyHardModeEnabled()) {
             return BlockedByType.HARD_MODE
         }
 

@@ -351,7 +351,7 @@ class HomeViewModel @Inject constructor(
 
         viewModelScope.launch {
             // Load hard mode status
-            repository.getHardModeEnabledFlow().collect { enabled ->
+            repository.getLegacyHardModeEnabledFlow().collect { enabled ->
                 _uiState.update { it.copy(isHardModeEnabled = enabled) }
             }
         }
@@ -930,7 +930,7 @@ class HomeViewModel @Inject constructor(
         return if (pin == savedPin) {
             stopQuickBlock(forceStop = true)
             viewModelScope.launch {
-                repository.setHardModeEnabled(false)
+                repository.setLegacyHardModeEnabled(false)
                 // Only disable strict mode if not time-locked
                 if (!_uiState.value.isStrictModeLocked) {
                     repository.setStrictModeEnabled(false)
@@ -1225,7 +1225,7 @@ class HomeViewModel @Inject constructor(
 
     fun setHardMode(enabled: Boolean, pin: String? = null, unlockTimeMinutes: Int? = null) {
         viewModelScope.launch {
-            repository.setHardModeEnabled(enabled)
+            repository.setLegacyHardModeEnabled(enabled)
             if (enabled && pin != null) {
                 repository.setHardModePin(pin)
             }

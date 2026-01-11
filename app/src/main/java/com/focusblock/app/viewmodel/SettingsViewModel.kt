@@ -83,7 +83,7 @@ class SettingsViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            repository.getHardModeEnabledFlow().collect { enabled ->
+            repository.getLegacyHardModeEnabledFlow().collect { enabled ->
                 _uiState.update { it.copy(isHardModeEnabled = enabled) }
             }
         }
@@ -191,7 +191,7 @@ class SettingsViewModel @Inject constructor(
     fun enableHardMode(pin: String, unlockMinutes: Int) {
         viewModelScope.launch {
             repository.setHardModePin(pin)
-            repository.setHardModeEnabled(true)
+            repository.setLegacyHardModeEnabled(true)
             repository.setStrictModeEnabled(true)
             val unlockTime = System.currentTimeMillis() + unlockMinutes * 60 * 1000L
             repository.setHardModeUnlockTime(unlockTime)
@@ -203,7 +203,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val storedPin = repository.getHardModePin()
             if (storedPin == pin) {
-                repository.setHardModeEnabled(false)
+                repository.setLegacyHardModeEnabled(false)
             }
         }
         return true // Simplified

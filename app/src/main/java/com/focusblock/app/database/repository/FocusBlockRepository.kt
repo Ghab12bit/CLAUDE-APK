@@ -107,8 +107,9 @@ class FocusBlockRepository @Inject constructor(
         return endTime > System.currentTimeMillis()
     }
 
-    suspend fun isHardModeEnabled(): Boolean = getSetting(AppSettings.KEY_HARD_MODE_ENABLED)?.toBooleanStrictOrNull() ?: false
-    suspend fun setHardModeEnabled(enabled: Boolean) = setSetting(AppSettings.KEY_HARD_MODE_ENABLED, enabled.toString())
+    // Legacy Hard Mode (PIN-based) - kept for backward compatibility
+    suspend fun isLegacyHardModeEnabled(): Boolean = getSetting(AppSettings.KEY_HARD_MODE_ENABLED)?.toBooleanStrictOrNull() ?: false
+    suspend fun setLegacyHardModeEnabled(enabled: Boolean) = setSetting(AppSettings.KEY_HARD_MODE_ENABLED, enabled.toString())
 
     suspend fun getHardModePin(): String? = getSetting(AppSettings.KEY_HARD_MODE_PIN)
     suspend fun setHardModePin(pin: String) = setSetting(AppSettings.KEY_HARD_MODE_PIN, pin)
@@ -119,7 +120,7 @@ class FocusBlockRepository @Inject constructor(
     fun getStrictModeEnabledFlow(): Flow<Boolean> =
         settingsDao.getValueFlow(AppSettings.KEY_STRICT_MODE_ENABLED).map { it?.toBooleanStrictOrNull() ?: false }
 
-    fun getHardModeEnabledFlow(): Flow<Boolean> =
+    fun getLegacyHardModeEnabledFlow(): Flow<Boolean> =
         settingsDao.getValueFlow(AppSettings.KEY_HARD_MODE_ENABLED).map { it?.toBooleanStrictOrNull() ?: false }
 
     // Strict Mode Pause methods

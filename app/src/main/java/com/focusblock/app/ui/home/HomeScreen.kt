@@ -84,6 +84,17 @@ fun HomeScreen(
         viewModel.refreshPermissions()
     }
 
+    // Sync selectedApps with permanently blocked apps
+    // This ensures new apps from Smart Suggestions appear in the selection
+    LaunchedEffect(uiState.blockedApps) {
+        val blockedPackages = uiState.blockedApps.map { it.packageName }
+        // Add any new blocked apps to selection
+        val newApps = blockedPackages.filter { it !in selectedApps }
+        if (newApps.isNotEmpty()) {
+            selectedApps = selectedApps + newApps
+        }
+    }
+
     // Show snackbar when blocking starts
     LaunchedEffect(uiState.isQuickBlockActive) {
         if (uiState.isQuickBlockActive) {
@@ -226,11 +237,17 @@ fun HomeScreen(
 
         // Quick Block Card - Primary instant control
         item(key = "quick_block_card") {
+            // Show session apps count if active, otherwise show permanent blocked apps count
+            val quickBlockAppsCount = if (uiState.isQuickBlockActive) {
+                uiState.quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotEmpty() }?.size ?: 0
+            } else {
+                uiState.blockedAppsCount // Show permanent blocked apps when no session
+            }
             QuickBlockCard(
                 isActive = uiState.isQuickBlockActive,
                 remainingTime = uiState.remainingTime,
                 endTime = uiState.quickBlockSession?.endTime,
-                blockedAppsCount = uiState.quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotEmpty() }?.size ?: 0,
+                blockedAppsCount = quickBlockAppsCount,
                 isPomodoroMode = uiState.isPomodoroMode,
                 onStartClick = { showAppSelectionDialog = true },
                 onStopClick = {

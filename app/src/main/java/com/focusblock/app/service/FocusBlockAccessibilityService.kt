@@ -80,10 +80,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // ========== AUTO-BLOCK ON EXCESS SOCIAL MEDIA USAGE ==========
         private const val AUTO_BLOCK_NOTIFICATION_ID = 4008
         // Social media apps that should be auto-blocked when exceeding yesterday's usage
+        // Note: WhatsApp and Telegram excluded (work apps)
         private val SOCIAL_MEDIA_PACKAGES = setOf(
             "com.instagram.android",
             "com.facebook.katana",
-            "com.facebook.orca",
+            "com.facebook.orca", // Messenger
             "com.twitter.android",
             "com.zhiliaoapp.musically", // TikTok
             "com.ss.android.ugc.trill", // TikTok (alternate)
@@ -93,9 +94,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             "com.tumblr",
             "com.linkedin.android",
             "com.discord",
-            "com.whatsapp",
             "com.viber.voip",
-            "org.telegram.messenger",
             "com.google.android.youtube",
             "com.netflix.mediaclient",
             "tv.twitch.android.app"

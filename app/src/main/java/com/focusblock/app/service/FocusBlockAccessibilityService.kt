@@ -2298,7 +2298,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
     /**
      * Check if a package is excluded from global limit tracking
-     * NEW: Uses WHITELIST approach - only apps in cachedGlobalLimitTrackedPackages are tracked
+     * NEW: Uses dynamic detection for distractive apps (social media, entertainment, games)
      */
     private fun isExcludedFromGlobalLimit(packageName: String): Boolean {
         // Always exclude our own app
@@ -2309,13 +2309,64 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             packageName == it || packageName.startsWith("$it.")
         }) return true
 
-        // WHITELIST: Only track apps that are in the tracked list
-        // If the app is NOT in the tracked list, exclude it
-        if (!cachedGlobalLimitTrackedPackages.contains(packageName)) {
-            return true // Exclude - not in whitelist
+        // If user has custom tracked apps configured, use that list
+        if (cachedGlobalLimitTrackedPackages.isNotEmpty()) {
+            return !cachedGlobalLimitTrackedPackages.contains(packageName)
         }
 
-        return false // Include - app is in the whitelist
+        // Otherwise, use dynamic detection for distractive apps
+        return !isDistractiveApp(packageName)
+    }
+
+    /**
+     * Dynamically detect if an app is distractive (social media, entertainment, games)
+     * This matches the categorization used by the Insights page
+     */
+    private fun isDistractiveApp(packageName: String): Boolean {
+        val pkgLower = packageName.lowercase()
+
+        // Get app name for additional matching
+        val appName = try {
+            packageManager.getApplicationLabel(
+                packageManager.getApplicationInfo(packageName, 0)
+            ).toString().lowercase()
+        } catch (e: Exception) {
+            ""
+        }
+
+        // Social media keywords
+        val socialKeywords = setOf(
+            "instagram", "facebook", "twitter", "tiktok", "snapchat",
+            "reddit", "pinterest", "tumblr", "discord", "messenger",
+            "wechat", "line", "viber", "telegram", "linkedin",
+            "threads", "mastodon", "bluesky", "x.com"
+        )
+
+        // Entertainment/Video keywords
+        val entertainmentKeywords = setOf(
+            "youtube", "netflix", "twitch", "hulu", "disney", "spotify",
+            "prime video", "hotstar", "voot", "zee5", "sonyliv",
+            "player", "video", "movie", "stream", "kuku", "revanced"
+        )
+
+        // Gaming keywords
+        val gameKeywords = setOf(
+            "game", "gaming", "clash", "pubg", "bgmi", "freefire",
+            "candy", "roblox", "minecraft", "fortnite", "cod", "mobile legends",
+            "epic games", "steam", "play games"
+        )
+
+        // Check if matches any distractive category
+        if (socialKeywords.any { pkgLower.contains(it) || appName.contains(it) }) return true
+        if (entertainmentKeywords.any { pkgLower.contains(it) || appName.contains(it) }) return true
+        if (gameKeywords.any { pkgLower.contains(it) || appName.contains(it) }) return true
+
+        // Also check against the default list for exact matches
+        if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.DEFAULT_DISTRACTING_APPS.contains(packageName)) {
+            return true
+        }
+
+        return false
     }
 
     /**

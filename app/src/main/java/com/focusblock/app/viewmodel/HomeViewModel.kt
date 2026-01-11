@@ -1546,63 +1546,110 @@ class HomeViewModel @Inject constructor(
     /**
      * Generate app suggestions based on usage patterns
      * Identifies top time-consuming apps, especially social/entertainment
+     * NOW SORTED BY ACTUAL USAGE TIME
      */
     private suspend fun generateAppSuggestions() {
         try {
             // Get whitelist to exclude essential apps
             val whitelistedPackages = repository.getWhitelistedPackageNames().toSet()
 
-            // Get installed apps with usage
-            val apps = installedApps.value
-            if (apps.isEmpty()) return
+            // Get actual usage data from UsageStatsManager
+            val usageStatsManager = application.getSystemService(Context.USAGE_STATS_SERVICE) as? android.app.usage.UsageStatsManager
+            if (usageStatsManager == null) return
+
+            // Get last 7 days of usage
+            val calendar = java.util.Calendar.getInstance()
+            val endTime = calendar.timeInMillis
+            calendar.add(java.util.Calendar.DAY_OF_YEAR, -7)
+            val startTime = calendar.timeInMillis
+
+            val usageStats = usageStatsManager.queryUsageStats(
+                android.app.usage.UsageStatsManager.INTERVAL_DAILY,
+                startTime,
+                endTime
+            )
+
+            if (usageStats.isNullOrEmpty()) return
+
+            // Aggregate usage per package
+            val usageByPackage = mutableMapOf<String, Long>()
+            usageStats.forEach { stats ->
+                val pkg = stats.packageName
+                usageByPackage[pkg] = (usageByPackage[pkg] ?: 0L) + stats.totalTimeInForeground
+            }
 
             // Social/Entertainment categories (keywords to identify distracting apps)
             val socialKeywords = setOf(
                 "instagram", "facebook", "twitter", "tiktok", "snapchat",
                 "reddit", "pinterest", "tumblr", "whatsapp", "telegram",
-                "discord", "messenger", "wechat", "line", "viber"
+                "discord", "messenger", "wechat", "line", "viber", "x.com"
             )
             val entertainmentKeywords = setOf(
                 "youtube", "netflix", "twitch", "hulu", "disney", "spotify",
-                "prime video", "game", "gaming", "vlc", "player"
+                "prime video", "game", "gaming", "vlc", "player", "kuku", "video"
             )
 
-            // Filter apps that are likely distracting
-            val distractingApps = apps.filter { app ->
-                val pkgLower = app.packageName.lowercase()
-                val nameLower = app.appName.lowercase()
+            // Get installed apps
+            val pm = application.packageManager
+            val installedApps = pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
+
+            // Build list of distracting apps with their usage
+            val distractingAppsWithUsage = installedApps.mapNotNull { appInfo ->
+                val packageName = appInfo.packageName
+                val appName = try {
+                    pm.getApplicationLabel(appInfo).toString()
+                } catch (e: Exception) {
+                    packageName
+                }
+                val pkgLower = packageName.lowercase()
+                val nameLower = appName.lowercase()
 
                 // Skip whitelisted and system apps
-                if (whitelistedPackages.contains(app.packageName)) return@filter false
-                if (app.packageName.startsWith("com.android.") ||
-                    app.packageName.startsWith("com.google.android.gms") ||
-                    app.packageName.startsWith("com.samsung.android.")) return@filter false
+                if (whitelistedPackages.contains(packageName)) return@mapNotNull null
+                if (packageName.startsWith("com.android.") ||
+                    packageName.startsWith("com.google.android.gms") ||
+                    packageName.startsWith("com.samsung.android.") ||
+                    packageName == "com.focusblock.app") return@mapNotNull null
 
                 // Check if it's a social or entertainment app
-                socialKeywords.any { pkgLower.contains(it) || nameLower.contains(it) } ||
-                entertainmentKeywords.any { pkgLower.contains(it) || nameLower.contains(it) }
+                val isSocial = socialKeywords.any { pkgLower.contains(it) || nameLower.contains(it) }
+                val isEntertainment = entertainmentKeywords.any { pkgLower.contains(it) || nameLower.contains(it) }
+
+                if (!isSocial && !isEntertainment) return@mapNotNull null
+
+                val usageMs = usageByPackage[packageName] ?: 0L
+                val usageMinutes = (usageMs / 60000).toInt()
+
+                // Only suggest apps with significant usage (> 5 minutes in last 7 days)
+                if (usageMinutes < 5) return@mapNotNull null
+
+                Triple(packageName, appName, usageMinutes) to if (isSocial) "social" else "entertainment"
             }
 
-            // Create suggestions (max 5 apps)
-            val suggestions = distractingApps.take(5).map { app ->
-                val category = when {
-                    socialKeywords.any { app.packageName.lowercase().contains(it) } -> "social"
-                    entertainmentKeywords.any { app.packageName.lowercase().contains(it) } -> "entertainment"
-                    else -> "other"
+            // Sort by usage (highest first) and take top 5
+            val suggestions = distractingAppsWithUsage
+                .sortedByDescending { it.first.third }
+                .take(5)
+                .map { (appData, category) ->
+                    val (packageName, appName, usageMinutes) = appData
+                    val avgDailyMinutes = usageMinutes / 7
+
+                    SuggestedBlockingApp(
+                        packageName = packageName,
+                        appName = appName,
+                        averageDailyMinutes = avgDailyMinutes,
+                        category = category,
+                        suggestionReason = when {
+                            avgDailyMinutes >= 60 -> "Using ${avgDailyMinutes}m/day - major time drain"
+                            avgDailyMinutes >= 30 -> "Using ${avgDailyMinutes}m/day - significant usage"
+                            avgDailyMinutes >= 10 -> "Using ${avgDailyMinutes}m/day - moderate usage"
+                            else -> when (category) {
+                                "social" -> "Social media apps are top time wasters"
+                                else -> "Entertainment apps reduce productivity"
+                            }
+                        }
+                    )
                 }
-
-                SuggestedBlockingApp(
-                    packageName = app.packageName,
-                    appName = app.appName,
-                    averageDailyMinutes = 0, // Would need usage stats to calculate
-                    category = category,
-                    suggestionReason = when (category) {
-                        "social" -> "Social media apps are top time wasters"
-                        "entertainment" -> "Entertainment apps reduce productivity"
-                        else -> "Identified as potentially distracting"
-                    }
-                )
-            }
 
             // Clear old and add new suggestions
             repository.clearAllSuggestions()

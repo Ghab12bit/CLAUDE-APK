@@ -1575,7 +1575,7 @@ fun ExcludedAppsDialog(
                         }
 
                         if (packageName != excludedPackages.last()) {
-                            HorizontalDivider(
+                            Divider(
                                 color = TextSecondary.copy(alpha = 0.2f),
                                 thickness = 0.5.dp
                             )

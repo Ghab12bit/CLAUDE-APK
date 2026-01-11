@@ -5129,7 +5129,7 @@ fun SmartSuggestionsCard(
                 }
 
                 if (suggestion != suggestions.take(3).last()) {
-                    HorizontalDivider(
+                    Divider(
                         color = TextSecondary.copy(alpha = 0.2f),
                         thickness = 0.5.dp
                     )

@@ -198,6 +198,25 @@ class HomeViewModel @Inject constructor(
         refreshEmergencyUnlockStatus()
         loadSmartSuggestions()
         loadGlobalDailyLimitForHome()
+
+        // Trigger service to refresh its cache and recalculate usage
+        refreshGlobalLimitServiceCache()
+    }
+
+    /**
+     * Trigger the accessibility service to refresh its Global Limit cache
+     * This ensures the service uses the latest detection logic
+     */
+    private fun refreshGlobalLimitServiceCache() {
+        viewModelScope.launch {
+            try {
+                val intent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+                intent.`package` = application.packageName
+                application.sendBroadcast(intent)
+            } catch (e: Exception) {
+                // Silently fail
+            }
+        }
     }
 
     private fun loadData() {
@@ -1465,6 +1484,17 @@ class HomeViewModel @Inject constructor(
                     suggestedApps = suggestions,
                     showSmartSuggestionsCard = suggestions.isNotEmpty()
                 )}
+            }
+        }
+
+        // Auto-generate suggestions on load (refreshes with actual usage data)
+        viewModelScope.launch {
+            try {
+                // Small delay to ensure UI is ready
+                kotlinx.coroutines.delay(1000)
+                generateAppSuggestions()
+            } catch (e: Exception) {
+                // Silently fail - suggestions are optional
             }
         }
     }

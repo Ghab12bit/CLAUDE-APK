@@ -2060,7 +2060,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 cachedGlobalLimitWarningMinutes = settings.warningMinutesBefore
                 cachedGlobalLimitUseAppTimerApps = settings.useAppTimerApps
 
-                // Build the list of apps to track (WHITELIST approach)
+                // Build the list of apps to track (only USER-configured apps)
                 val trackedAppsSet = mutableSetOf<String>()
 
                 // Add user-defined tracked packages
@@ -2079,18 +2079,32 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     }
                 }
 
-                // If no apps configured, use defaults
-                if (trackedAppsSet.isEmpty()) {
-                    trackedAppsSet.addAll(com.focusblock.app.database.entity.GlobalDailyLimitSettings.DEFAULT_DISTRACTING_APPS)
-                }
+                // NOTE: We no longer add DEFAULT_DISTRACTING_APPS here
+                // If trackedAppsSet is empty, isExcludedFromGlobalLimit() will use dynamic detection
 
                 cachedGlobalLimitTrackedPackages = trackedAppsSet
-                Log.d(TAG, "Global Limit: Tracking ${trackedAppsSet.size} apps")
+                Log.d(TAG, "Global Limit: User tracked ${trackedAppsSet.size} apps, will use dynamic detection if empty")
 
-                // Also calculate current screen time so enforcement works immediately
+                // Also calculate current screen time and update database immediately
                 if (cachedGlobalLimitEnabled) {
-                    lastGlobalUsageMinutes = calculateTotalScreenTime()
-                    Log.d(TAG, "Global Limit cache refreshed: enabled=true, limit=$cachedGlobalLimitMinutes min, currentUsage=$lastGlobalUsageMinutes min, tracking=${trackedAppsSet.size} apps")
+                    val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                        .format(java.util.Date())
+                    val totalUsageMinutes = calculateTotalScreenTime()
+                    lastGlobalUsageMinutes = totalUsageMinutes
+
+                    // Update database immediately so UI reflects correct value
+                    var dailyUsage = database.globalDailyUsageDao().getUsageForDateSync(today)
+                    if (dailyUsage == null) {
+                        dailyUsage = com.focusblock.app.database.entity.GlobalDailyUsage(
+                            date = today,
+                            totalUsageMinutes = totalUsageMinutes
+                        )
+                        database.globalDailyUsageDao().insert(dailyUsage)
+                    } else {
+                        database.globalDailyUsageDao().updateUsage(today, totalUsageMinutes)
+                    }
+
+                    Log.d(TAG, "Global Limit cache refreshed: enabled=true, limit=$cachedGlobalLimitMinutes min, currentUsage=$totalUsageMinutes min, tracking=${trackedAppsSet.size} apps (dynamic=${trackedAppsSet.isEmpty()})")
                 } else {
                     Log.d(TAG, "Global Limit cache refreshed: enabled=false")
                 }

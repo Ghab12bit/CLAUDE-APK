@@ -238,17 +238,36 @@ fun HomeScreen(
 
         // Quick Block Card - Primary instant control
         item(key = "quick_block_card") {
-            // Show session apps count if active, otherwise show permanent blocked apps count
-            val quickBlockAppsCount = if (uiState.isQuickBlockActive) {
-                uiState.quickBlockSession?.blockedPackages?.split(",")?.filter { it.isNotEmpty() }?.size ?: 0
-            } else {
-                uiState.blockedAppsCount // Show permanent blocked apps when no session
+            val context = LocalContext.current
+            // Get app names for display (session apps or permanent blocked apps)
+            val blockedAppNames = remember(uiState.isQuickBlockActive, uiState.quickBlockSession, uiState.blockedApps) {
+                if (uiState.isQuickBlockActive) {
+                    // Get names from active session packages
+                    uiState.quickBlockSession?.blockedPackages?.split(",")
+                        ?.filter { it.isNotEmpty() }
+                        ?.mapNotNull { pkg ->
+                            try {
+                                context.packageManager.getApplicationLabel(
+                                    context.packageManager.getApplicationInfo(pkg, 0)
+                                ).toString()
+                            } catch (e: Exception) { null }
+                        } ?: emptyList()
+                } else {
+                    // Get names from permanent blocked apps
+                    uiState.blockedApps.filter { it.isBlocked }.mapNotNull { app ->
+                        try {
+                            context.packageManager.getApplicationLabel(
+                                context.packageManager.getApplicationInfo(app.packageName, 0)
+                            ).toString()
+                        } catch (e: Exception) { null }
+                    }
+                }
             }
             QuickBlockCard(
                 isActive = uiState.isQuickBlockActive,
                 remainingTime = uiState.remainingTime,
                 endTime = uiState.quickBlockSession?.endTime,
-                blockedAppsCount = quickBlockAppsCount,
+                blockedAppNames = blockedAppNames,
                 isPomodoroMode = uiState.isPomodoroMode,
                 onStartClick = { showAppSelectionDialog = true },
                 onStopClick = {
@@ -955,7 +974,7 @@ fun QuickBlockCard(
     isActive: Boolean,
     remainingTime: Long,
     endTime: Long?,
-    blockedAppsCount: Int,
+    blockedAppNames: List<String>,
     isPomodoroMode: Boolean,
     onStartClick: () -> Unit,
     onStopClick: () -> Unit,
@@ -965,6 +984,14 @@ fun QuickBlockCard(
     isStrictMode: Boolean,
     isHardMode: Boolean
 ) {
+    // Format app names for display: "App1, App2, +3" or "App1, App2, App3"
+    val blockedAppsDisplay = remember(blockedAppNames) {
+        when {
+            blockedAppNames.isEmpty() -> "Select"
+            blockedAppNames.size <= 2 -> blockedAppNames.joinToString(", ")
+            else -> "${blockedAppNames.take(2).joinToString(", ")}, +${blockedAppNames.size - 2}"
+        }
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1039,10 +1066,12 @@ fun QuickBlockCard(
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = if (blockedAppsCount > 0) "$blockedAppsCount apps" else "Select",
-                            style = MaterialTheme.typography.labelLarge,
+                            text = blockedAppsDisplay,
+                            style = MaterialTheme.typography.labelMedium,
                             color = Primary,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -4941,7 +4970,10 @@ fun DailyLimitCard(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showTrackedApps = !showTrackedApps },
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SurfaceElevated.copy(alpha = 0.5f))
+                            .clickable { showTrackedApps = !showTrackedApps }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -4950,9 +4982,9 @@ fun DailyLimitCard(
                                 imageVector = Icons.Outlined.Apps,
                                 contentDescription = null,
                                 tint = Primary,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Tracking ${trackedApps.size} apps",
                                 style = MaterialTheme.typography.labelMedium,
@@ -4961,8 +4993,9 @@ fun DailyLimitCard(
                         }
                         Icon(
                             imageVector = if (showTrackedApps) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                            contentDescription = null,
-                            tint = TextSecondary
+                            contentDescription = if (showTrackedApps) "Collapse" else "Expand",
+                            tint = Primary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 

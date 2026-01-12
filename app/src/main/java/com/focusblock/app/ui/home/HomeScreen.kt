@@ -56,6 +56,7 @@ import com.focusblock.app.viewmodel.HourlyInsight
 import com.focusblock.app.viewmodel.LongSessionRisk
 import com.focusblock.app.viewmodel.ActionSuggestion
 import com.focusblock.app.viewmodel.ActionType
+import com.focusblock.app.viewmodel.TrackedAppUsage
 
 @Composable
 fun HomeScreen(
@@ -309,6 +310,7 @@ fun HomeScreen(
                 currentUsageMinutes = uiState.currentDailyUsageMinutes,
                 progress = uiState.dailyLimitProgress,
                 suggestedLimitMinutes = uiState.suggestedDailyLimitMinutes,
+                trackedApps = uiState.trackedAppsUsage,
                 // Hard Mode params
                 isHardModeEnabled = uiState.isHardModeEnabled,
                 isHardModeLocked = uiState.isHardModeLocked,
@@ -4752,6 +4754,7 @@ fun DailyLimitCard(
     currentUsageMinutes: Int,
     progress: Float,
     suggestedLimitMinutes: Int,
+    trackedApps: List<TrackedAppUsage> = emptyList(),
     // Hard Mode params
     isHardModeEnabled: Boolean = false,
     isHardModeLocked: Boolean = false,
@@ -4768,6 +4771,7 @@ fun DailyLimitCard(
     var showLimitPicker by remember { mutableStateOf(false) }
     var showHardModeOptions by remember { mutableStateOf(false) }
     var showUnlockDialog by remember { mutableStateOf(false) }
+    var showTrackedApps by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -4924,6 +4928,81 @@ fun DailyLimitCard(
                     } else if (!isHardModeLocked) {
                         TextButton(onClick = onAnalyzeUsage) {
                             Text("Analyze Usage", color = TextSecondary)
+                        }
+                    }
+                }
+
+                // Tracked Apps Section
+                if (trackedApps.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Divider(color = SurfaceElevated, thickness = 1.dp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showTrackedApps = !showTrackedApps },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Outlined.Apps,
+                                contentDescription = null,
+                                tint = Primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Tracking ${trackedApps.size} apps",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Primary
+                            )
+                        }
+                        Icon(
+                            imageVector = if (showTrackedApps) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = TextSecondary
+                        )
+                    }
+
+                    // Expandable list of tracked apps
+                    if (showTrackedApps) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(SurfaceElevated)
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            trackedApps.forEach { app ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = app.appName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        text = if (app.usageMinutes >= 60) {
+                                            "${app.usageMinutes / 60}h ${app.usageMinutes % 60}m"
+                                        } else {
+                                            "${app.usageMinutes}m"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (app.usageMinutes >= 30) AccentOrange else TextSecondary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
                         }
                     }
                 }

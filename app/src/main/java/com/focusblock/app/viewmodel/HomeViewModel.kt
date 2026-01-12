@@ -155,7 +155,17 @@ data class HomeUiState(
     val isGlobalDailyLimitEnabled: Boolean = false,
     val globalDailyLimitMinutes: Int = 180,
     val currentDailyUsageMinutes: Int = 0,
-    val dailyLimitProgress: Float = 0f // 0.0 to 1.0
+    val dailyLimitProgress: Float = 0f, // 0.0 to 1.0
+    val trackedAppsUsage: List<TrackedAppUsage> = emptyList() // Apps being tracked with their usage
+)
+
+/**
+ * Represents an app being tracked by Daily Screen Limit with its usage
+ */
+data class TrackedAppUsage(
+    val packageName: String,
+    val appName: String,
+    val usageMinutes: Int
 )
 
 enum class FocusCyclePhase {
@@ -1827,7 +1837,7 @@ class HomeViewModel @Inject constructor(
             }
         }
 
-        // Load current usage
+        // Load current usage and tracked apps
         viewModelScope.launch {
             val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
                 .format(java.util.Date())
@@ -1843,6 +1853,14 @@ class HomeViewModel @Inject constructor(
                     currentDailyUsageMinutes = currentMinutes,
                     dailyLimitProgress = progress
                 )}
+            }
+        }
+
+        // Load tracked apps with their usage periodically
+        viewModelScope.launch {
+            while (true) {
+                loadTrackedAppsUsage()
+                kotlinx.coroutines.delay(30_000) // Refresh every 30 seconds
             }
         }
 
@@ -2079,6 +2097,137 @@ class HomeViewModel @Inject constructor(
      */
     fun dismissDailyLimitSuggestionPrompt() {
         _uiState.update { it.copy(showDailyLimitSuggestionPrompt = false) }
+    }
+
+    /**
+     * Load tracked apps with their today's usage for display in Daily Limit card
+     */
+    private suspend fun loadTrackedAppsUsage() {
+        try {
+            val usageStatsManager = application.getSystemService(Context.USAGE_STATS_SERVICE) as? android.app.usage.UsageStatsManager
+                ?: return
+
+            // Get today's start time
+            val calendar = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }
+            val startTime = calendar.timeInMillis
+            val endTime = System.currentTimeMillis()
+
+            // Query usage events for accurate tracking
+            val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
+            val event = android.app.usage.UsageEvents.Event()
+
+            val activeApps = mutableMapOf<String, Long>()
+            val appUsageMillis = mutableMapOf<String, Long>()
+
+            while (usageEvents.hasNextEvent()) {
+                usageEvents.getNextEvent(event)
+                val packageName = event.packageName ?: continue
+
+                // Skip system apps and non-distractive apps
+                if (!isDistractiveAppForTracking(packageName)) continue
+
+                when (event.eventType) {
+                    android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND,
+                    android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED -> {
+                        activeApps[packageName] = event.timeStamp
+                    }
+                    android.app.usage.UsageEvents.Event.MOVE_TO_BACKGROUND,
+                    android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED -> {
+                        val foregroundStart = activeApps.remove(packageName)
+                        if (foregroundStart != null && foregroundStart < event.timeStamp) {
+                            val duration = event.timeStamp - foregroundStart
+                            if (duration < 4 * 60 * 60 * 1000) { // Less than 4 hours
+                                appUsageMillis[packageName] = (appUsageMillis[packageName] ?: 0L) + duration
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Add currently active apps
+            val now = System.currentTimeMillis()
+            for ((packageName, foregroundStart) in activeApps) {
+                val duration = now - foregroundStart
+                if (duration > 0 && duration < 4 * 60 * 60 * 1000) {
+                    appUsageMillis[packageName] = (appUsageMillis[packageName] ?: 0L) + duration
+                }
+            }
+
+            // Convert to TrackedAppUsage list, sorted by usage (highest first)
+            val pm = application.packageManager
+            val trackedApps = appUsageMillis
+                .filter { it.value > 60_000 } // Only show apps with > 1 minute usage
+                .map { (pkg, millis) ->
+                    val appName = try {
+                        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+                    } catch (e: Exception) {
+                        pkg.split(".").lastOrNull() ?: pkg
+                    }
+                    TrackedAppUsage(pkg, appName, (millis / 60_000).toInt())
+                }
+                .sortedByDescending { it.usageMinutes }
+                .take(10) // Show top 10
+
+            _uiState.update { it.copy(trackedAppsUsage = trackedApps) }
+
+        } catch (e: Exception) {
+            // Silently fail - just won't show tracked apps
+        }
+    }
+
+    /**
+     * Check if an app should be tracked for Daily Screen Limit
+     * Uses same logic as FocusBlockAccessibilityService.isDistractiveApp()
+     */
+    private fun isDistractiveAppForTracking(packageName: String): Boolean {
+        val pkgLower = packageName.lowercase()
+
+        // Skip system apps
+        val systemApps = listOf(
+            "com.android.settings", "com.android.systemui", "com.android.launcher",
+            "com.google.android.gms", "com.focusblock.app"
+        )
+        if (systemApps.any { pkgLower.startsWith(it) }) return false
+
+        // Get app name
+        val appName = try {
+            application.packageManager.getApplicationLabel(
+                application.packageManager.getApplicationInfo(packageName, 0)
+            ).toString().lowercase()
+        } catch (e: Exception) { "" }
+
+        // Social media
+        val socialKeywords = setOf(
+            "instagram", "facebook", "twitter", "tiktok", "snapchat",
+            "reddit", "pinterest", "tumblr", "discord", "messenger",
+            "wechat", "line", "viber", "telegram", "linkedin",
+            "threads", "mastodon", "bluesky", "whatsapp"
+        )
+
+        // Entertainment/Video
+        val entertainmentKeywords = setOf(
+            "youtube", "netflix", "twitch", "hulu", "disney", "spotify",
+            "prime video", "hotstar", "voot", "zee5", "sonyliv",
+            "player", "video", "movie", "stream", "kuku", "revanced"
+        )
+
+        // Gaming
+        val gameKeywords = setOf(
+            "game", "gaming", "clash", "pubg", "bgmi", "freefire",
+            "candy", "roblox", "minecraft", "fortnite", "cod",
+            "epic games", "steam", "play games"
+        )
+
+        if (socialKeywords.any { pkgLower.contains(it) || appName.contains(it) }) return true
+        if (entertainmentKeywords.any { pkgLower.contains(it) || appName.contains(it) }) return true
+        if (gameKeywords.any { pkgLower.contains(it) || appName.contains(it) }) return true
+
+        return false
     }
 
     /**

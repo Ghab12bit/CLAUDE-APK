@@ -2368,12 +2368,13 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             ""
         }
 
-        // Social media keywords
+        // Social media & messaging keywords (high distraction potential)
         val socialKeywords = setOf(
             "instagram", "facebook", "twitter", "tiktok", "snapchat",
             "reddit", "pinterest", "tumblr", "discord", "messenger",
             "wechat", "line", "viber", "telegram", "linkedin",
-            "threads", "mastodon", "bluesky", "x.com"
+            "threads", "mastodon", "bluesky", "x.com",
+            "whatsapp", "signal", "imo", "hike", "kik", "kakaotalk"
         )
 
         // Entertainment/Video keywords

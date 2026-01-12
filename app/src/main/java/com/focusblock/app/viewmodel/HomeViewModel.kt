@@ -156,7 +156,9 @@ data class HomeUiState(
     val globalDailyLimitMinutes: Int = 180,
     val currentDailyUsageMinutes: Int = 0,
     val dailyLimitProgress: Float = 0f, // 0.0 to 1.0
-    val trackedAppsUsage: List<TrackedAppUsage> = emptyList() // Apps being tracked with their usage
+    val trackedAppsUsage: List<TrackedAppUsage> = emptyList(), // Apps being tracked with their usage
+    // Whitelist - apps tracked but NOT blocked (e.g., WhatsApp for work)
+    val isWhatsAppWhitelisted: Boolean = false
 )
 
 /**
@@ -1632,7 +1634,7 @@ class HomeViewModel @Inject constructor(
             // Social/Entertainment categories (keywords to identify distracting apps)
             val socialKeywords = setOf(
                 "instagram", "facebook", "twitter", "tiktok", "snapchat",
-                "reddit", "pinterest", "tumblr", "whatsapp", "telegram",
+                "reddit", "pinterest", "tumblr", "telegram", "whatsapp",
                 "discord", "messenger", "wechat", "line", "viber", "x.com"
             )
             val entertainmentKeywords = setOf(
@@ -1822,6 +1824,9 @@ class HomeViewModel @Inject constructor(
                         (cooldownMs - elapsed).coerceAtLeast(0)
                     } else 0L
 
+                    // Check WhatsApp whitelist status
+                    val isWhatsAppWhitelisted = settings.whitelistedPackages.contains("com.whatsapp")
+
                     _uiState.update { it.copy(
                         isGlobalDailyLimitEnabled = settings.isEnabled || isLocked, // Force enabled if hard mode locked
                         globalDailyLimitMinutes = settings.dailyLimitMinutes,
@@ -1831,7 +1836,8 @@ class HomeViewModel @Inject constructor(
                         hardModeUnlockRequestedAt = settings.hardModeUnlockRequestedAt,
                         hardModeCooldownMinutes = settings.hardModeCooldownMinutes,
                         hardModeCooldownRemainingMs = cooldownRemainingMs,
-                        hardModeUnlockPhrase = settings.hardModeUnlockPhrase
+                        hardModeUnlockPhrase = settings.hardModeUnlockPhrase,
+                        isWhatsAppWhitelisted = isWhatsAppWhitelisted
                     )}
                 }
             }
@@ -2032,6 +2038,42 @@ class HomeViewModel @Inject constructor(
             hours < 168 -> "${hours / 24} day${if (hours >= 48) "s" else ""}"
             else -> "1 week"
         }
+    }
+
+    // ========== WHATSAPP WHITELIST ==========
+
+    /**
+     * Toggle WhatsApp whitelist status
+     * Whitelisted apps are tracked but NOT blocked when limit is reached
+     */
+    fun toggleWhatsAppWhitelist() {
+        viewModelScope.launch {
+            val whatsappPackage = "com.whatsapp"
+            val isCurrentlyWhitelisted = repository.isWhitelisted(whatsappPackage)
+
+            if (isCurrentlyWhitelisted) {
+                repository.removeFromWhitelist(whatsappPackage)
+                showToast("WhatsApp will be blocked when limit is reached")
+            } else {
+                repository.addToWhitelist(whatsappPackage)
+                showToast("WhatsApp won't be blocked (still tracked)")
+            }
+
+            _uiState.update { it.copy(isWhatsAppWhitelisted = !isCurrentlyWhitelisted) }
+
+            // Notify service to refresh cache
+            val intent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+            intent.`package` = application.packageName
+            application.sendBroadcast(intent)
+        }
+    }
+
+    /**
+     * Load WhatsApp whitelist status
+     */
+    private suspend fun loadWhatsAppWhitelistStatus() {
+        val isWhitelisted = repository.isWhitelisted("com.whatsapp")
+        _uiState.update { it.copy(isWhatsAppWhitelisted = isWhitelisted) }
     }
 
     // ========== GUIDED 20% REDUCTION PROMPT ==========

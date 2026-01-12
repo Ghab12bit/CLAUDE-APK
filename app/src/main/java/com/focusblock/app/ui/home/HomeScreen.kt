@@ -341,7 +341,10 @@ fun HomeScreen(
                 onAnalyzeUsage = { viewModel.analyzeUsageAndGenerateSuggestions() },
                 onEnableHardMode = { hours -> viewModel.enableHardMode(hours) },
                 onRequestUnlock = { viewModel.requestHardModeUnlock() },
-                onCompleteUnlock = { phrase -> viewModel.completeHardModeUnlock(phrase) }
+                onCompleteUnlock = { phrase -> viewModel.completeHardModeUnlock(phrase) },
+                // WhatsApp whitelist
+                isWhatsAppWhitelisted = uiState.isWhatsAppWhitelisted,
+                onToggleWhatsAppWhitelist = { viewModel.toggleWhatsAppWhitelist() }
             )
         }
 
@@ -4795,7 +4798,10 @@ fun DailyLimitCard(
     onAnalyzeUsage: () -> Unit,
     onEnableHardMode: (Int) -> Unit = {},
     onRequestUnlock: () -> Unit = {},
-    onCompleteUnlock: (String) -> Unit = {}
+    onCompleteUnlock: (String) -> Unit = {},
+    // WhatsApp whitelist - tracked but not blocked
+    isWhatsAppWhitelisted: Boolean = false,
+    onToggleWhatsAppWhitelist: () -> Unit = {}
 ) {
     var showLimitPicker by remember { mutableStateOf(false) }
     var showHardModeOptions by remember { mutableStateOf(false) }
@@ -5008,32 +5014,78 @@ fun DailyLimitCard(
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(SurfaceElevated)
                                 .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             trackedApps.forEach { app ->
+                                val isWhatsApp = app.packageName == "com.whatsapp"
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = app.appName,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = TextPrimary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
+                                    // App name with optional "Work" badge
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier.weight(1f)
-                                    )
-                                    Text(
-                                        text = if (app.usageMinutes >= 60) {
-                                            "${app.usageMinutes / 60}h ${app.usageMinutes % 60}m"
-                                        } else {
-                                            "${app.usageMinutes}m"
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (app.usageMinutes >= 30) AccentOrange else TextSecondary,
-                                        fontWeight = FontWeight.Medium
-                                    )
+                                    ) {
+                                        Text(
+                                            text = app.appName,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (isWhatsApp && isWhatsAppWhitelisted) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = SuccessGreen.copy(alpha = 0.2f)
+                                            ) {
+                                                Text(
+                                                    text = "Work",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = SuccessGreen,
+                                                    fontSize = 10.sp,
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Usage time + WhatsApp whitelist toggle
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = if (app.usageMinutes >= 60) {
+                                                "${app.usageMinutes / 60}h ${app.usageMinutes % 60}m"
+                                            } else {
+                                                "${app.usageMinutes}m"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (app.usageMinutes >= 30) AccentOrange else TextSecondary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        // WhatsApp whitelist toggle button
+                                        if (isWhatsApp) {
+                                            Surface(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .clickable { onToggleWhatsAppWhitelist() },
+                                                color = if (isWhatsAppWhitelisted) SuccessGreen.copy(alpha = 0.15f) else ErrorRed.copy(alpha = 0.15f),
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (isWhatsAppWhitelisted) "Won't block" else "Will block",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = if (isWhatsAppWhitelisted) SuccessGreen else ErrorRed,
+                                                    fontSize = 10.sp,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

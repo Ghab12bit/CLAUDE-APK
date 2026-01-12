@@ -32,7 +32,7 @@ import com.focusblock.app.database.entity.*
         EssentialAppWhitelist::class,
         SuggestedBlockingApp::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class FocusBlockDatabase : RoomDatabase() {

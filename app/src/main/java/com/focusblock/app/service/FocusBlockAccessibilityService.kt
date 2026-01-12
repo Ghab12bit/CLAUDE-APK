@@ -212,6 +212,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     // NEW: Whitelist approach - only track these specific apps
     @Volatile private var cachedGlobalLimitTrackedPackages: Set<String> = emptySet()
     @Volatile private var cachedGlobalLimitUseAppTimerApps: Boolean = true
+    // Apps that are tracked but NOT blocked (e.g., WhatsApp for work)
+    @Volatile private var cachedWhitelistedPackages: Set<String> = emptySet()
     private var lastGlobalUsageMinutes: Int = 0
     private var globalLimitEnforcementActive: Boolean = false
 
@@ -1962,7 +1964,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
 
         // Check Global Daily Limit (highest priority after hard mode)
-        if (cachedGlobalLimitEnabled && !isExcludedFromGlobalLimit(packageName)) {
+        // Skip blocking for whitelisted apps (tracked but not blocked, e.g., WhatsApp for work)
+        if (cachedGlobalLimitEnabled && !isExcludedFromGlobalLimit(packageName) && !cachedWhitelistedPackages.contains(packageName)) {
             if (lastGlobalUsageMinutes >= cachedGlobalLimitMinutes) {
                 return BlockedByType.GLOBAL_LIMIT
             }
@@ -2102,6 +2105,16 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
                 cachedGlobalLimitTrackedPackages = trackedAppsSet
                 Log.d(TAG, "Global Limit: User tracked ${trackedAppsSet.size} apps, will use dynamic detection if empty")
+
+                // Load whitelisted packages (apps tracked but NOT blocked, e.g., WhatsApp for work)
+                cachedWhitelistedPackages = if (settings.whitelistedPackages.isNotBlank()) {
+                    settings.whitelistedPackages.split(",").filter { it.isNotBlank() }.toSet()
+                } else {
+                    emptySet()
+                }
+                if (cachedWhitelistedPackages.isNotEmpty()) {
+                    Log.d(TAG, "Global Limit: ${cachedWhitelistedPackages.size} apps whitelisted (tracked but not blocked)")
+                }
 
                 // Also calculate current screen time and update database immediately
                 if (cachedGlobalLimitEnabled) {
@@ -2512,6 +2525,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private fun shouldBlockForGlobalLimit(packageName: String): Boolean {
         if (!cachedGlobalLimitEnabled || !globalLimitEnforcementActive) return false
         if (isExcludedFromGlobalLimit(packageName)) return false
+        // Check if app is whitelisted (tracked but NOT blocked, e.g., WhatsApp for work)
+        if (cachedWhitelistedPackages.contains(packageName)) return false
         return lastGlobalUsageMinutes >= cachedGlobalLimitMinutes
     }
 

@@ -453,6 +453,12 @@ interface GlobalDailyLimitSettingsDao {
     @Query("UPDATE global_daily_limit_settings SET dailyLimitMinutes = :minutes, updatedAt = :timestamp WHERE id = 1")
     suspend fun setDailyLimit(minutes: Int, timestamp: Long = System.currentTimeMillis())
 
+    // ========== WHITELIST QUERIES ==========
+    // Apps that are tracked but NOT blocked (e.g., WhatsApp for work)
+
+    @Query("UPDATE global_daily_limit_settings SET whitelistedPackages = :packages, updatedAt = :timestamp WHERE id = 1")
+    suspend fun setWhitelistedPackages(packages: String, timestamp: Long = System.currentTimeMillis())
+
     // ========== HARD MODE QUERIES ==========
 
     @Query("""

@@ -282,6 +282,10 @@ data class GlobalDailyLimitSettings(
     val trackedPackages: String = "", // Empty = use default distracting apps
     val useAppTimerApps: Boolean = true, // Share app list with App Timer
 
+    // WHITELIST: Apps that are tracked but NOT blocked (e.g., WhatsApp for work)
+    // These apps count toward usage but won't be blocked when limit is reached
+    val whitelistedPackages: String = "", // Comma-separated package names
+
     // HARD MODE - Prevents easy bypass of limits
     val isHardModeEnabled: Boolean = false, // When true, adds friction to disable
     val hardModeLockUntil: Long = 0L, // Timestamp - can't disable until this time

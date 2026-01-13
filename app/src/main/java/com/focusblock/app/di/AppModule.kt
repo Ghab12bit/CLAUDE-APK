@@ -140,4 +140,11 @@ object AppModule {
     fun provideSuggestedBlockingAppDao(database: FocusBlockDatabase): SuggestedBlockingAppDao {
         return database.suggestedBlockingAppDao()
     }
+
+    // Bedtime Mode
+    @Provides
+    @Singleton
+    fun provideBedtimeModeSettingsDao(database: FocusBlockDatabase): BedtimeModeSettingsDao {
+        return database.bedtimeModeSettingsDao()
+    }
 }

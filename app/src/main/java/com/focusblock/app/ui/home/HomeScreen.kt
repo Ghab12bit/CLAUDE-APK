@@ -348,6 +348,20 @@ fun HomeScreen(
             )
         }
 
+        // ========== BEDTIME MODE CARD ==========
+        item(key = "bedtime_mode_card") {
+            BedtimeModeCard(
+                isEnabled = uiState.isBedtimeModeEnabled,
+                startHour = uiState.bedtimeStartHour,
+                startMinute = uiState.bedtimeStartMinute,
+                endHour = uiState.bedtimeEndHour,
+                endMinute = uiState.bedtimeEndMinute,
+                isCurrentlyBedtime = uiState.isCurrentlyBedtime,
+                onToggle = { viewModel.toggleBedtimeMode() },
+                onSetTimes = { sh, sm, eh, em -> viewModel.setBedtimeTimes(sh, sm, eh, em) }
+            )
+        }
+
         // ========== SMART SUGGESTIONS CARD ==========
         if (uiState.showSmartSuggestionsCard && uiState.suggestedApps.isNotEmpty()) {
             item(key = "smart_suggestions_card") {
@@ -5876,5 +5890,199 @@ fun SmartSuggestionsCard(
                 }
             }
         }
+    }
+}
+
+// ========== BEDTIME MODE CARD ==========
+
+@Composable
+fun BedtimeModeCard(
+    isEnabled: Boolean,
+    startHour: Int,
+    startMinute: Int,
+    endHour: Int,
+    endMinute: Int,
+    isCurrentlyBedtime: Boolean,
+    onToggle: () -> Unit,
+    onSetTimes: (Int, Int, Int, Int) -> Unit
+) {
+    var showTimePicker by remember { mutableStateOf(false) }
+    var tempStartHour by remember(startHour) { mutableStateOf(startHour) }
+    var tempStartMinute by remember(startMinute) { mutableStateOf(startMinute) }
+    var tempEndHour by remember(endHour) { mutableStateOf(endHour) }
+    var tempEndMinute by remember(endMinute) { mutableStateOf(endMinute) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.Bedtime,
+                        contentDescription = null,
+                        tint = if (isCurrentlyBedtime) AccentOrange else Primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Bedtime Mode",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (isCurrentlyBedtime) "Active now - apps blocked" else "Block apps during sleep",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isCurrentlyBedtime) AccentOrange else TextSecondary
+                        )
+                    }
+                }
+                Switch(
+                    checked = isEnabled,
+                    onCheckedChange = { onToggle() },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Primary,
+                        checkedTrackColor = Primary.copy(alpha = 0.5f),
+                        uncheckedThumbColor = TextSecondary,
+                        uncheckedTrackColor = SurfaceElevated
+                    )
+                )
+            }
+
+            if (isEnabled) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Time Display
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SurfaceElevated)
+                        .clickable { showTimePicker = true }
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Start Time
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "Starts",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                        Text(
+                            text = String.format("%02d:%02d", startHour, startMinute),
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Icon(
+                        imageVector = Icons.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+
+                    // End Time
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "Ends",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                        Text(
+                            text = String.format("%02d:%02d", endHour, endMinute),
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Tap to change times",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+            }
+        }
+    }
+
+    // Time Picker Dialog
+    if (showTimePicker) {
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            containerColor = SurfaceCard,
+            title = { Text("Set Bedtime Hours", color = TextPrimary) },
+            text = {
+                Column {
+                    Text("Start Time", color = TextSecondary, style = MaterialTheme.typography.labelMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = tempStartHour.toString().padStart(2, '0'),
+                            onValueChange = { tempStartHour = (it.toIntOrNull() ?: 0).coerceIn(0, 23) },
+                            modifier = Modifier.width(70.dp),
+                            label = { Text("Hour") },
+                            singleLine = true
+                        )
+                        Text(":", color = TextPrimary, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = tempStartMinute.toString().padStart(2, '0'),
+                            onValueChange = { tempStartMinute = (it.toIntOrNull() ?: 0).coerceIn(0, 59) },
+                            modifier = Modifier.width(70.dp),
+                            label = { Text("Min") },
+                            singleLine = true
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("End Time", color = TextSecondary, style = MaterialTheme.typography.labelMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = tempEndHour.toString().padStart(2, '0'),
+                            onValueChange = { tempEndHour = (it.toIntOrNull() ?: 0).coerceIn(0, 23) },
+                            modifier = Modifier.width(70.dp),
+                            label = { Text("Hour") },
+                            singleLine = true
+                        )
+                        Text(":", color = TextPrimary, fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = tempEndMinute.toString().padStart(2, '0'),
+                            onValueChange = { tempEndMinute = (it.toIntOrNull() ?: 0).coerceIn(0, 59) },
+                            modifier = Modifier.width(70.dp),
+                            label = { Text("Min") },
+                            singleLine = true
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onSetTimes(tempStartHour, tempStartMinute, tempEndHour, tempEndMinute)
+                    showTimePicker = false
+                }) { Text("Save", color = Primary) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePicker = false }) { Text("Cancel", color = TextSecondary) }
+            }
+        )
     }
 }

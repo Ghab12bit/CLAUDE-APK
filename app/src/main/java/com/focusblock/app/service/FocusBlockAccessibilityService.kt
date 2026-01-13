@@ -222,6 +222,14 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     @Volatile private var cachedHardModeLockUntil: Long = 0L
     @Volatile private var cachedHardModeCooldownMinutes: Int = 15
 
+    // ========== BEDTIME MODE - Block apps during sleep hours ==========
+    @Volatile private var cachedBedtimeEnabled: Boolean = false
+    @Volatile private var cachedBedtimeStartHour: Int = 23
+    @Volatile private var cachedBedtimeStartMinute: Int = 0
+    @Volatile private var cachedBedtimeEndHour: Int = 7
+    @Volatile private var cachedBedtimeEndMinute: Int = 0
+    @Volatile private var cachedBedtimeDays: BooleanArray = BooleanArray(7) { true } // Mon-Sun
+
     // ========== DAILY USAGE COMPARISON ==========
     private val usageComparisonHandler = Handler(Looper.getMainLooper())
     private var usageComparisonRunnable: Runnable? = null
@@ -278,6 +286,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Start Global Daily Limit monitoring
         refreshGlobalLimitCache()
         startGlobalLimitCheck()
+
+        // Start Bedtime Mode monitoring
+        refreshBedtimeCache()
 
         // Start Daily Usage Comparison check
         startUsageComparisonCheck()
@@ -1971,6 +1982,12 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             }
         }
 
+        // Check Bedtime Mode - block distractive apps during sleep hours
+        if (isCurrentlyBedtime() && !isExcludedFromGlobalLimit(packageName)) {
+            // Block distractive apps during bedtime (use same detection as Global Limit)
+            return BlockedByType.BEDTIME
+        }
+
         val strictModeEnabled = settingsDao.getValue("strict_mode_enabled")?.toBooleanStrictOrNull() ?: false
         if (strictModeEnabled) {
             return BlockedByType.STRICT_MODE
@@ -2147,6 +2164,73 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
     }
 
+    // ========== BEDTIME MODE ==========
+
+    /**
+     * Refresh Bedtime Mode settings cache from database
+     */
+    private fun refreshBedtimeCache() {
+        immediateScope.launch {
+            try {
+                val settings = database.bedtimeModeSettingsDao().getSettingsSync()
+                if (settings != null) {
+                    cachedBedtimeEnabled = settings.isEnabled
+                    cachedBedtimeStartHour = settings.startHour
+                    cachedBedtimeStartMinute = settings.startMinute
+                    cachedBedtimeEndHour = settings.endHour
+                    cachedBedtimeEndMinute = settings.endMinute
+                    cachedBedtimeDays = booleanArrayOf(
+                        settings.monday, settings.tuesday, settings.wednesday,
+                        settings.thursday, settings.friday, settings.saturday, settings.sunday
+                    )
+                    Log.d(TAG, "Bedtime cache refreshed: enabled=${settings.isEnabled}, " +
+                            "${settings.startHour}:${settings.startMinute}-${settings.endHour}:${settings.endMinute}")
+                } else {
+                    cachedBedtimeEnabled = false
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to refresh Bedtime cache", e)
+            }
+        }
+    }
+
+    /**
+     * Check if current time is within bedtime hours
+     */
+    private fun isCurrentlyBedtime(): Boolean {
+        if (!cachedBedtimeEnabled) return false
+
+        val now = java.util.Calendar.getInstance()
+        val dayOfWeek = now.get(java.util.Calendar.DAY_OF_WEEK)
+
+        // Check if enabled for today (Calendar.SUNDAY=1, MONDAY=2, ... SATURDAY=7)
+        val dayIndex = when (dayOfWeek) {
+            java.util.Calendar.MONDAY -> 0
+            java.util.Calendar.TUESDAY -> 1
+            java.util.Calendar.WEDNESDAY -> 2
+            java.util.Calendar.THURSDAY -> 3
+            java.util.Calendar.FRIDAY -> 4
+            java.util.Calendar.SATURDAY -> 5
+            java.util.Calendar.SUNDAY -> 6
+            else -> return false
+        }
+        if (!cachedBedtimeDays[dayIndex]) return false
+
+        val currentHour = now.get(java.util.Calendar.HOUR_OF_DAY)
+        val currentMinute = now.get(java.util.Calendar.MINUTE)
+        val currentTimeMinutes = currentHour * 60 + currentMinute
+        val startTimeMinutes = cachedBedtimeStartHour * 60 + cachedBedtimeStartMinute
+        val endTimeMinutes = cachedBedtimeEndHour * 60 + cachedBedtimeEndMinute
+
+        return if (startTimeMinutes <= endTimeMinutes) {
+            // Same day (e.g., 22:00 - 23:30)
+            currentTimeMinutes in startTimeMinutes until endTimeMinutes
+        } else {
+            // Crosses midnight (e.g., 23:00 - 07:00)
+            currentTimeMinutes >= startTimeMinutes || currentTimeMinutes < endTimeMinutes
+        }
+    }
+
     /**
      * Start periodic Global Daily Limit check
      */
@@ -2183,6 +2267,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         if (globalLimitCacheRefreshCounter >= 2) {
             globalLimitCacheRefreshCounter = 0
             refreshGlobalLimitCache()
+            refreshBedtimeCache() // Also refresh bedtime settings
         }
 
         if (!cachedGlobalLimitEnabled) return

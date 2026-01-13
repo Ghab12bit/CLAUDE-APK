@@ -672,3 +672,56 @@ interface SuggestedBlockingAppDao {
     @Query("DELETE FROM suggested_blocking_apps WHERE suggestedAt < :beforeTime")
     suspend fun deleteOldSuggestions(beforeTime: Long)
 }
+
+// ========== BEDTIME MODE ==========
+
+@Dao
+interface BedtimeModeSettingsDao {
+    @Query("SELECT * FROM bedtime_mode_settings WHERE id = 1")
+    fun getSettings(): Flow<BedtimeModeSettings?>
+
+    @Query("SELECT * FROM bedtime_mode_settings WHERE id = 1")
+    suspend fun getSettingsSync(): BedtimeModeSettings?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(settings: BedtimeModeSettings)
+
+    @Update
+    suspend fun update(settings: BedtimeModeSettings)
+
+    @Query("UPDATE bedtime_mode_settings SET isEnabled = :enabled, updatedAt = :timestamp WHERE id = 1")
+    suspend fun setEnabled(enabled: Boolean, timestamp: Long = System.currentTimeMillis())
+
+    @Query("""
+        UPDATE bedtime_mode_settings SET
+            startHour = :startHour,
+            startMinute = :startMinute,
+            endHour = :endHour,
+            endMinute = :endMinute,
+            updatedAt = :timestamp
+        WHERE id = 1
+    """)
+    suspend fun setTimes(
+        startHour: Int,
+        startMinute: Int,
+        endHour: Int,
+        endMinute: Int,
+        timestamp: Long = System.currentTimeMillis()
+    )
+
+    @Query("""
+        UPDATE bedtime_mode_settings SET
+            monday = :mon, tuesday = :tue, wednesday = :wed,
+            thursday = :thu, friday = :fri, saturday = :sat, sunday = :sun,
+            updatedAt = :timestamp
+        WHERE id = 1
+    """)
+    suspend fun setDays(
+        mon: Boolean, tue: Boolean, wed: Boolean,
+        thu: Boolean, fri: Boolean, sat: Boolean, sun: Boolean,
+        timestamp: Long = System.currentTimeMillis()
+    )
+
+    @Query("UPDATE bedtime_mode_settings SET overrideUsedToday = :used, lastOverrideDate = :date WHERE id = 1")
+    suspend fun setOverrideUsed(used: Boolean, date: String)
+}

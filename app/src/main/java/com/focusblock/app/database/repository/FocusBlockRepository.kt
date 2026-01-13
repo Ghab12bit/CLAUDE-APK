@@ -28,7 +28,8 @@ class FocusBlockRepository @Inject constructor(
     private val dailyUsageSummaryDao: DailyUsageSummaryDao,
     private val smartSuggestionsSettingsDao: SmartSuggestionsSettingsDao,
     private val essentialAppWhitelistDao: EssentialAppWhitelistDao,
-    private val suggestedBlockingAppDao: SuggestedBlockingAppDao
+    private val suggestedBlockingAppDao: SuggestedBlockingAppDao,
+    private val bedtimeModeSettingsDao: BedtimeModeSettingsDao
 ) {
     // Blocked Apps
     fun getAllBlockedApps(): Flow<List<BlockedApp>> = blockedAppDao.getAllBlockedApps()
@@ -410,4 +411,25 @@ class FocusBlockRepository @Inject constructor(
     suspend fun acceptSuggestion(packageName: String) = suggestedBlockingAppDao.acceptSuggestion(packageName)
     suspend fun dismissSuggestion(packageName: String) = suggestedBlockingAppDao.dismissSuggestion(packageName)
     suspend fun clearAllSuggestions() = suggestedBlockingAppDao.clearAll()
+
+    // ========== BEDTIME MODE ==========
+    fun getBedtimeModeSettings(): Flow<BedtimeModeSettings?> = bedtimeModeSettingsDao.getSettings()
+    suspend fun getBedtimeModeSettingsSync(): BedtimeModeSettings? = bedtimeModeSettingsDao.getSettingsSync()
+    suspend fun saveBedtimeModeSettings(settings: BedtimeModeSettings) = bedtimeModeSettingsDao.insert(settings)
+    suspend fun updateBedtimeModeSettings(settings: BedtimeModeSettings) = bedtimeModeSettingsDao.update(settings)
+    suspend fun setBedtimeModeEnabled(enabled: Boolean) = bedtimeModeSettingsDao.setEnabled(enabled)
+    suspend fun setBedtimeTimes(startHour: Int, startMinute: Int, endHour: Int, endMinute: Int) =
+        bedtimeModeSettingsDao.setTimes(startHour, startMinute, endHour, endMinute)
+    suspend fun setBedtimeDays(mon: Boolean, tue: Boolean, wed: Boolean, thu: Boolean, fri: Boolean, sat: Boolean, sun: Boolean) =
+        bedtimeModeSettingsDao.setDays(mon, tue, wed, thu, fri, sat, sun)
+    suspend fun useBedtimeOverride(date: String) = bedtimeModeSettingsDao.setOverrideUsed(true, date)
+    suspend fun resetBedtimeOverride() = bedtimeModeSettingsDao.setOverrideUsed(false, "")
+
+    /**
+     * Check if currently within bedtime hours
+     */
+    suspend fun isCurrentlyBedtime(): Boolean {
+        val settings = getBedtimeModeSettingsSync() ?: return false
+        return settings.isCurrentlyBedtime()
+    }
 }

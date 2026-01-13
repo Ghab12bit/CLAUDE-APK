@@ -65,7 +65,7 @@ data class BlockLog(
 )
 
 enum class BlockedByType {
-    QUICK_BLOCK, SCHEDULE, STRICT_MODE, HARD_MODE, FOCUS_CYCLE, APP_TIMER, GLOBAL_LIMIT
+    QUICK_BLOCK, SCHEDULE, STRICT_MODE, HARD_MODE, FOCUS_CYCLE, APP_TIMER, GLOBAL_LIMIT, BEDTIME
 }
 
 @Entity(tableName = "usage_stats")
@@ -508,3 +508,83 @@ data class SuggestedBlockingApp(
     val isDismissed: Boolean = false, // User dismissed this suggestion
     val suggestedAt: Long = System.currentTimeMillis()
 )
+
+// ========== BEDTIME MODE ==========
+
+/**
+ * Bedtime Mode Settings - Block distractive apps during sleep hours
+ * Helps users reduce late-night phone usage for better sleep
+ */
+@Entity(tableName = "bedtime_mode_settings")
+data class BedtimeModeSettings(
+    @PrimaryKey
+    val id: Int = 1, // Singleton
+    val isEnabled: Boolean = false,
+    val startHour: Int = 23, // 11 PM
+    val startMinute: Int = 0,
+    val endHour: Int = 7, // 7 AM
+    val endMinute: Int = 0,
+    // Days of week (true = active on that day)
+    val monday: Boolean = true,
+    val tuesday: Boolean = true,
+    val wednesday: Boolean = true,
+    val thursday: Boolean = true,
+    val friday: Boolean = true,
+    val saturday: Boolean = true,
+    val sunday: Boolean = true,
+    // Reminder settings
+    val showWindDownReminder: Boolean = true, // Show reminder 15 min before bedtime
+    val windDownMinutesBefore: Int = 15,
+    // Grace period - allow emergency access
+    val allowEmergencyOverride: Boolean = true,
+    val overrideUsedToday: Boolean = false,
+    val lastOverrideDate: String = "", // YYYY-MM-DD
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+) {
+    /**
+     * Check if bedtime is active right now
+     */
+    fun isCurrentlyBedtime(): Boolean {
+        if (!isEnabled) return false
+
+        val now = java.util.Calendar.getInstance()
+        val dayOfWeek = now.get(java.util.Calendar.DAY_OF_WEEK)
+
+        // Check if enabled for today
+        val enabledToday = when (dayOfWeek) {
+            java.util.Calendar.MONDAY -> monday
+            java.util.Calendar.TUESDAY -> tuesday
+            java.util.Calendar.WEDNESDAY -> wednesday
+            java.util.Calendar.THURSDAY -> thursday
+            java.util.Calendar.FRIDAY -> friday
+            java.util.Calendar.SATURDAY -> saturday
+            java.util.Calendar.SUNDAY -> sunday
+            else -> false
+        }
+        if (!enabledToday) return false
+
+        val currentHour = now.get(java.util.Calendar.HOUR_OF_DAY)
+        val currentMinute = now.get(java.util.Calendar.MINUTE)
+        val currentTimeMinutes = currentHour * 60 + currentMinute
+        val startTimeMinutes = startHour * 60 + startMinute
+        val endTimeMinutes = endHour * 60 + endMinute
+
+        return if (startTimeMinutes <= endTimeMinutes) {
+            // Same day (e.g., 22:00 - 23:30)
+            currentTimeMinutes in startTimeMinutes until endTimeMinutes
+        } else {
+            // Crosses midnight (e.g., 23:00 - 07:00)
+            currentTimeMinutes >= startTimeMinutes || currentTimeMinutes < endTimeMinutes
+        }
+    }
+
+    /**
+     * Format bedtime range as readable string
+     */
+    fun formatTimeRange(): String {
+        val startFormatted = String.format("%02d:%02d", startHour, startMinute)
+        val endFormatted = String.format("%02d:%02d", endHour, endMinute)
+        return "$startFormatted - $endFormatted"
+    }
+}

@@ -30,9 +30,11 @@ import com.focusblock.app.database.entity.*
         // Smart Suggestions entities
         SmartSuggestionsSettings::class,
         EssentialAppWhitelist::class,
-        SuggestedBlockingApp::class
+        SuggestedBlockingApp::class,
+        // Bedtime Mode
+        BedtimeModeSettings::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class FocusBlockDatabase : RoomDatabase() {
@@ -59,6 +61,8 @@ abstract class FocusBlockDatabase : RoomDatabase() {
     abstract fun smartSuggestionsSettingsDao(): SmartSuggestionsSettingsDao
     abstract fun essentialAppWhitelistDao(): EssentialAppWhitelistDao
     abstract fun suggestedBlockingAppDao(): SuggestedBlockingAppDao
+    // Bedtime Mode
+    abstract fun bedtimeModeSettingsDao(): BedtimeModeSettingsDao
 
     companion object {
         @Volatile

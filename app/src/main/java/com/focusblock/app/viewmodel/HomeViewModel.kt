@@ -158,7 +158,14 @@ data class HomeUiState(
     val dailyLimitProgress: Float = 0f, // 0.0 to 1.0
     val trackedAppsUsage: List<TrackedAppUsage> = emptyList(), // Apps being tracked with their usage
     // Whitelist - apps tracked but NOT blocked (e.g., WhatsApp for work)
-    val isWhatsAppWhitelisted: Boolean = false
+    val isWhatsAppWhitelisted: Boolean = false,
+    // Bedtime Mode - block apps during sleep hours
+    val isBedtimeModeEnabled: Boolean = false,
+    val bedtimeStartHour: Int = 23,
+    val bedtimeStartMinute: Int = 0,
+    val bedtimeEndHour: Int = 7,
+    val bedtimeEndMinute: Int = 0,
+    val isCurrentlyBedtime: Boolean = false
 )
 
 /**
@@ -221,6 +228,7 @@ class HomeViewModel @Inject constructor(
         refreshEmergencyUnlockStatus()
         loadSmartSuggestions()
         loadGlobalDailyLimitForHome()
+        loadBedtimeModeSettings()
 
         // Trigger service to refresh its cache and recalculate usage
         refreshGlobalLimitServiceCache()
@@ -2074,6 +2082,81 @@ class HomeViewModel @Inject constructor(
     private suspend fun loadWhatsAppWhitelistStatus() {
         val isWhitelisted = repository.isWhitelisted("com.whatsapp")
         _uiState.update { it.copy(isWhatsAppWhitelisted = isWhitelisted) }
+    }
+
+    // ========== BEDTIME MODE ==========
+
+    /**
+     * Load Bedtime Mode settings
+     */
+    private fun loadBedtimeModeSettings() {
+        viewModelScope.launch {
+            repository.getBedtimeModeSettings().collect { settings ->
+                if (settings != null) {
+                    _uiState.update { it.copy(
+                        isBedtimeModeEnabled = settings.isEnabled,
+                        bedtimeStartHour = settings.startHour,
+                        bedtimeStartMinute = settings.startMinute,
+                        bedtimeEndHour = settings.endHour,
+                        bedtimeEndMinute = settings.endMinute,
+                        isCurrentlyBedtime = settings.isCurrentlyBedtime()
+                    )}
+                }
+            }
+        }
+    }
+
+    /**
+     * Toggle Bedtime Mode on/off
+     */
+    fun toggleBedtimeMode() {
+        viewModelScope.launch {
+            val currentState = _uiState.value.isBedtimeModeEnabled
+            val newState = !currentState
+
+            // Create settings if they don't exist
+            val existingSettings = repository.getBedtimeModeSettingsSync()
+            if (existingSettings == null) {
+                repository.saveBedtimeModeSettings(BedtimeModeSettings(isEnabled = newState))
+            } else {
+                repository.setBedtimeModeEnabled(newState)
+            }
+
+            _uiState.update { it.copy(isBedtimeModeEnabled = newState) }
+            showToast(if (newState) "Bedtime Mode enabled" else "Bedtime Mode disabled")
+        }
+    }
+
+    /**
+     * Set Bedtime hours
+     */
+    fun setBedtimeTimes(startHour: Int, startMinute: Int, endHour: Int, endMinute: Int) {
+        viewModelScope.launch {
+            // Create settings if they don't exist
+            val existingSettings = repository.getBedtimeModeSettingsSync()
+            if (existingSettings == null) {
+                repository.saveBedtimeModeSettings(BedtimeModeSettings(
+                    isEnabled = true,
+                    startHour = startHour,
+                    startMinute = startMinute,
+                    endHour = endHour,
+                    endMinute = endMinute
+                ))
+            } else {
+                repository.setBedtimeTimes(startHour, startMinute, endHour, endMinute)
+            }
+
+            _uiState.update { it.copy(
+                bedtimeStartHour = startHour,
+                bedtimeStartMinute = startMinute,
+                bedtimeEndHour = endHour,
+                bedtimeEndMinute = endMinute
+            )}
+
+            val startStr = String.format("%02d:%02d", startHour, startMinute)
+            val endStr = String.format("%02d:%02d", endHour, endMinute)
+            showToast("Bedtime set: $startStr - $endStr")
+        }
     }
 
     // ========== GUIDED 20% REDUCTION PROMPT ==========

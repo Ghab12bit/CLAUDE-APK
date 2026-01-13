@@ -338,7 +338,8 @@ class FocusBlockRepository @Inject constructor(
     }
 
     // Whitelist - Apps tracked but NOT blocked (e.g., WhatsApp for work)
-    suspend fun getWhitelistedPackages(): Set<String> {
+    // These are for Daily Limit feature specifically
+    suspend fun getDailyLimitWhitelistedPackages(): Set<String> {
         val settings = getGlobalDailyLimitSettingsSync() ?: return emptySet()
         return if (settings.whitelistedPackages.isNotBlank()) {
             settings.whitelistedPackages.split(",").filter { it.isNotBlank() }.toSet()
@@ -347,20 +348,20 @@ class FocusBlockRepository @Inject constructor(
         }
     }
 
-    suspend fun addToWhitelist(packageName: String) {
-        val current = getWhitelistedPackages().toMutableSet()
+    suspend fun addToDailyLimitWhitelist(packageName: String) {
+        val current = getDailyLimitWhitelistedPackages().toMutableSet()
         current.add(packageName)
         globalDailyLimitSettingsDao.setWhitelistedPackages(current.joinToString(","))
     }
 
-    suspend fun removeFromWhitelist(packageName: String) {
-        val current = getWhitelistedPackages().toMutableSet()
+    suspend fun removeFromDailyLimitWhitelist(packageName: String) {
+        val current = getDailyLimitWhitelistedPackages().toMutableSet()
         current.remove(packageName)
         globalDailyLimitSettingsDao.setWhitelistedPackages(current.joinToString(","))
     }
 
-    suspend fun isWhitelisted(packageName: String): Boolean {
-        return getWhitelistedPackages().contains(packageName)
+    suspend fun isDailyLimitWhitelisted(packageName: String): Boolean {
+        return getDailyLimitWhitelistedPackages().contains(packageName)
     }
 
     // Global Daily Usage

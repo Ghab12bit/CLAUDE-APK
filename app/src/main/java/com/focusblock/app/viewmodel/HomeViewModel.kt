@@ -2057,13 +2057,13 @@ class HomeViewModel @Inject constructor(
     fun toggleWhatsAppWhitelist() {
         viewModelScope.launch {
             val whatsappPackage = "com.whatsapp"
-            val isCurrentlyWhitelisted = repository.isWhitelisted(whatsappPackage)
+            val isCurrentlyWhitelisted = repository.isDailyLimitWhitelisted(whatsappPackage)
 
             if (isCurrentlyWhitelisted) {
-                repository.removeFromWhitelist(whatsappPackage)
+                repository.removeFromDailyLimitWhitelist(whatsappPackage)
                 showToast("WhatsApp will be blocked when limit is reached")
             } else {
-                repository.addToWhitelist(whatsappPackage)
+                repository.addToDailyLimitWhitelist(whatsappPackage)
                 showToast("WhatsApp won't be blocked (still tracked)")
             }
 
@@ -2080,7 +2080,7 @@ class HomeViewModel @Inject constructor(
      * Load WhatsApp whitelist status
      */
     private suspend fun loadWhatsAppWhitelistStatus() {
-        val isWhitelisted = repository.isWhitelisted("com.whatsapp")
+        val isWhitelisted = repository.isDailyLimitWhitelisted("com.whatsapp")
         _uiState.update { it.copy(isWhatsAppWhitelisted = isWhitelisted) }
     }
 

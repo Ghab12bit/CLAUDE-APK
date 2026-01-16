@@ -1983,7 +1983,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
 
         // Check Bedtime Mode - block distractive apps during sleep hours
-        if (isCurrentlyBedtime() && !isExcludedFromGlobalLimit(packageName)) {
+        // Also respect the whitelist (e.g., WhatsApp for work)
+        if (isCurrentlyBedtime() && !isExcludedFromGlobalLimit(packageName) && !cachedWhitelistedPackages.contains(packageName)) {
             // Block distractive apps during bedtime (use same detection as Global Limit)
             return BlockedByType.BEDTIME
         }

@@ -112,7 +112,8 @@ data class HomeUiState(
     val strictModeMaxPausesPerDay: Int = 1, // Configurable max pauses
     val isEmergencyUnlockAvailable: Boolean = true, // One-time daily emergency unlock
     // Hard Mode - prevents easy bypass of limits
-    val isHardModeEnabled: Boolean = false,
+    val isHardModeEnabled: Boolean = false, // Legacy PIN-based Hard Mode
+    val legacyHardModeUnlockTime: Long? = null, // When PIN unlock becomes available
     val isHardModeLocked: Boolean = false, // Can't disable limits while locked
     val hardModeLockUntil: Long = 0L, // Timestamp when lock expires
     val hardModeUnlockRequestedAt: Long = 0L, // When user requested unlock
@@ -373,6 +374,11 @@ class HomeViewModel @Inject constructor(
             // Load hard mode status
             repository.getLegacyHardModeEnabledFlow().collect { enabled ->
                 _uiState.update { it.copy(isHardModeEnabled = enabled) }
+                // Also load unlock time when hard mode is enabled
+                if (enabled) {
+                    val unlockTime = repository.getHardModeUnlockTime()
+                    _uiState.update { it.copy(legacyHardModeUnlockTime = unlockTime) }
+                }
             }
         }
     }
@@ -942,7 +948,15 @@ class HomeViewModel @Inject constructor(
 
     fun verifyPinAndStop(pin: String): Boolean {
         // If strict mode is time-locked, even PIN cannot bypass
+        // (UI should prevent this, but check as safety measure)
         if (_uiState.value.isStrictModeLocked) {
+            return false
+        }
+
+        // Check if Hard Mode unlock time has passed
+        val unlockTime = kotlinx.coroutines.runBlocking { repository.getHardModeUnlockTime() }
+        if (unlockTime != null && unlockTime > System.currentTimeMillis()) {
+            // Unlock time hasn't passed yet
             return false
         }
 
@@ -1252,6 +1266,7 @@ class HomeViewModel @Inject constructor(
             if (enabled && unlockTimeMinutes != null) {
                 val unlockTime = System.currentTimeMillis() + unlockTimeMinutes * 60 * 1000L
                 repository.setHardModeUnlockTime(unlockTime)
+                _uiState.update { it.copy(legacyHardModeUnlockTime = unlockTime) }
             }
         }
     }

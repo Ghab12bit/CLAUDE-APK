@@ -72,6 +72,7 @@ fun HomeScreen(
     var showHardModeDialog by remember { mutableStateOf(false) }
     var showBlockedAppsDialog by remember { mutableStateOf(false) }
     var showUnlockPinDialog by remember { mutableStateOf(false) }
+    var showHardModeWaitDialog by remember { mutableStateOf(false) } // When unlock time hasn't passed
     var showStrictModeUnlockDialog by remember { mutableStateOf(false) }
     var showStrictModeSetupDialog by remember { mutableStateOf(false) }
     var showPauseMotivationDialog by remember { mutableStateOf(false) }
@@ -271,8 +272,19 @@ fun HomeScreen(
                 isPomodoroMode = uiState.isPomodoroMode,
                 onStartClick = { showAppSelectionDialog = true },
                 onStopClick = {
-                    if (uiState.isHardModeEnabled) {
-                        showUnlockPinDialog = true
+                    // Check Strict Mode LOCK first - if time-locked, PIN won't help
+                    if (uiState.isStrictModeLocked) {
+                        showStrictModeUnlockDialog = true
+                    } else if (uiState.isHardModeEnabled) {
+                        // Check if Hard Mode unlock time has passed
+                        val unlockTime = uiState.legacyHardModeUnlockTime
+                        if (unlockTime != null && unlockTime > System.currentTimeMillis()) {
+                            // Unlock time hasn't passed yet - show wait dialog
+                            showHardModeWaitDialog = true
+                        } else {
+                            // Unlock time passed - show PIN dialog
+                            showUnlockPinDialog = true
+                        }
                     } else if (uiState.isStrictModeEnabled) {
                         showStrictModeUnlockDialog = true
                     } else {
@@ -555,6 +567,14 @@ fun HomeScreen(
                 }
                 success
             }
+        )
+    }
+
+    // Hard Mode Wait Dialog - When unlock time hasn't passed yet
+    if (showHardModeWaitDialog) {
+        HardModeWaitDialog(
+            unlockTime = uiState.legacyHardModeUnlockTime ?: 0L,
+            onDismiss = { showHardModeWaitDialog = false }
         )
     }
 
@@ -2299,6 +2319,90 @@ fun UnlockPinDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Cancel", color = TextSecondary)
+            }
+        }
+    )
+}
+
+@Composable
+fun HardModeWaitDialog(
+    unlockTime: Long,
+    onDismiss: () -> Unit
+) {
+    var remainingTime by remember { mutableStateOf(unlockTime - System.currentTimeMillis()) }
+
+    // Update remaining time every second
+    LaunchedEffect(unlockTime) {
+        while (true) {
+            remainingTime = (unlockTime - System.currentTimeMillis()).coerceAtLeast(0)
+            if (remainingTime <= 0) break
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardDarkElevated,
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(AccentOrange.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Timer,
+                        contentDescription = null,
+                        tint = AccentOrange,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Hard Mode Active",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "You set a time lock on Hard Mode. PIN unlock will be available after the timer expires.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    text = "Unlock available in:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = TimeUtils.formatTimerWithHours(remainingTime),
+                    style = MaterialTheme.typography.displaySmall,
+                    color = AccentOrange,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AccentOrange)
+            ) {
+                Text("OK", fontWeight = FontWeight.Medium)
             }
         }
     )

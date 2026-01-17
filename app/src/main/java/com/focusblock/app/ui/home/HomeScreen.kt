@@ -6018,7 +6018,7 @@ fun BedtimeModeCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(
@@ -6133,7 +6133,7 @@ fun BedtimeModeCard(
     if (showTimePicker) {
         AlertDialog(
             onDismissRequest = { showTimePicker = false },
-            containerColor = SurfaceCard,
+            containerColor = CardDark,
             title = { Text("Set Bedtime Hours", color = TextPrimary) },
             text = {
                 Column {

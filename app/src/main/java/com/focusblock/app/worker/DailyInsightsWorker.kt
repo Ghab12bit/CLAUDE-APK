@@ -2,6 +2,8 @@ package com.focusblock.app.worker
 
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.util.Log
@@ -10,15 +12,18 @@ import androidx.work.*
 import com.focusblock.app.FocusBlockApp
 import com.focusblock.app.R
 import com.focusblock.app.database.FocusBlockDatabase
+import com.focusblock.app.database.entity.GlobalDailyLimitSettings
 import com.focusblock.app.ui.MainActivity
+import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 
 /**
- * Daily worker that sends motivational notifications based on user's stats
- * - Streak milestones (3, 7, 14, 30 days)
- * - Trend warnings (screen time up significantly)
- * - Success celebrations (screen time down)
+ * Daily worker that:
+ * 1. Tracks screen time usage
+ * 2. Compares today's usage with previous days' average
+ * 3. If usage is increasing, suggests a 20% reduction
+ * 4. Sends motivational notifications based on user's stats
  */
 class DailyInsightsWorker(
     context: Context,
@@ -29,6 +34,9 @@ class DailyInsightsWorker(
         private const val TAG = "DailyInsightsWorker"
         private const val WORK_NAME = "daily_insights_notification"
         private const val NOTIFICATION_ID = 5001
+        private const val USAGE_NOTIFICATION_ID = 5002
+        private const val PREFS_NAME = "daily_insights_prefs"
+        private const val KEY_LAST_RUN = "last_run_date"
 
         fun schedule(context: Context) {
             // Schedule to run daily at 9 PM
@@ -63,21 +71,39 @@ class DailyInsightsWorker(
                 request
             )
 
-            Log.i(TAG, "Scheduled daily insights notification")
+            Log.i(TAG, "Scheduled daily insights notification for ${targetTime.time}")
         }
     }
 
     override suspend fun doWork(): Result {
         try {
+            Log.i(TAG, "DailyInsightsWorker started at ${Date()}")
+
             val database = FocusBlockDatabase.getDatabase(applicationContext)
 
-            // Calculate stats for notification
-            val notification = buildNotification(database)
+            // Check if we already ran today (prevent duplicate runs)
+            val prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            val lastRun = prefs.getString(KEY_LAST_RUN, null)
 
-            if (notification != null) {
-                showNotification(notification.first, notification.second)
+            if (lastRun == today) {
+                Log.i(TAG, "Already ran today, skipping")
+                return Result.success()
             }
 
+            // Mark as ran today
+            prefs.edit().putString(KEY_LAST_RUN, today).apply()
+
+            // 1. Analyze screen time and show 20% reduction notification if needed
+            analyzeScreenTimeAndNotify(database)
+
+            // 2. Send motivational notification based on block stats
+            val notification = buildBlockNotification(database)
+            if (notification != null) {
+                showNotification(notification.first, notification.second, NOTIFICATION_ID)
+            }
+
+            Log.i(TAG, "DailyInsightsWorker completed successfully")
             return Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send daily insights", e)
@@ -85,7 +111,196 @@ class DailyInsightsWorker(
         }
     }
 
-    private suspend fun buildNotification(database: FocusBlockDatabase): Pair<String, String>? {
+    /**
+     * Analyze screen time usage and send notification if usage is increasing.
+     * If today's usage exceeds the 7-day average by >20%, suggest a 20% reduction.
+     */
+    private fun analyzeScreenTimeAndNotify(database: FocusBlockDatabase) {
+        try {
+            val usageStatsManager = applicationContext.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            if (usageStatsManager == null) {
+                Log.w(TAG, "UsageStatsManager not available")
+                return
+            }
+
+            // Calculate today's usage
+            val todayUsage = calculateDayUsage(usageStatsManager, 0)
+
+            // Calculate average of last 7 days (excluding today)
+            var totalPreviousDays = 0L
+            var daysWithData = 0
+            for (daysAgo in 1..7) {
+                val dayUsage = calculateDayUsage(usageStatsManager, daysAgo)
+                if (dayUsage > 0) {
+                    totalPreviousDays += dayUsage
+                    daysWithData++
+                }
+            }
+
+            if (daysWithData == 0) {
+                Log.i(TAG, "No previous usage data found")
+                return
+            }
+
+            val averageUsage = totalPreviousDays / daysWithData
+            val todayMinutes = (todayUsage / 60_000).toInt()
+            val averageMinutes = (averageUsage / 60_000).toInt()
+
+            Log.i(TAG, "Usage analysis: today=${todayMinutes}m, average=${averageMinutes}m, daysWithData=$daysWithData")
+
+            // Save today's usage to database
+            val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            kotlinx.coroutines.runBlocking {
+                try {
+                    val existingUsage = database.globalDailyUsageDao().getUsageForDateSync(dateStr)
+                    if (existingUsage == null) {
+                        database.globalDailyUsageDao().insert(
+                            com.focusblock.app.database.entity.GlobalDailyUsage(
+                                date = dateStr,
+                                totalUsageMinutes = todayMinutes
+                            )
+                        )
+                    } else {
+                        database.globalDailyUsageDao().updateUsage(dateStr, todayMinutes)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to save daily usage", e)
+                }
+            }
+
+            // If today's usage is >20% higher than average, suggest reduction
+            if (averageMinutes > 30 && todayMinutes > averageMinutes * 1.2) {
+                val increasePercent = ((todayMinutes - averageMinutes) * 100) / averageMinutes
+                val suggestedLimit = (averageMinutes * 0.8).toInt().coerceAtLeast(60) // 20% reduction, min 1 hour
+
+                val title = "Screen Time Up ${increasePercent}%"
+                val message = "You've used ${formatMinutes(todayMinutes)} today (avg: ${formatMinutes(averageMinutes)}). " +
+                        "Set a ${formatMinutes(suggestedLimit)} daily limit to reduce usage by 20%."
+
+                showNotification(title, message, USAGE_NOTIFICATION_ID)
+                Log.i(TAG, "Sent usage increase notification: $title")
+            } else if (averageMinutes > 30 && todayMinutes < averageMinutes * 0.8) {
+                // Usage is down - celebrate!
+                val decreasePercent = ((averageMinutes - todayMinutes) * 100) / averageMinutes
+                val title = "Great Progress!"
+                val message = "Your screen time is down ${decreasePercent}% today! Keep building healthy habits."
+                showNotification(title, message, USAGE_NOTIFICATION_ID)
+                Log.i(TAG, "Sent usage decrease notification: $title")
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to analyze screen time", e)
+        }
+    }
+
+    /**
+     * Calculate screen time usage for distractive apps for a specific day.
+     * @param daysAgo 0 = today, 1 = yesterday, etc.
+     * @return Total usage in milliseconds
+     */
+    private fun calculateDayUsage(usageStatsManager: UsageStatsManager, daysAgo: Int): Long {
+        val calendar = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, -daysAgo)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val startTime = calendar.timeInMillis
+
+        calendar.add(Calendar.DAY_OF_YEAR, 1)
+        val endTime = if (daysAgo == 0) System.currentTimeMillis() else calendar.timeInMillis
+
+        val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
+        val event = UsageEvents.Event()
+
+        val activeApps = mutableMapOf<String, Long>()
+        val appUsageMillis = mutableMapOf<String, Long>()
+
+        while (usageEvents.hasNextEvent()) {
+            usageEvents.getNextEvent(event)
+            val packageName = event.packageName ?: continue
+
+            // Skip non-distractive apps
+            if (!isDistractiveApp(packageName)) continue
+
+            when (event.eventType) {
+                UsageEvents.Event.MOVE_TO_FOREGROUND,
+                UsageEvents.Event.ACTIVITY_RESUMED -> {
+                    activeApps[packageName] = event.timeStamp
+                }
+                UsageEvents.Event.MOVE_TO_BACKGROUND,
+                UsageEvents.Event.ACTIVITY_PAUSED -> {
+                    val foregroundStart = activeApps.remove(packageName)
+                    if (foregroundStart != null && foregroundStart < event.timeStamp) {
+                        val duration = event.timeStamp - foregroundStart
+                        if (duration < 4 * 60 * 60 * 1000) { // Less than 4 hours
+                            appUsageMillis[packageName] = (appUsageMillis[packageName] ?: 0L) + duration
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add currently active apps (for today only)
+        if (daysAgo == 0) {
+            val now = System.currentTimeMillis()
+            for ((packageName, foregroundStart) in activeApps) {
+                val duration = now - foregroundStart
+                if (duration > 0 && duration < 4 * 60 * 60 * 1000) {
+                    appUsageMillis[packageName] = (appUsageMillis[packageName] ?: 0L) + duration
+                }
+            }
+        }
+
+        return appUsageMillis.values.sum()
+    }
+
+    /**
+     * Check if an app is distractive (social media, entertainment, games)
+     */
+    private fun isDistractiveApp(packageName: String): Boolean {
+        val pkgLower = packageName.lowercase()
+
+        // Skip system apps
+        val systemApps = listOf(
+            "com.android.settings", "com.android.systemui", "com.android.launcher",
+            "com.google.android.gms", "com.focusblock.app", "com.android.vending"
+        )
+        if (systemApps.any { pkgLower.startsWith(it) }) return false
+
+        // Social media keywords
+        val socialKeywords = listOf(
+            "instagram", "facebook", "twitter", "tiktok", "snapchat", "reddit",
+            "whatsapp", "telegram", "discord", "messenger", "wechat", "signal"
+        )
+
+        // Entertainment keywords
+        val entertainmentKeywords = listOf(
+            "youtube", "netflix", "twitch", "spotify", "hulu", "disney", "video",
+            "stream", "music", "podcast", "player", "media"
+        )
+
+        // Gaming keywords
+        val gameKeywords = listOf(
+            "game", "gaming", "clash", "pubg", "candy", "minecraft", "fortnite",
+            "roblox", "mobile.legends", "ludo", "chess"
+        )
+
+        // Check if any keyword matches
+        return socialKeywords.any { pkgLower.contains(it) } ||
+                entertainmentKeywords.any { pkgLower.contains(it) } ||
+                gameKeywords.any { pkgLower.contains(it) } ||
+                GlobalDailyLimitSettings.DEFAULT_DISTRACTING_APPS.any { pkgLower == it.lowercase() }
+    }
+
+    private fun formatMinutes(minutes: Int): String {
+        val hours = minutes / 60
+        val mins = minutes % 60
+        return if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+    }
+
+    private suspend fun buildBlockNotification(database: FocusBlockDatabase): Pair<String, String>? {
         // Get today's date
         val calendar = Calendar.getInstance()
         calendar.set(Calendar.HOUR_OF_DAY, 0)
@@ -93,7 +308,7 @@ class DailyInsightsWorker(
         calendar.set(Calendar.SECOND, 0)
         val todayStart = calendar.timeInMillis
 
-        // Get block count for last 7 days to calculate streak
+        // Get block count for last 7 days
         val weekAgo = todayStart - (7 * 24 * 60 * 60 * 1000L)
         val recentBlockLogs = database.blockLogDao().getMostBlockedApps(weekAgo, 100)
         val totalBlocks = recentBlockLogs.sumOf { it.count }
@@ -102,34 +317,26 @@ class DailyInsightsWorker(
         val todayBlocks = database.blockLogDao().getMostBlockedApps(todayStart, 100)
         val todayBlockCount = todayBlocks.sumOf { it.count }
 
-        // Calculate streak (simplified - days with any blocking activity in last week)
-        val daysWithActivity = mutableSetOf<Int>()
-        // This is simplified - in a real implementation you'd query day by day
-
         // Choose notification based on stats
         return when {
-            // High block count today - you're fighting distractions!
             todayBlockCount >= 10 -> {
                 Pair(
                     "You're staying focused!",
                     "You resisted $todayBlockCount distractions today. Keep it up!"
                 )
             }
-            // Some activity
             todayBlockCount in 3..9 -> {
                 Pair(
                     "Great progress today!",
                     "You blocked $todayBlockCount distracting attempts. Every block counts!"
                 )
             }
-            // Low activity - either great focus or not using blocks
             todayBlockCount in 1..2 -> {
                 Pair(
                     "Smooth sailing today",
                     "Only $todayBlockCount distractions blocked. You're building good habits!"
                 )
             }
-            // No blocks today - motivational
             else -> {
                 if (totalBlocks > 0) {
                     Pair(
@@ -137,18 +344,19 @@ class DailyInsightsWorker(
                         "Set up your blocks for a focused day ahead."
                     )
                 } else {
-                    null // Don't send if no activity at all
+                    null
                 }
             }
         }
     }
 
-    private fun showNotification(title: String, message: String) {
+    private fun showNotification(title: String, message: String, notificationId: Int) {
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("open_daily_limit", true) // Deep link to daily limit settings
         }
         val pendingIntent = PendingIntent.getActivity(
-            applicationContext, 0, intent,
+            applicationContext, notificationId, intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
@@ -163,8 +371,8 @@ class DailyInsightsWorker(
             .build()
 
         val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(NOTIFICATION_ID, notification)
+        notificationManager.notify(notificationId, notification)
 
-        Log.i(TAG, "Sent daily insights notification: $title")
+        Log.i(TAG, "Sent notification: $title")
     }
 }

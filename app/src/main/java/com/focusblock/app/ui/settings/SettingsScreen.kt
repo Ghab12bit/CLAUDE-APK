@@ -19,7 +19,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.focusblock.app.ui.components.AppSelectionDialog
@@ -44,6 +49,8 @@ fun SettingsScreen(
     var showAboutDialog by remember { mutableStateOf(false) }
     var showPomodoroPicker by remember { mutableStateOf<String?>(null) } // "work", "short", "long"
     var showDailyLimitPicker by remember { mutableStateOf(false) }
+    var showStrictModePinDialog by remember { mutableStateOf(false) }
+    var showStrictModeLockedDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -175,9 +182,19 @@ fun SettingsScreen(
                 SettingsToggleItem(
                     icon = Icons.Outlined.Lock,
                     title = "Strict Mode",
-                    subtitle = "Prevent disabling blocks",
+                    subtitle = if (uiState.isStrictModeLocked) "Time-locked" else "Prevent disabling blocks",
                     isChecked = uiState.isStrictModeEnabled,
-                    onCheckedChange = { viewModel.setStrictMode(it) }
+                    onCheckedChange = { enabled ->
+                        when (viewModel.setStrictMode(enabled)) {
+                            SettingsViewModel.StrictModeResult.SUCCESS -> { /* Done */ }
+                            SettingsViewModel.StrictModeResult.TIME_LOCKED -> {
+                                showStrictModeLockedDialog = true
+                            }
+                            SettingsViewModel.StrictModeResult.NEEDS_PIN -> {
+                                showStrictModePinDialog = true
+                            }
+                        }
+                    }
                 )
 
                 Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
@@ -357,6 +374,28 @@ fun SettingsScreen(
                 viewModel.enableHardMode(pin, unlockMinutes)
                 showHardModeDialog = false
             }
+        )
+    }
+
+    // Strict Mode PIN verification dialog
+    if (showStrictModePinDialog) {
+        StrictModePinDialog(
+            onDismiss = { showStrictModePinDialog = false },
+            onVerify = { pin ->
+                val success = viewModel.verifyPinAndDisableStrictMode(pin)
+                if (success) {
+                    showStrictModePinDialog = false
+                }
+                success
+            }
+        )
+    }
+
+    // Strict Mode time-locked dialog
+    if (showStrictModeLockedDialog) {
+        StrictModeLockedDialog(
+            remainingTime = (uiState.strictModeEndTime ?: 0L) - System.currentTimeMillis(),
+            onDismiss = { showStrictModeLockedDialog = false }
         )
     }
 
@@ -702,4 +741,164 @@ fun PermissionSettingsItem(
             )
         }
     }
+}
+
+@Composable
+fun StrictModePinDialog(
+    onDismiss: () -> Unit,
+    onVerify: (String) -> Boolean
+) {
+    var pin by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardDarkElevated,
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(AccentOrange.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Lock,
+                        contentDescription = null,
+                        tint = AccentOrange,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "PIN Required",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        text = {
+            Column {
+                Text(
+                    text = "Hard Mode is enabled. Enter your PIN to disable Strict Mode.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = {
+                        if (it.length <= 6 && it.all { c -> c.isDigit() }) {
+                            pin = it
+                            error = null
+                        }
+                    },
+                    label = { Text("PIN") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    singleLine = true,
+                    isError = error != null,
+                    supportingText = error?.let { { Text(it, color = AccentRed) } },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (!onVerify(pin)) {
+                        error = "Incorrect PIN"
+                        pin = ""
+                    }
+                },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                enabled = pin.length >= 4
+            ) {
+                Text("Disable", fontWeight = FontWeight.Medium)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextSecondary)
+            }
+        }
+    )
+}
+
+@Composable
+fun StrictModeLockedDialog(
+    remainingTime: Long,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardDarkElevated,
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(AccentRed.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Timer,
+                        contentDescription = null,
+                        tint = AccentRed,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Strict Mode Locked",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "Strict Mode is time-locked. You cannot disable it until the timer expires.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+                if (remainingTime > 0) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    val hours = (remainingTime / 3600000).toInt()
+                    val minutes = ((remainingTime % 3600000) / 60000).toInt()
+                    Text(
+                        text = "Remaining: ${hours}h ${minutes}m",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = AccentRed,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Primary)
+            ) {
+                Text("OK", fontWeight = FontWeight.Medium)
+            }
+        }
+    )
 }

@@ -1866,29 +1866,11 @@ class HomeViewModel @Inject constructor(
             }
         }
 
-        // Load current usage and tracked apps
-        viewModelScope.launch {
-            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                .format(java.util.Date())
-
-            repository.getGlobalDailyUsage(today).collect { usage ->
-                val currentMinutes = usage?.totalUsageMinutes ?: 0
-                val limitMinutes = _uiState.value.globalDailyLimitMinutes
-                val progress = if (limitMinutes > 0) {
-                    (currentMinutes.toFloat() / limitMinutes).coerceIn(0f, 1f)
-                } else 0f
-
-                _uiState.update { it.copy(
-                    currentDailyUsageMinutes = currentMinutes,
-                    dailyLimitProgress = progress
-                )}
-            }
-        }
-
-        // Load tracked apps with their usage periodically
+        // Load tracked apps and calculate accurate daily usage periodically
+        // This ensures the total matches the sum of tracked apps (fixes mismatch bug)
         viewModelScope.launch {
             while (true) {
-                loadTrackedAppsUsage()
+                loadTrackedAppsUsage() // Also updates currentDailyUsageMinutes
                 kotlinx.coroutines.delay(30_000) // Refresh every 30 seconds
             }
         }
@@ -2298,6 +2280,9 @@ class HomeViewModel @Inject constructor(
                 }
             }
 
+            // Calculate TOTAL usage from ALL tracked apps (not just displayed ones)
+            val totalUsageMinutes = (appUsageMillis.values.sum() / 60_000).toInt()
+
             // Convert to TrackedAppUsage list, sorted by usage (highest first)
             val pm = application.packageManager
             val trackedApps = appUsageMillis
@@ -2313,7 +2298,22 @@ class HomeViewModel @Inject constructor(
                 .sortedByDescending { it.usageMinutes }
                 .take(10) // Show top 10
 
-            _uiState.update { it.copy(trackedAppsUsage = trackedApps) }
+            // Update UI with both tracked apps list AND the accurate total
+            val limitMinutes = _uiState.value.globalDailyLimitMinutes
+            val progress = if (limitMinutes > 0) {
+                (totalUsageMinutes.toFloat() / limitMinutes).coerceIn(0f, 1f)
+            } else 0f
+
+            _uiState.update { it.copy(
+                trackedAppsUsage = trackedApps,
+                currentDailyUsageMinutes = totalUsageMinutes,
+                dailyLimitProgress = progress
+            )}
+
+            // Also update database to keep AccessibilityService in sync
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                .format(java.util.Date())
+            repository.updateGlobalDailyUsage(today, totalUsageMinutes)
 
         } catch (e: Exception) {
             // Silently fail - just won't show tracked apps

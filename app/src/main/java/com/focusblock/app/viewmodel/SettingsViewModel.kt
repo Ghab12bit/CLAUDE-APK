@@ -21,6 +21,8 @@ data class SettingsUiState(
     val allowlistApps: List<BlockedApp> = emptyList(),
     val allowlistCount: Int = 0,
     val isStrictModeEnabled: Boolean = false,
+    val isStrictModeLocked: Boolean = false, // Time-locked, can't disable easily
+    val strictModeEndTime: Long? = null, // When time lock expires
     val isHardModeEnabled: Boolean = false,
     val hardModeUnlockTime: Long? = null,
     val permissionStatus: PermissionUtils.PermissionStatus = PermissionUtils.PermissionStatus(
@@ -79,6 +81,18 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             repository.getStrictModeEnabledFlow().collect { enabled ->
                 _uiState.update { it.copy(isStrictModeEnabled = enabled) }
+            }
+        }
+
+        // Load strict mode lock status
+        viewModelScope.launch {
+            repository.getStrictModeEndTimeFlow().collect { endTime ->
+                val now = System.currentTimeMillis()
+                val isLocked = endTime != null && endTime > now
+                _uiState.update { it.copy(
+                    isStrictModeLocked = isLocked,
+                    strictModeEndTime = endTime
+                )}
             }
         }
 
@@ -176,10 +190,58 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setStrictMode(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.setStrictModeEnabled(enabled)
+    /**
+     * Set Strict Mode with protection against easy bypass
+     * @return StrictModeResult indicating if action was allowed
+     */
+    fun setStrictMode(enabled: Boolean): StrictModeResult {
+        // Enabling is always allowed
+        if (enabled) {
+            viewModelScope.launch {
+                repository.setStrictModeEnabled(true)
+            }
+            return StrictModeResult.SUCCESS
         }
+
+        // Disabling requires checks
+        val state = _uiState.value
+
+        // If time-locked, cannot disable
+        if (state.isStrictModeLocked) {
+            return StrictModeResult.TIME_LOCKED
+        }
+
+        // If Hard Mode is enabled, require PIN
+        if (state.isHardModeEnabled) {
+            return StrictModeResult.NEEDS_PIN
+        }
+
+        // Otherwise allow disable
+        viewModelScope.launch {
+            repository.setStrictModeEnabled(false)
+        }
+        return StrictModeResult.SUCCESS
+    }
+
+    /**
+     * Verify PIN and disable Strict Mode
+     */
+    fun verifyPinAndDisableStrictMode(pin: String): Boolean {
+        val storedPin = kotlinx.coroutines.runBlocking { repository.getHardModePin() }
+        return if (pin == storedPin) {
+            viewModelScope.launch {
+                repository.setStrictModeEnabled(false)
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    enum class StrictModeResult {
+        SUCCESS,
+        TIME_LOCKED,
+        NEEDS_PIN
     }
 
     fun setPin(pin: String) {

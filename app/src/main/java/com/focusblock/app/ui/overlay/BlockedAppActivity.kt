@@ -369,6 +369,7 @@ fun BlockedAppScreen(
                     BlockedByType.FOCUS_CYCLE -> "by Focus Cycle (Break Time)"
                     BlockedByType.APP_TIMER -> "by App Timer (Limit Reached)"
                     BlockedByType.GLOBAL_LIMIT -> "by Daily Usage Limit"
+                    BlockedByType.BEDTIME -> "by Bedtime Mode"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary

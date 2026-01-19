@@ -2261,6 +2261,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     /**
      * Check global daily usage and enforce limit
      * This tracks TOTAL phone usage, not per-app
+     *
+     * IMPORTANT: Screen time tracking runs ALWAYS (for 20% usage comparison feature)
+     * Only the enforcement/blocking logic is conditional on Global Limit being enabled
      */
     private fun checkGlobalDailyLimit() {
         // Periodically refresh cache to pick up settings changes (fallback in case broadcast fails)
@@ -2271,18 +2274,16 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             refreshBedtimeCache() // Also refresh bedtime settings
         }
 
-        if (!cachedGlobalLimitEnabled) return
-
         immediateScope.launch {
             try {
                 val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
                     .format(java.util.Date())
 
-                // Calculate total screen time today
+                // Calculate total screen time today - ALWAYS track this for usage comparison feature
                 val totalUsageMinutes = calculateTotalScreenTime()
                 lastGlobalUsageMinutes = totalUsageMinutes
 
-                // Get or create daily usage record
+                // Get or create daily usage record - ALWAYS track
                 var dailyUsage = database.globalDailyUsageDao().getUsageForDateSync(today)
                 if (dailyUsage == null) {
                     dailyUsage = com.focusblock.app.database.entity.GlobalDailyUsage(
@@ -2295,8 +2296,23 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     dailyUsage = dailyUsage.copy(totalUsageMinutes = totalUsageMinutes)
                 }
 
-                // Also update the daily summary for comparison feature
+                // ALWAYS update daily summary for 20% usage comparison feature
+                // This is critical - without this, the comparison notification won't work
                 updateDailyUsageSummary(today, totalUsageMinutes)
+
+                // Check for 3+ hours excessive usage notification (independent of global limit)
+                if (totalUsageMinutes >= EXCESSIVE_USAGE_THRESHOLD_MINUTES &&
+                    !dailyUsage.excessiveUsageNotificationShown) {
+                    database.globalDailyUsageDao().markExcessiveUsageNotificationShown(today)
+                    showExcessiveUsageNotification(totalUsageMinutes)
+                }
+
+                // === GLOBAL LIMIT ENFORCEMENT (only if feature is enabled) ===
+                if (!cachedGlobalLimitEnabled) {
+                    globalLimitEnforcementActive = false
+                    Log.v(TAG, "Usage tracking: $totalUsageMinutes min (Global Limit disabled)")
+                    return@launch
+                }
 
                 val limitMinutes = cachedGlobalLimitMinutes
                 val warningMinutes = limitMinutes - cachedGlobalLimitWarningMinutes
@@ -2338,13 +2354,6 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     else -> {
                         globalLimitEnforcementActive = false
                     }
-                }
-
-                // Check for 3+ hours excessive usage notification (independent of global limit)
-                if (totalUsageMinutes >= EXCESSIVE_USAGE_THRESHOLD_MINUTES &&
-                    !dailyUsage.excessiveUsageNotificationShown) {
-                    database.globalDailyUsageDao().markExcessiveUsageNotificationShown(today)
-                    showExcessiveUsageNotification(totalUsageMinutes)
                 }
 
                 Log.v(TAG, "Global Limit check: usage=$totalUsageMinutes min, limit=$limitMinutes min, enforcing=$globalLimitEnforcementActive")
@@ -2789,8 +2798,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Check today vs yesterday usage and send notification if significant difference
-     * Also triggers AUTO-BLOCKING if today exceeds yesterday due to social media usage
+     * Check today vs 7-day average usage and send notification if significantly higher.
+     * Also triggers AUTO-BLOCKING if today exceeds yesterday due to social media usage.
+     *
+     * Uses 7-day average for more accurate comparison (single bad day doesn't skew results).
+     * Suggests 20% reduction if usage is trending up.
      */
     private fun checkUsageComparison() {
         immediateScope.launch {
@@ -2806,39 +2818,54 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
                 // Get today's summary
                 val todaySummary = database.dailyUsageSummaryDao().getSummaryForDateSync(today)
-
-                // Calculate yesterday's date
-                val calendar = java.util.Calendar.getInstance().apply {
-                    add(java.util.Calendar.DAY_OF_YEAR, -1)
-                }
-                val yesterday = dateFormat.format(calendar.time)
-
-                // Get yesterday's summary
-                val yesterdaySummary = database.dailyUsageSummaryDao().getSummaryForDateSync(yesterday)
-
                 val todayMinutes = todaySummary?.totalScreenTimeMinutes ?: 0
+
+                // Calculate 7-day average (excluding today)
+                var totalPreviousDays = 0
+                var daysWithData = 0
+                val calendar = java.util.Calendar.getInstance()
+
+                for (daysAgo in 1..7) {
+                    calendar.time = java.util.Date()
+                    calendar.add(java.util.Calendar.DAY_OF_YEAR, -daysAgo)
+                    val dayDate = dateFormat.format(calendar.time)
+                    val daySummary = database.dailyUsageSummaryDao().getSummaryForDateSync(dayDate)
+                    val dayMinutes = daySummary?.totalScreenTimeMinutes ?: 0
+                    if (dayMinutes > 0) {
+                        totalPreviousDays += dayMinutes
+                        daysWithData++
+                    }
+                }
+
+                // Get yesterday for auto-block feature (uses yesterday, not average)
+                calendar.time = java.util.Date()
+                calendar.add(java.util.Calendar.DAY_OF_YEAR, -1)
+                val yesterday = dateFormat.format(calendar.time)
+                val yesterdaySummary = database.dailyUsageSummaryDao().getSummaryForDateSync(yesterday)
                 val yesterdayMinutes = yesterdaySummary?.totalScreenTimeMinutes ?: 0
 
-                // ========== AUTO-BLOCK CHECK (runs continuously) ==========
+                // ========== AUTO-BLOCK CHECK (runs continuously, uses yesterday) ==========
                 // If today exceeds yesterday AND auto-block hasn't triggered yet today
                 if (yesterdayMinutes > 0 && todayMinutes > yesterdayMinutes && autoBlockTriggeredDate != today) {
                     checkAndAutoBlockSocialApps(today, todayMinutes, yesterdayMinutes)
                 }
 
-                // ========== DAILY COMPARISON NOTIFICATION (once per day after 6 PM) ==========
+                // ========== 20% USAGE INCREASE NOTIFICATION (uses 7-day average) ==========
                 // Skip if notification already sent today
                 if (todaySummary?.comparisonNotificationSent == true) {
                     return@launch
                 }
 
-                // Get current hour - only check after 6 PM for meaningful daily comparison
-                val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-                if (currentHour < 18) {
+                // Need at least 3 days of data for meaningful average
+                if (daysWithData < 3) {
+                    Log.d(TAG, "Usage comparison: Only $daysWithData days of data, need at least 3")
                     return@launch
                 }
 
-                // Skip if yesterday's data is not meaningful
-                if (yesterdayMinutes < MEANINGFUL_USAGE_THRESHOLD_MINUTES) {
+                val averageMinutes = totalPreviousDays / daysWithData
+
+                // Skip if average is too low to be meaningful
+                if (averageMinutes < MEANINGFUL_USAGE_THRESHOLD_MINUTES) {
                     return@launch
                 }
 
@@ -2847,24 +2874,31 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     return@launch
                 }
 
-                // Calculate percentage difference
-                val difference = todayMinutes - yesterdayMinutes
-                val percentDiff = (difference.toFloat() / yesterdayMinutes * 100).toInt()
+                // Calculate percentage difference from average
+                val difference = todayMinutes - averageMinutes
+                val percentDiff = (difference.toFloat() / averageMinutes * 100).toInt()
 
-                // Only notify if difference is significant
-                if (kotlin.math.abs(percentDiff) < SIGNIFICANT_DIFFERENCE_PERCENT) {
-                    return@launch
+                Log.d(TAG, "Usage comparison: today=$todayMinutes, 7-day avg=$averageMinutes, diff=$percentDiff%")
+
+                // Check for 20%+ increase (suggest reduction)
+                if (percentDiff >= 20) {
+                    database.dailyUsageSummaryDao().markComparisonSent(today, "higher")
+                    val suggestedLimit = (averageMinutes * 0.8).toInt().coerceAtLeast(60) // 20% reduction, min 1 hour
+
+                    mainHandler.post {
+                        showUsageIncreaseNotification(todayMinutes, averageMinutes, percentDiff, suggestedLimit)
+                    }
+                    Log.i(TAG, "Usage comparison: Sent increase notification (today: $todayMinutes, avg: $averageMinutes, diff: +$percentDiff%)")
                 }
+                // Check for significant decrease (celebrate!)
+                else if (percentDiff <= -20) {
+                    database.dailyUsageSummaryDao().markComparisonSent(today, "lower")
 
-                // Determine result and send notification
-                val result = if (difference > 0) "higher" else "lower"
-                database.dailyUsageSummaryDao().markComparisonSent(today, result)
-
-                mainHandler.post {
-                    showUsageComparisonNotification(todayMinutes, yesterdayMinutes, result)
+                    mainHandler.post {
+                        showUsageDecreaseNotification(todayMinutes, averageMinutes, -percentDiff)
+                    }
+                    Log.i(TAG, "Usage comparison: Sent decrease notification (today: $todayMinutes, avg: $averageMinutes, diff: $percentDiff%)")
                 }
-
-                Log.i(TAG, "Usage comparison: Sent $result notification (today: $todayMinutes, yesterday: $yesterdayMinutes, diff: $percentDiff%)")
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error checking usage comparison", e)
@@ -3059,9 +3093,45 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Show notification comparing today's usage to yesterday's
+     * Show notification when today's usage is 20%+ higher than 7-day average.
+     * Suggests a daily limit based on 20% reduction from average.
      */
-    private fun showUsageComparisonNotification(todayMinutes: Int, yesterdayMinutes: Int, result: String) {
+    private fun showUsageIncreaseNotification(todayMinutes: Int, averageMinutes: Int, percentIncrease: Int, suggestedLimit: Int) {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("open_daily_limit", true) // Deep link to daily limit settings
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        val title = "Screen Time Up $percentIncrease%"
+        val message = "You've used ${formatMinutesNicely(todayMinutes)} today " +
+                "(avg: ${formatMinutesNicely(averageMinutes)}). " +
+                "Set a ${formatMinutesNicely(suggestedLimit)} daily limit to reduce by 20%."
+
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_MINDFUL_REMINDER)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH) // Higher priority for actionable insight
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(USAGE_COMPARISON_NOTIFICATION_ID, notification)
+        Log.i(TAG, "Showed usage increase notification: $title")
+    }
+
+    /**
+     * Show notification celebrating reduced screen time (20%+ below average)
+     */
+    private fun showUsageDecreaseNotification(todayMinutes: Int, averageMinutes: Int, percentDecrease: Int) {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -3073,15 +3143,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
 
-        val (title, message) = if (result == "higher") {
-            val diff = todayMinutes - yesterdayMinutes
-            "Screen Time Higher Today" to
-                "Your screen time today (${formatMinutesNicely(todayMinutes)}) is ${formatMinutesNicely(diff)} more than yesterday. Consider winding down."
-        } else {
-            val diff = yesterdayMinutes - todayMinutes
-            "Great Progress! 🎉" to
-                "You've used your phone ${formatMinutesNicely(diff)} less today compared to yesterday. Keep it up!"
-        }
+        val title = "Great Progress!"
+        val message = "Your screen time is down $percentDecrease% today. " +
+                "You've used ${formatMinutesNicely(todayMinutes)} (avg: ${formatMinutesNicely(averageMinutes)}). Keep building healthy habits!"
 
         val notification = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_MINDFUL_REMINDER)
             .setSmallIcon(R.drawable.ic_notification)
@@ -3094,6 +3158,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             .build()
 
         notificationManager.notify(USAGE_COMPARISON_NOTIFICATION_ID, notification)
+        Log.i(TAG, "Showed usage decrease notification: $title")
     }
 
     /**

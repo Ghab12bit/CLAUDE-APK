@@ -293,6 +293,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Start Daily Usage Comparison check
         startUsageComparisonCheck()
 
+        // Backfill historical usage data for comparison feature (runs once)
+        backfillHistoricalUsageData()
+
         // Register broadcast receiver for settings changes
         val filter = IntentFilter(ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -2788,6 +2791,181 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * Backfill historical usage data from UsageStatsManager.
+     * This populates the DailyUsageSummary table with data from the last 7 days
+     * so the 20% usage comparison feature can work immediately.
+     *
+     * Only runs once per day (checks SharedPreferences to avoid re-running).
+     */
+    private fun backfillHistoricalUsageData() {
+        immediateScope.launch {
+            try {
+                val prefs = applicationContext.getSharedPreferences("usage_backfill_prefs", Context.MODE_PRIVATE)
+                val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                val today = dateFormat.format(java.util.Date())
+
+                // Check if we already backfilled today
+                val lastBackfillDate = prefs.getString("last_backfill_date", null)
+                if (lastBackfillDate == today) {
+                    Log.d(TAG, "Usage backfill: Already ran today, skipping")
+                    return@launch
+                }
+
+                val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+                if (usageStatsManager == null) {
+                    Log.w(TAG, "Usage backfill: UsageStatsManager not available")
+                    return@launch
+                }
+
+                Log.i(TAG, "Usage backfill: Starting historical data backfill for last 7 days")
+
+                val calendar = java.util.Calendar.getInstance()
+
+                // Backfill last 7 days (including today)
+                for (daysAgo in 0..7) {
+                    calendar.time = java.util.Date()
+                    calendar.add(java.util.Calendar.DAY_OF_YEAR, -daysAgo)
+
+                    // Set to start of day
+                    calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                    calendar.set(java.util.Calendar.MINUTE, 0)
+                    calendar.set(java.util.Calendar.SECOND, 0)
+                    calendar.set(java.util.Calendar.MILLISECOND, 0)
+                    val dayStart = calendar.timeInMillis
+
+                    // Set to end of day (or now for today)
+                    val dayEnd = if (daysAgo == 0) {
+                        System.currentTimeMillis()
+                    } else {
+                        calendar.add(java.util.Calendar.DAY_OF_YEAR, 1)
+                        calendar.timeInMillis
+                    }
+
+                    val dayDate = dateFormat.format(java.util.Date(dayStart))
+
+                    // Check if we already have data for this day
+                    val existingSummary = database.dailyUsageSummaryDao().getSummaryForDateSync(dayDate)
+                    if (existingSummary != null && existingSummary.totalScreenTimeMinutes > 0) {
+                        Log.d(TAG, "Usage backfill: $dayDate already has data (${existingSummary.totalScreenTimeMinutes} min)")
+                        continue
+                    }
+
+                    // Calculate usage for this day
+                    val usageMinutes = calculateDayScreenTime(usageStatsManager, dayStart, dayEnd)
+
+                    if (usageMinutes > 0) {
+                        // Save to database
+                        if (existingSummary == null) {
+                            database.dailyUsageSummaryDao().insert(
+                                com.focusblock.app.database.entity.DailyUsageSummary(
+                                    date = dayDate,
+                                    totalScreenTimeMinutes = usageMinutes
+                                )
+                            )
+                        } else {
+                            database.dailyUsageSummaryDao().updateScreenTime(dayDate, usageMinutes)
+                        }
+                        Log.i(TAG, "Usage backfill: $dayDate = $usageMinutes min")
+                    }
+                }
+
+                // Mark backfill as done for today
+                prefs.edit().putString("last_backfill_date", today).apply()
+                Log.i(TAG, "Usage backfill: Completed successfully")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Usage backfill: Error during backfill", e)
+            }
+        }
+    }
+
+    /**
+     * Calculate screen time for a specific day range using UsageEvents API.
+     * Similar to calculateTotalScreenTime but for historical dates.
+     */
+    private fun calculateDayScreenTime(usageStatsManager: UsageStatsManager, startTime: Long, endTime: Long): Int {
+        try {
+            val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
+            val event = UsageEvents.Event()
+
+            val activeApps = mutableMapOf<String, Long>()
+            val appUsageMillis = mutableMapOf<String, Long>()
+
+            while (usageEvents.hasNextEvent()) {
+                usageEvents.getNextEvent(event)
+                val packageName = event.packageName ?: continue
+
+                // Skip system apps and non-distractive apps (same logic as calculateTotalScreenTime)
+                if (isSystemOrProductiveApp(packageName)) continue
+
+                when (event.eventType) {
+                    UsageEvents.Event.MOVE_TO_FOREGROUND,
+                    UsageEvents.Event.ACTIVITY_RESUMED -> {
+                        activeApps[packageName] = event.timeStamp
+                    }
+                    UsageEvents.Event.MOVE_TO_BACKGROUND,
+                    UsageEvents.Event.ACTIVITY_PAUSED -> {
+                        val foregroundStart = activeApps.remove(packageName)
+                        if (foregroundStart != null && foregroundStart < event.timeStamp) {
+                            val duration = event.timeStamp - foregroundStart
+                            // Sanity check: less than 4 hours per session
+                            if (duration < 4 * 60 * 60 * 1000) {
+                                appUsageMillis[packageName] = (appUsageMillis[packageName] ?: 0L) + duration
+                            }
+                        }
+                    }
+                }
+            }
+
+            val totalMillis = appUsageMillis.values.sum()
+            return (totalMillis / 60_000).toInt()
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error calculating day screen time", e)
+            return 0
+        }
+    }
+
+    /**
+     * Check if app is a system or productive app (should be excluded from tracking)
+     */
+    private fun isSystemOrProductiveApp(packageName: String): Boolean {
+        val pkgLower = packageName.lowercase()
+
+        // System apps
+        val systemPrefixes = listOf(
+            "com.android.", "com.google.android.gms", "com.google.android.gsf",
+            "com.google.android.packageinstaller", "com.google.android.permissioncontroller",
+            "com.samsung.", "com.sec.", "com.miui.", "com.xiaomi.",
+            "com.huawei.", "com.oppo.", "com.vivo.", "com.oneplus.",
+            "com.focusblock.app" // Our own app
+        )
+        if (systemPrefixes.any { pkgLower.startsWith(it) }) return true
+
+        // Productive/utility apps that shouldn't count as distractive
+        val productiveApps = listOf(
+            "com.google.android.apps.docs", // Google Docs
+            "com.google.android.apps.sheets", // Google Sheets
+            "com.microsoft.office", // Microsoft Office
+            "com.slack", // Slack (work)
+            "com.google.android.apps.meetings", // Google Meet
+            "com.microsoft.teams", // Teams
+            "zoom.us", // Zoom
+            "com.google.android.calendar", // Calendar
+            "com.google.android.apps.tasks", // Tasks
+            "com.todoist", // Todoist
+            "com.google.android.apps.nbu.files", // Files
+            "com.google.android.calculator", // Calculator
+            "com.android.chrome", // Browser (might be productive)
+            "com.android.settings", // Settings
+            "com.android.vending" // Play Store
+        )
+        if (productiveApps.any { pkgLower.contains(it) }) return true
+
+        return false
+    }
+
+    /**
      * Update daily usage summary for comparison feature
      */
     private suspend fun updateDailyUsageSummary(date: String, totalMinutes: Int) {
@@ -2863,24 +3041,27 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 // ========== 20% USAGE INCREASE NOTIFICATION (uses 7-day average) ==========
                 // Skip if notification already sent today
                 if (todaySummary?.comparisonNotificationSent == true) {
+                    Log.d(TAG, "Usage comparison: Notification already sent today")
                     return@launch
                 }
 
-                // Need at least 3 days of data for meaningful average
-                if (daysWithData < 3) {
-                    Log.d(TAG, "Usage comparison: Only $daysWithData days of data, need at least 3")
+                // Need at least 1 day of historical data (just yesterday is enough)
+                if (daysWithData < 1) {
+                    Log.d(TAG, "Usage comparison: No historical data yet (daysWithData=$daysWithData)")
                     return@launch
                 }
 
                 val averageMinutes = totalPreviousDays / daysWithData
 
-                // Skip if average is too low to be meaningful
+                // Skip if average is too low to be meaningful (30 min minimum)
                 if (averageMinutes < MEANINGFUL_USAGE_THRESHOLD_MINUTES) {
+                    Log.d(TAG, "Usage comparison: Average too low (${averageMinutes}m < ${MEANINGFUL_USAGE_THRESHOLD_MINUTES}m)")
                     return@launch
                 }
 
-                // Skip if today's usage is not meaningful yet
+                // Skip if today's usage is not meaningful yet (30 min minimum)
                 if (todayMinutes < MEANINGFUL_USAGE_THRESHOLD_MINUTES) {
+                    Log.d(TAG, "Usage comparison: Today's usage too low (${todayMinutes}m < ${MEANINGFUL_USAGE_THRESHOLD_MINUTES}m)")
                     return@launch
                 }
 

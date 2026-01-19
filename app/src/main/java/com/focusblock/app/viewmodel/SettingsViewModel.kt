@@ -38,7 +38,10 @@ data class SettingsUiState(
     // Global Daily Limit settings
     val isGlobalDailyLimitEnabled: Boolean = false,
     val globalDailyLimitMinutes: Int = 120, // Default 2 hours
-    val globalDailyLimitWarningMinutes: Int = 15
+    val globalDailyLimitWarningMinutes: Int = 15,
+
+    // 20% Usage Reduction Notification
+    val isUsageReductionNotificationEnabled: Boolean = false
 )
 
 @HiltViewModel
@@ -57,6 +60,7 @@ class SettingsViewModel @Inject constructor(
         loadInstalledApps()
         startPermissionMonitoring()
         loadGlobalDailyLimitSettings()
+        loadUsageReductionNotificationSetting()
     }
 
     private fun loadSettings() {
@@ -385,6 +389,24 @@ class SettingsViewModel @Inject constructor(
             }
             _uiState.update { it.copy(globalDailyLimitWarningMinutes = minutes) }
             // Notify service to refresh cache immediately
+            notifyServiceToRefreshGlobalLimitCache()
+        }
+    }
+
+    // ========== 20% USAGE REDUCTION NOTIFICATION ==========
+
+    private fun loadUsageReductionNotificationSetting() {
+        viewModelScope.launch {
+            val enabled = repository.getSetting(AppSettings.KEY_USAGE_REDUCTION_NOTIFICATION_ENABLED)?.toBooleanStrictOrNull() ?: false
+            _uiState.update { it.copy(isUsageReductionNotificationEnabled = enabled) }
+        }
+    }
+
+    fun setUsageReductionNotificationEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setSetting(AppSettings.KEY_USAGE_REDUCTION_NOTIFICATION_ENABLED, enabled.toString())
+            _uiState.update { it.copy(isUsageReductionNotificationEnabled = enabled) }
+            // Notify service to refresh its cache
             notifyServiceToRefreshGlobalLimitCache()
         }
     }

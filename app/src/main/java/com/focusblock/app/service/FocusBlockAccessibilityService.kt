@@ -234,6 +234,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private val usageComparisonHandler = Handler(Looper.getMainLooper())
     private var usageComparisonRunnable: Runnable? = null
 
+    // ========== 20% USAGE REDUCTION NOTIFICATION ==========
+    @Volatile private var cachedUsageReductionNotificationEnabled: Boolean = false
+
     // ========== SETTINGS CHANGE RECEIVER ==========
     private val settingsChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -2098,6 +2101,12 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 cachedGlobalLimitWarningMinutes = settings.warningMinutesBefore
                 cachedGlobalLimitUseAppTimerApps = settings.useAppTimerApps
 
+                // Load 20% Usage Reduction Notification setting
+                val usageReductionEnabled = database.appSettingsDao()
+                    .getValue(com.focusblock.app.database.entity.AppSettings.KEY_USAGE_REDUCTION_NOTIFICATION_ENABLED)
+                    ?.toBooleanStrictOrNull() ?: false
+                cachedUsageReductionNotificationEnabled = usageReductionEnabled
+
                 // Cache Hard Mode settings
                 cachedHardModeEnabled = settings.isHardModeEnabled
                 cachedHardModeLockUntil = settings.hardModeLockUntil
@@ -3039,6 +3048,12 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 }
 
                 // ========== 20% USAGE INCREASE NOTIFICATION (uses 7-day average) ==========
+                // Skip if feature is disabled by user
+                if (!cachedUsageReductionNotificationEnabled) {
+                    Log.d(TAG, "Usage comparison: Feature disabled in settings")
+                    return@launch
+                }
+
                 // Skip if notification already sent today
                 if (todaySummary?.comparisonNotificationSent == true) {
                     Log.d(TAG, "Usage comparison: Notification already sent today")

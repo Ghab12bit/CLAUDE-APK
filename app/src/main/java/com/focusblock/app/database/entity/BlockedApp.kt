@@ -110,6 +110,9 @@ data class AppSettings(
         const val KEY_POMODORO_SHORT_BREAK = "pomodoro_short_break"
         const val KEY_POMODORO_LONG_BREAK = "pomodoro_long_break"
         const val KEY_POMODORO_SESSIONS_UNTIL_LONG = "pomodoro_sessions_until_long"
+
+        // 20% Usage Reduction Notification
+        const val KEY_USAGE_REDUCTION_NOTIFICATION_ENABLED = "usage_reduction_notification_enabled"
     }
 }
 

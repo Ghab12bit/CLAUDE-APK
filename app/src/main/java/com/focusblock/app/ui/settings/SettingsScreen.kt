@@ -169,6 +169,19 @@ fun SettingsScreen(
                         onClick = { /* TODO: Add app picker */ }
                     )
                 }
+
+                Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
+
+                // 20% Usage Reduction Notification Toggle
+                SettingsToggleItem(
+                    icon = Icons.Outlined.TrendingDown,
+                    title = "20% Reduction Alerts",
+                    subtitle = if (uiState.isUsageReductionNotificationEnabled)
+                        "Notify when usage exceeds average"
+                    else "Get alerts to reduce screen time",
+                    isChecked = uiState.isUsageReductionNotificationEnabled,
+                    onCheckedChange = { viewModel.setUsageReductionNotificationEnabled(it) }
+                )
             }
         }
 

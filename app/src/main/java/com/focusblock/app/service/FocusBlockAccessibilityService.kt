@@ -1044,16 +1044,22 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
                 // PROACTIVE ENFORCEMENT: When limit is reached and on timer app, BLOCK immediately
                 // This ensures the app is blocked even if no new accessibility events are triggered
+                // NOTE: Skip whitelisted apps - they are tracked but not blocked
                 if (totalUsageMinutes >= limitMinutes && isOnTimerApp && currentPackage != null) {
+                    // Check if app is whitelisted (tracked but not blocked)
+                    val isWhitelisted = cachedWhitelistedPackages.contains(currentPackage)
+
                     // Check if override is active
                     val overrideExpires = dailyUsage.overrideExpiresAt
                     val now = System.currentTimeMillis()
                     val hasActiveOverride = overrideExpires != null && now < overrideExpires
 
-                    if (!hasActiveOverride && !isBlockingInProgress) {
+                    if (!hasActiveOverride && !isBlockingInProgress && !isWhitelisted) {
                         Log.i(TAG, "App Timer: Proactive enforcement - blocking $currentPackage (usage: $totalUsageMinutes >= limit: $limitMinutes)")
                         // Block the app using the service scope (blockApp is a suspend function)
                         blockApp(currentPackage)
+                    } else if (isWhitelisted) {
+                        Log.d(TAG, "App Timer: $currentPackage is whitelisted - not blocking (usage still tracked)")
                     }
                 }
 
@@ -1995,13 +2001,17 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
 
         // Check App Timer first (it's an enforcement limit)
+        // NOTE: Skip whitelisted apps - they are tracked but not blocked
         val timerSettings = appTimerSettingsDao.getSettingsSync()
         if (timerSettings != null && timerSettings.isEnabled) {
             val timerApps = timerSettings.timerApps.split(",").filter { it.isNotBlank() }
             if (timerApps.contains(packageName)) {
-                val currentUsage = lastAppTimerUsageMinutes
-                if (currentUsage >= timerSettings.dailyLimitMinutes) {
-                    return BlockedByType.APP_TIMER
+                // Check if this app is whitelisted (tracked but not blocked)
+                if (!cachedWhitelistedPackages.contains(packageName)) {
+                    val currentUsage = lastAppTimerUsageMinutes
+                    if (currentUsage >= timerSettings.dailyLimitMinutes) {
+                        return BlockedByType.APP_TIMER
+                    }
                 }
             }
         }

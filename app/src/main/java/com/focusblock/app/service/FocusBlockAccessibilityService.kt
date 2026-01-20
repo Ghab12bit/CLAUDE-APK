@@ -56,6 +56,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         private const val APP_TIMER_NOTIFICATION_ID = 4003
         const val ACTION_EXTEND_APP_TIMER = "com.focusblock.app.ACTION_EXTEND_APP_TIMER"
         const val ACTION_REFRESH_GLOBAL_LIMIT_CACHE = "com.focusblock.app.ACTION_REFRESH_GLOBAL_LIMIT_CACHE"
+        const val ACTION_REFRESH_FOCUS_CYCLE_CACHE = "com.focusblock.app.ACTION_REFRESH_FOCUS_CYCLE_CACHE"
 
         // ========== SCHEDULE ENFORCEMENT ==========
         private const val SCHEDULE_CHECK_INTERVAL_MS = 60_000L // Check every minute
@@ -247,6 +248,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     // Also trigger an immediate check
                     checkGlobalDailyLimit()
                 }
+                ACTION_REFRESH_FOCUS_CYCLE_CACHE -> {
+                    Log.i(TAG, "Received broadcast to refresh Focus Cycle cache")
+                    refreshFocusCycleCache()
+                }
             }
         }
     }
@@ -300,7 +305,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         backfillHistoricalUsageData()
 
         // Register broadcast receiver for settings changes
-        val filter = IntentFilter(ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+        val filter = IntentFilter().apply {
+            addAction(ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+            addAction(ACTION_REFRESH_FOCUS_CYCLE_CACHE)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(settingsChangeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
@@ -1845,25 +1853,33 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Check Focus Cycles (soft-nudge, only blocks during break phase)
+        // Check Focus Cycles (blocks during break phase OR when usage window exhausted)
         if (!strictModeEnabled) {
             val activeFocusCycle = focusCycleDao.getActiveFocusCycleSync()
             if (activeFocusCycle != null && activeFocusCycle.isEnabled) {
                 val now = System.currentTimeMillis()
                 val breakStart = activeFocusCycle.breakStartTime
+                val cycleStart = activeFocusCycle.cycleStartTime
+                val usageWindowMillis = timeToMillis(activeFocusCycle.usageWindowMinutes)
 
-                // Check if we're in break phase
-                // IMPORTANT: Only check breakStartTime, not simple time calculation
-                // The usage window exhaustion is determined by accumulatedUsageMillis in handleFocusCycleInstant
-                val isInBreak = if (breakStart != null) {
-                    val breakEnd = breakStart + timeToMillis(activeFocusCycle.breakDurationMinutes)
-                    now < breakEnd
-                } else {
-                    // Not in break - usage window is still active or cycle hasn't started
-                    false
+                // Check if should block based on Focus Cycle state
+                val shouldBlock = when {
+                    // Case 1: In break period - block until break ends
+                    breakStart != null -> {
+                        val breakEnd = breakStart + timeToMillis(activeFocusCycle.breakDurationMinutes)
+                        now < breakEnd
+                    }
+                    // Case 2: Usage window started - check ACCUMULATED time (not wall-clock!)
+                    cycleStart != null -> {
+                        val accumulatedMillis = activeFocusCycle.accumulatedUsageMillis
+                        // Block if accumulated usage exceeds window
+                        accumulatedMillis >= usageWindowMillis
+                    }
+                    // Case 3: Cycle not started yet (armed state)
+                    else -> false
                 }
 
-                if (isInBreak) {
+                if (shouldBlock) {
                     // Get packages to check (consider useQuickBlockApps)
                     var focusCyclePackages = activeFocusCycle.selectedPackages
                         .split(",")
@@ -1878,7 +1894,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     }
 
                     if (focusCyclePackages.contains(packageName)) {
-                        Log.i(TAG, "Focus Cycle blocking: $packageName (break phase until ${activeFocusCycle.breakStartTime?.let { it + timeToMillis(activeFocusCycle.breakDurationMinutes) }})")
+                        val reason = if (breakStart != null) "break phase" else "usage window exhausted"
+                        Log.i(TAG, "Focus Cycle blocking: $packageName ($reason)")
                         return true
                     }
                 }
@@ -2032,18 +2049,27 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 val now = System.currentTimeMillis()
                 val breakStart = activeFocusCycle.breakStartTime
                 val cycleStart = activeFocusCycle.cycleStartTime
+                val usageWindowMillis = timeToMillis(activeFocusCycle.usageWindowMinutes)
 
-                val isInBreak = if (breakStart != null) {
-                    val breakEnd = breakStart + timeToMillis(activeFocusCycle.breakDurationMinutes)
-                    now < breakEnd
-                } else if (cycleStart != null) {
-                    val usageEnd = cycleStart + timeToMillis(activeFocusCycle.usageWindowMinutes)
-                    now >= usageEnd
-                } else {
-                    false
+                // Check if should block based on Focus Cycle state
+                val shouldBlock = when {
+                    // Case 1: In break period - block until break ends
+                    breakStart != null -> {
+                        val breakEnd = breakStart + timeToMillis(activeFocusCycle.breakDurationMinutes)
+                        now < breakEnd
+                    }
+                    // Case 2: Usage window started - check ACCUMULATED time (not wall-clock!)
+                    // Focus Cycle pauses when user switches to non-tracked app
+                    cycleStart != null -> {
+                        val accumulatedMillis = activeFocusCycle.accumulatedUsageMillis
+                        // Block if accumulated usage exceeds window
+                        accumulatedMillis >= usageWindowMillis
+                    }
+                    // Case 3: Cycle not started yet (armed state)
+                    else -> false
                 }
 
-                if (isInBreak) {
+                if (shouldBlock) {
                     return BlockedByType.FOCUS_CYCLE
                 }
             }

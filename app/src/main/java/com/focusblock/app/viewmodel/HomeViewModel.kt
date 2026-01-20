@@ -1361,7 +1361,17 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             val cycle = _uiState.value.focusCycle
             if (cycle != null) {
-                repository.updateFocusCycle(cycle.copy(isEnabled = false, isActive = false))
+                // Reset all state when disabling
+                repository.updateFocusCycle(cycle.copy(
+                    isEnabled = false,
+                    isActive = false,
+                    isArmed = true, // Reset to armed state for next time
+                    isPaused = false,
+                    cycleStartTime = null,
+                    breakStartTime = null,
+                    accumulatedUsageMillis = 0,
+                    lastActiveTime = null
+                ))
             }
             // Cancel the notification
             cancelFocusCycleNotification()
@@ -1369,8 +1379,20 @@ class HomeViewModel @Inject constructor(
             // Stop floating overlay timer
             FocusCycleOverlayService.stop(application)
 
+            // Notify Accessibility Service to refresh its cache immediately
+            notifyServiceToRefreshFocusCycleCache()
+
             showToast("Focus Cycle stopped")
         }
+    }
+
+    /**
+     * Notify the Accessibility Service to refresh its Focus Cycle cache
+     */
+    private fun notifyServiceToRefreshFocusCycleCache() {
+        val intent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_FOCUS_CYCLE_CACHE)
+        intent.`package` = application.packageName
+        application.sendBroadcast(intent)
     }
 
     /**

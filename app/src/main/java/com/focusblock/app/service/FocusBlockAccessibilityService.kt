@@ -57,6 +57,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         const val ACTION_EXTEND_APP_TIMER = "com.focusblock.app.ACTION_EXTEND_APP_TIMER"
         const val ACTION_REFRESH_GLOBAL_LIMIT_CACHE = "com.focusblock.app.ACTION_REFRESH_GLOBAL_LIMIT_CACHE"
         const val ACTION_REFRESH_FOCUS_CYCLE_CACHE = "com.focusblock.app.ACTION_REFRESH_FOCUS_CYCLE_CACHE"
+        const val ACTION_REFRESH_STRICT_MODE_CACHE = "com.focusblock.app.ACTION_REFRESH_STRICT_MODE_CACHE"
+
+        // ========== STRICT MODE ==========
+        private const val STRICT_MODE_CHECK_INTERVAL_MS = 30_000L // Check every 30 seconds for expiration
 
         // ========== SCHEDULE ENFORCEMENT ==========
         private const val SCHEDULE_CHECK_INTERVAL_MS = 60_000L // Check every minute
@@ -238,6 +242,12 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     // ========== 20% USAGE REDUCTION NOTIFICATION ==========
     @Volatile private var cachedUsageReductionNotificationEnabled: Boolean = false
 
+    // ========== STRICT MODE - Time-locked blocking ==========
+    private val strictModeHandler = Handler(Looper.getMainLooper())
+    private var strictModeRunnable: Runnable? = null
+    @Volatile private var cachedStrictModeEnabled: Boolean = false
+    @Volatile private var cachedStrictModeEndTime: Long = 0L
+
     // ========== SETTINGS CHANGE RECEIVER ==========
     private val settingsChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -251,6 +261,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 ACTION_REFRESH_FOCUS_CYCLE_CACHE -> {
                     Log.i(TAG, "Received broadcast to refresh Focus Cycle cache")
                     refreshFocusCycleCache()
+                }
+                ACTION_REFRESH_STRICT_MODE_CACHE -> {
+                    Log.i(TAG, "Received broadcast to refresh Strict Mode cache")
+                    refreshStrictModeCache()
                 }
             }
         }
@@ -295,6 +309,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         refreshGlobalLimitCache()
         startGlobalLimitCheck()
 
+        // Start Strict Mode monitoring (for auto-expiration)
+        refreshStrictModeCache()
+        startStrictModeCheck()
+
         // Start Bedtime Mode monitoring
         refreshBedtimeCache()
 
@@ -308,6 +326,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         val filter = IntentFilter().apply {
             addAction(ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
             addAction(ACTION_REFRESH_FOCUS_CYCLE_CACHE)
+            addAction(ACTION_REFRESH_STRICT_MODE_CACHE)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(settingsChangeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -1824,7 +1843,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
         // ============ MODE PRIORITY RULES ============
         // Priority: Strict Mode > Focus Cycles > Quick Block
-        val strictModeEnabled = settingsDao.getValue("strict_mode_enabled")?.toBooleanStrictOrNull() ?: false
+        // Use cached value and check if time-lock is still active
+        val strictModeActive = isStrictModeActive()
 
         // Check Quick Block session
         val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
@@ -1854,7 +1874,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
 
         // Check Focus Cycles (blocks during break phase OR when usage window exhausted)
-        if (!strictModeEnabled) {
+        if (!strictModeActive) {
             val activeFocusCycle = focusCycleDao.getActiveFocusCycleSync()
             if (activeFocusCycle != null && activeFocusCycle.isEnabled) {
                 val now = System.currentTimeMillis()
@@ -2018,8 +2038,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             return BlockedByType.BEDTIME
         }
 
-        val strictModeEnabled = settingsDao.getValue("strict_mode_enabled")?.toBooleanStrictOrNull() ?: false
-        if (strictModeEnabled) {
+        // Check Strict Mode - uses cached values with time-lock check
+        // Also excludes essential apps (phone, maps, settings, etc.) so device remains usable
+        if (isStrictModeActive() && !isExcludedFromGlobalLimit(packageName) && !cachedWhitelistedPackages.contains(packageName)) {
             return BlockedByType.STRICT_MODE
         }
 
@@ -2211,6 +2232,128 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 Log.e(TAG, "Failed to refresh Global Limit cache", e)
             }
         }
+    }
+
+    // ========== STRICT MODE ==========
+
+    /**
+     * Refresh Strict Mode settings cache from database
+     */
+    private fun refreshStrictModeCache() {
+        immediateScope.launch {
+            try {
+                val enabled = database.settingsDao().getValue("strict_mode_enabled")?.toBooleanStrictOrNull() ?: false
+                val endTime = database.settingsDao().getValue("strict_mode_end_time")?.toLongOrNull() ?: 0L
+
+                cachedStrictModeEnabled = enabled
+                cachedStrictModeEndTime = endTime
+
+                Log.d(TAG, "Strict Mode cache refreshed: enabled=$enabled, endTime=$endTime (${
+                    if (endTime > 0) java.util.Date(endTime) else "not set"
+                })")
+
+                // Auto-disable if time has expired
+                if (enabled && endTime > 0 && endTime <= System.currentTimeMillis()) {
+                    Log.i(TAG, "Strict Mode: Time expired, auto-disabling")
+                    database.settingsDao().insert(
+                        com.focusblock.app.database.entity.AppSettings(
+                            key = "strict_mode_enabled",
+                            value = "false"
+                        )
+                    )
+                    cachedStrictModeEnabled = false
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to refresh Strict Mode cache", e)
+            }
+        }
+    }
+
+    /**
+     * Start periodic Strict Mode expiration check
+     */
+    private fun startStrictModeCheck() {
+        stopStrictModeCheck()
+
+        strictModeRunnable = object : Runnable {
+            override fun run() {
+                checkStrictModeExpiration()
+                strictModeHandler.postDelayed(this, STRICT_MODE_CHECK_INTERVAL_MS)
+            }
+        }
+        strictModeHandler.post(strictModeRunnable!!)
+        Log.d(TAG, "Strict Mode expiration monitoring started")
+    }
+
+    private fun stopStrictModeCheck() {
+        strictModeRunnable?.let { strictModeHandler.removeCallbacks(it) }
+        strictModeRunnable = null
+    }
+
+    /**
+     * Check if Strict Mode should auto-expire
+     */
+    private fun checkStrictModeExpiration() {
+        val now = System.currentTimeMillis()
+
+        // Check if Strict Mode is enabled and has expired
+        if (cachedStrictModeEnabled && cachedStrictModeEndTime > 0 && cachedStrictModeEndTime <= now) {
+            Log.i(TAG, "Strict Mode: Timer expired, auto-disabling")
+            immediateScope.launch {
+                try {
+                    database.settingsDao().insert(
+                        com.focusblock.app.database.entity.AppSettings(
+                            key = "strict_mode_enabled",
+                            value = "false"
+                        )
+                    )
+                    cachedStrictModeEnabled = false
+                    // Show notification that Strict Mode has ended
+                    showStrictModeExpiredNotification()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to auto-disable Strict Mode", e)
+                }
+            }
+        }
+    }
+
+    /**
+     * Show notification when Strict Mode expires
+     */
+    private fun showStrictModeExpiredNotification() {
+        try {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            val intent = packageManager.getLaunchIntentForPackage(packageName)
+            val pendingIntent = PendingIntent.getActivity(
+                this, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(this, "focus_block_alerts")
+                .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
+                .setContentTitle("Strict Mode Ended")
+                .setContentText("Your Strict Mode timer has expired. Apps are no longer blocked.")
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+
+            notificationManager.notify(4020, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to show Strict Mode expired notification", e)
+        }
+    }
+
+    /**
+     * Check if Strict Mode is currently active (enabled AND not expired)
+     */
+    private fun isStrictModeActive(): Boolean {
+        if (!cachedStrictModeEnabled) return false
+        // If no end time set, treat as always active when enabled
+        if (cachedStrictModeEndTime == 0L) return true
+        // Check if time hasn't expired yet
+        return cachedStrictModeEndTime > System.currentTimeMillis()
     }
 
     // ========== BEDTIME MODE ==========

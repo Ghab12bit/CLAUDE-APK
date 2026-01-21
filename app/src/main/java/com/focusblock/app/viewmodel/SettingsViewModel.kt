@@ -258,7 +258,7 @@ class SettingsViewModel @Inject constructor(
      * Notify accessibility service to refresh Strict Mode cache
      */
     private fun notifyServiceToRefreshStrictModeCache() {
-        val intent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+        val intent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_STRICT_MODE_CACHE)
         intent.`package` = application.packageName
         application.sendBroadcast(intent)
     }

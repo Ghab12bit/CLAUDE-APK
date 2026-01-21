@@ -25,6 +25,9 @@ data class SettingsUiState(
     val strictModeEndTime: Long? = null, // When time lock expires
     val isHardModeEnabled: Boolean = false,
     val hardModeUnlockTime: Long? = null,
+    // Emergency unlock tracking
+    val emergencyUnlockAvailable: Boolean = true, // Once per day
+    val emergencyUnlockUsedDate: String? = null,
     val permissionStatus: PermissionUtils.PermissionStatus = PermissionUtils.PermissionStatus(
         hasUsageStats = false,
         hasOverlay = false,
@@ -42,7 +45,13 @@ data class SettingsUiState(
 
     // 20% Usage Reduction Notification
     val isUsageReductionNotificationEnabled: Boolean = false
-)
+) {
+    companion object {
+        const val STRICT_MODE_MINIMUM_DURATION_MINUTES = 60 // Minimum 1 hour
+        const val EMERGENCY_UNLOCK_COUNTDOWN_SECONDS = 30 // 30-second countdown friction
+        const val EMERGENCY_UNLOCK_PHRASE = "I choose distraction over focus"
+    }
+}
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -61,6 +70,7 @@ class SettingsViewModel @Inject constructor(
         startPermissionMonitoring()
         loadGlobalDailyLimitSettings()
         loadUsageReductionNotificationSetting()
+        loadEmergencyUnlockStatus()
     }
 
     private fun loadSettings() {
@@ -199,18 +209,15 @@ class SettingsViewModel @Inject constructor(
      * @return StrictModeResult indicating if action was allowed
      */
     fun setStrictMode(enabled: Boolean): StrictModeResult {
-        // Enabling is always allowed
+        // Enabling now requires duration selection - signal UI to show duration picker
         if (enabled) {
-            viewModelScope.launch {
-                repository.setStrictModeEnabled(true)
-            }
-            return StrictModeResult.SUCCESS
+            return StrictModeResult.NEEDS_DURATION
         }
 
         // Disabling requires checks
         val state = _uiState.value
 
-        // If time-locked, cannot disable
+        // If time-locked, cannot disable (emergency unlock is the only way)
         if (state.isStrictModeLocked) {
             return StrictModeResult.TIME_LOCKED
         }
@@ -228,6 +235,92 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
+     * Enable Strict Mode with a specific duration (minimum 60 minutes enforced)
+     * @param durationMinutes Duration in minutes (will be enforced to minimum 60)
+     */
+    fun enableStrictModeWithDuration(durationMinutes: Int) {
+        val actualDuration = maxOf(durationMinutes, SettingsUiState.STRICT_MODE_MINIMUM_DURATION_MINUTES)
+        viewModelScope.launch {
+            repository.setStrictModeEnabled(true)
+            val endTime = System.currentTimeMillis() + actualDuration * 60 * 1000L
+            repository.setStrictModeEndTime(endTime)
+            _uiState.update { it.copy(
+                isStrictModeEnabled = true,
+                isStrictModeLocked = true,
+                strictModeEndTime = endTime
+            )}
+            // Notify accessibility service
+            notifyServiceToRefreshStrictModeCache()
+        }
+    }
+
+    /**
+     * Notify accessibility service to refresh Strict Mode cache
+     */
+    private fun notifyServiceToRefreshStrictModeCache() {
+        val intent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
+        intent.`package` = application.packageName
+        application.sendBroadcast(intent)
+    }
+
+    /**
+     * Check if emergency unlock is available today
+     */
+    fun isEmergencyUnlockAvailable(): Boolean {
+        return _uiState.value.emergencyUnlockAvailable
+    }
+
+    /**
+     * Load emergency unlock status (resets at midnight)
+     */
+    private fun loadEmergencyUnlockStatus() {
+        viewModelScope.launch {
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                .format(java.util.Date())
+            val usedDate = repository.getSetting(AppSettings.KEY_STRICT_MODE_EMERGENCY_UNLOCK_USED_DATE)
+            val isAvailable = usedDate != today
+            _uiState.update { it.copy(
+                emergencyUnlockAvailable = isAvailable,
+                emergencyUnlockUsedDate = usedDate
+            )}
+        }
+    }
+
+    /**
+     * Perform emergency unlock - consumes today's unlock
+     * Should only be called after UI friction (30s countdown + phrase typing)
+     */
+    fun performEmergencyUnlock(): Boolean {
+        val state = _uiState.value
+        if (!state.emergencyUnlockAvailable || !state.isStrictModeLocked) {
+            return false
+        }
+
+        viewModelScope.launch {
+            // Record that emergency unlock was used today
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                .format(java.util.Date())
+            repository.setSetting(AppSettings.KEY_STRICT_MODE_EMERGENCY_UNLOCK_USED_DATE, today)
+
+            // Disable Strict Mode
+            repository.setStrictModeEnabled(false)
+            repository.clearStrictModeEndTime()
+
+            _uiState.update { it.copy(
+                isStrictModeEnabled = false,
+                isStrictModeLocked = false,
+                strictModeEndTime = null,
+                emergencyUnlockAvailable = false,
+                emergencyUnlockUsedDate = today
+            )}
+
+            // Notify service
+            notifyServiceToRefreshStrictModeCache()
+        }
+        return true
+    }
+
+    /**
      * Verify PIN and disable Strict Mode
      */
     fun verifyPinAndDisableStrictMode(pin: String): Boolean {
@@ -235,6 +328,12 @@ class SettingsViewModel @Inject constructor(
         return if (pin == storedPin) {
             viewModelScope.launch {
                 repository.setStrictModeEnabled(false)
+                repository.clearStrictModeEndTime()
+                _uiState.update { it.copy(
+                    isStrictModeEnabled = false,
+                    isStrictModeLocked = false,
+                    strictModeEndTime = null
+                )}
             }
             true
         } else {
@@ -245,7 +344,8 @@ class SettingsViewModel @Inject constructor(
     enum class StrictModeResult {
         SUCCESS,
         TIME_LOCKED,
-        NEEDS_PIN
+        NEEDS_PIN,
+        NEEDS_DURATION
     }
 
     fun setPin(pin: String) {

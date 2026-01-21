@@ -51,6 +51,8 @@ fun SettingsScreen(
     var showDailyLimitPicker by remember { mutableStateOf(false) }
     var showStrictModePinDialog by remember { mutableStateOf(false) }
     var showStrictModeLockedDialog by remember { mutableStateOf(false) }
+    var showStrictModeDurationPicker by remember { mutableStateOf(false) }
+    var showEmergencyUnlockDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -195,7 +197,18 @@ fun SettingsScreen(
                 SettingsToggleItem(
                     icon = Icons.Outlined.Lock,
                     title = "Strict Mode",
-                    subtitle = if (uiState.isStrictModeLocked) "Time-locked" else "Prevent disabling blocks",
+                    subtitle = when {
+                        uiState.isStrictModeLocked -> {
+                            val remainingMs = (uiState.strictModeEndTime ?: 0L) - System.currentTimeMillis()
+                            if (remainingMs > 0) {
+                                val hours = (remainingMs / 3600000).toInt()
+                                val minutes = ((remainingMs % 3600000) / 60000).toInt()
+                                "Time-locked: ${hours}h ${minutes}m remaining"
+                            } else "Time-locked"
+                        }
+                        uiState.isStrictModeEnabled -> "Active (min. 60 minutes)"
+                        else -> "Prevent disabling blocks (min. 60 min)"
+                    },
                     isChecked = uiState.isStrictModeEnabled,
                     onCheckedChange = { enabled ->
                         when (viewModel.setStrictMode(enabled)) {
@@ -205,6 +218,9 @@ fun SettingsScreen(
                             }
                             SettingsViewModel.StrictModeResult.NEEDS_PIN -> {
                                 showStrictModePinDialog = true
+                            }
+                            SettingsViewModel.StrictModeResult.NEEDS_DURATION -> {
+                                showStrictModeDurationPicker = true
                             }
                         }
                     }
@@ -408,7 +424,34 @@ fun SettingsScreen(
     if (showStrictModeLockedDialog) {
         StrictModeLockedDialog(
             remainingTime = (uiState.strictModeEndTime ?: 0L) - System.currentTimeMillis(),
-            onDismiss = { showStrictModeLockedDialog = false }
+            emergencyUnlockAvailable = uiState.emergencyUnlockAvailable,
+            onDismiss = { showStrictModeLockedDialog = false },
+            onEmergencyUnlock = {
+                showStrictModeLockedDialog = false
+                showEmergencyUnlockDialog = true
+            }
+        )
+    }
+
+    // Strict Mode duration picker dialog
+    if (showStrictModeDurationPicker) {
+        StrictModeDurationPickerDialog(
+            onDismiss = { showStrictModeDurationPicker = false },
+            onConfirm = { durationMinutes ->
+                viewModel.enableStrictModeWithDuration(durationMinutes)
+                showStrictModeDurationPicker = false
+            }
+        )
+    }
+
+    // Emergency unlock dialog
+    if (showEmergencyUnlockDialog) {
+        EmergencyUnlockDialog(
+            onDismiss = { showEmergencyUnlockDialog = false },
+            onUnlock = {
+                viewModel.performEmergencyUnlock()
+                showEmergencyUnlockDialog = false
+            }
         )
     }
 
@@ -850,7 +893,9 @@ fun StrictModePinDialog(
 @Composable
 fun StrictModeLockedDialog(
     remainingTime: Long,
-    onDismiss: () -> Unit
+    emergencyUnlockAvailable: Boolean,
+    onDismiss: () -> Unit,
+    onEmergencyUnlock: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -902,6 +947,22 @@ fun StrictModeLockedDialog(
                         fontWeight = FontWeight.Bold
                     )
                 }
+                if (emergencyUnlockAvailable) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Divider(color = Divider)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Emergency Unlock Available",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = AccentOrange
+                    )
+                    Text(
+                        text = "1 emergency unlock per day (30s wait + phrase)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextTertiary,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
         },
         confirmButton = {
@@ -911,6 +972,273 @@ fun StrictModeLockedDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = Primary)
             ) {
                 Text("OK", fontWeight = FontWeight.Medium)
+            }
+        },
+        dismissButton = {
+            if (emergencyUnlockAvailable) {
+                TextButton(onClick = onEmergencyUnlock) {
+                    Text("Emergency Unlock", color = AccentOrange)
+                }
+            }
+        }
+    )
+}
+
+@Composable
+fun StrictModeDurationPickerDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    // Duration options: 1h, 2h, 4h, 8h, 12h, 24h
+    val durationOptions = listOf(
+        60 to "1 hour",
+        120 to "2 hours",
+        240 to "4 hours",
+        480 to "8 hours",
+        720 to "12 hours",
+        1440 to "24 hours"
+    )
+    var selectedDuration by remember { mutableStateOf(60) } // Default 1 hour (minimum)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardDarkElevated,
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(Primary.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Lock,
+                        contentDescription = null,
+                        tint = Primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Enable Strict Mode",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        text = {
+            Column {
+                Text(
+                    text = "Select duration. Strict Mode CANNOT be disabled until time expires (minimum 1 hour).",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                durationOptions.forEach { (minutes, label) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedDuration = minutes }
+                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedDuration == minutes,
+                            onClick = { selectedDuration = minutes },
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = Primary,
+                                unselectedColor = TextSecondary
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = TextPrimary
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(AccentRed.copy(alpha = 0.1f))
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = "Warning: You will NOT be able to disable Strict Mode until the timer expires. 1 emergency unlock available per day.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AccentRed,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(selectedDuration) },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Primary)
+            ) {
+                Text("Enable Strict Mode", fontWeight = FontWeight.Medium)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextSecondary)
+            }
+        }
+    )
+}
+
+@Composable
+fun EmergencyUnlockDialog(
+    onDismiss: () -> Unit,
+    onUnlock: () -> Unit
+) {
+    var countdownSeconds by remember { mutableStateOf(30) }
+    var countdownComplete by remember { mutableStateOf(false) }
+    var typedPhrase by remember { mutableStateOf("") }
+    val requiredPhrase = "I choose distraction over focus"
+
+    // Countdown timer
+    LaunchedEffect(Unit) {
+        while (countdownSeconds > 0) {
+            kotlinx.coroutines.delay(1000)
+            countdownSeconds--
+        }
+        countdownComplete = true
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardDarkElevated,
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(AccentOrange.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = AccentOrange,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Emergency Unlock",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "This is your only emergency unlock for today. Use it wisely.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (!countdownComplete) {
+                    // Show countdown
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .clip(CircleShape)
+                            .background(AccentRed.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "$countdownSeconds",
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentRed
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Please wait...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextTertiary
+                    )
+                } else {
+                    // Show phrase typing
+                    Text(
+                        text = "Type the phrase below to unlock:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextTertiary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(CardDark)
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            text = "\"$requiredPhrase\"",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = AccentOrange,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = typedPhrase,
+                        onValueChange = { typedPhrase = it },
+                        label = { Text("Type the phrase") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        isError = typedPhrase.isNotEmpty() && !requiredPhrase.lowercase().startsWith(typedPhrase.lowercase())
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            val canUnlock = countdownComplete && typedPhrase.equals(requiredPhrase, ignoreCase = true)
+            Button(
+                onClick = { if (canUnlock) onUnlock() },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (canUnlock) AccentOrange else CardDark
+                ),
+                enabled = canUnlock
+            ) {
+                Text(
+                    if (!countdownComplete) "Wait $countdownSeconds s" else "Unlock",
+                    fontWeight = FontWeight.Medium,
+                    color = if (canUnlock) TextPrimary else TextTertiary
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextSecondary)
             }
         }
     )

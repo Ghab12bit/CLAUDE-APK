@@ -2149,7 +2149,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 cachedGlobalLimitUseAppTimerApps = settings.useAppTimerApps
 
                 // Load 20% Usage Reduction Notification setting
-                val usageReductionEnabled = database.appSettingsDao()
+                val usageReductionEnabled = database.settingsDao()
                     .getValue(com.focusblock.app.database.entity.AppSettings.KEY_USAGE_REDUCTION_NOTIFICATION_ENABLED)
                     ?.toBooleanStrictOrNull() ?: false
                 cachedUsageReductionNotificationEnabled = usageReductionEnabled

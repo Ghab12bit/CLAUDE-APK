@@ -58,6 +58,30 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         const val ACTION_REFRESH_GLOBAL_LIMIT_CACHE = "com.focusblock.app.ACTION_REFRESH_GLOBAL_LIMIT_CACHE"
         const val ACTION_REFRESH_FOCUS_CYCLE_CACHE = "com.focusblock.app.ACTION_REFRESH_FOCUS_CYCLE_CACHE"
         const val ACTION_REFRESH_STRICT_MODE_CACHE = "com.focusblock.app.ACTION_REFRESH_STRICT_MODE_CACHE"
+        const val ACTION_ACTIVATE_EMERGENCY_UNLOCK = "com.focusblock.app.ACTION_ACTIVATE_EMERGENCY_UNLOCK"
+
+        // Singleton instance for accessing from UI
+        @Volatile
+        private var instance: FocusBlockAccessibilityService? = null
+
+        fun getInstance(): FocusBlockAccessibilityService? = instance
+
+        /**
+         * Get emergency unlock info for UI
+         */
+        fun getEmergencyUnlockInfo(): EmergencyUnlockInfo? {
+            return instance?.getEmergencyUnlockInfoInternal()
+        }
+
+        data class EmergencyUnlockInfo(
+            val unlockCount: Int,
+            val maxUnlocks: Int,
+            val nextUnlockDurationMinutes: Int,
+            val nextUnlockPenalty: Int,
+            val canUnlock: Boolean,
+            val isUnlockActive: Boolean,
+            val unlockExpiresAt: Long?
+        )
 
         // ========== STRICT MODE ==========
         private const val STRICT_MODE_CHECK_INTERVAL_MS = 30_000L // Check every 30 seconds for expiration
@@ -221,6 +245,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     @Volatile private var cachedWhitelistedPackages: Set<String> = emptySet()
     private var lastGlobalUsageMinutes: Int = 0
     private var globalLimitEnforcementActive: Boolean = false
+    // Effective limit (base limit - yesterday's penalty)
+    @Volatile private var cachedEffectiveLimitMinutes: Int = 120
+    // Emergency unlock state
+    @Volatile private var cachedEmergencyUnlockCount: Int = 0
+    @Volatile private var cachedEmergencyUnlockExpiresAt: Long = 0L
 
     // ========== HARD MODE - Prevents easy bypass ==========
     @Volatile private var cachedHardModeEnabled: Boolean = false
@@ -266,6 +295,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     Log.i(TAG, "Received broadcast to refresh Strict Mode cache")
                     refreshStrictModeCache()
                 }
+                ACTION_ACTIVATE_EMERGENCY_UNLOCK -> {
+                    Log.i(TAG, "Received broadcast to activate emergency unlock")
+                    activateEmergencyUnlock()
+                }
             }
         }
     }
@@ -286,6 +319,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         serviceInfo = info
 
         isServiceRunning = true
+        instance = this
         Log.i(TAG, "FocusBlock Accessibility Service is now running")
 
         // Initialize cache immediately
@@ -327,6 +361,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             addAction(ACTION_REFRESH_GLOBAL_LIMIT_CACHE)
             addAction(ACTION_REFRESH_FOCUS_CYCLE_CACHE)
             addAction(ACTION_REFRESH_STRICT_MODE_CACHE)
+            addAction(ACTION_ACTIVATE_EMERGENCY_UNLOCK)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(settingsChangeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -2367,6 +2402,91 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         return cachedStrictModeEndTime > System.currentTimeMillis()
     }
 
+    // ========== ESCALATING EMERGENCY UNLOCK ==========
+
+    /**
+     * Get emergency unlock info for UI (internal method)
+     */
+    private fun getEmergencyUnlockInfoInternal(): EmergencyUnlockInfo {
+        val unlockCount = cachedEmergencyUnlockCount
+        val maxUnlocks = com.focusblock.app.database.entity.GlobalDailyUsage.MAX_EMERGENCY_UNLOCKS_PER_DAY
+        val nextUnlockNumber = unlockCount + 1
+        val nextDuration = com.focusblock.app.database.entity.GlobalDailyUsage.getEmergencyUnlockDuration(nextUnlockNumber)
+        val nextPenalty = com.focusblock.app.database.entity.GlobalDailyUsage.getTomorrowPenalty(nextUnlockNumber)
+        val canUnlock = unlockCount < maxUnlocks && globalLimitEnforcementActive
+        val isActive = cachedEmergencyUnlockExpiresAt > System.currentTimeMillis()
+
+        return EmergencyUnlockInfo(
+            unlockCount = unlockCount,
+            maxUnlocks = maxUnlocks,
+            nextUnlockDurationMinutes = nextDuration,
+            nextUnlockPenalty = nextPenalty,
+            canUnlock = canUnlock,
+            isUnlockActive = isActive,
+            unlockExpiresAt = if (isActive) cachedEmergencyUnlockExpiresAt else null
+        )
+    }
+
+    /**
+     * Activate emergency unlock with escalating cost
+     */
+    private fun activateEmergencyUnlock() {
+        immediateScope.launch {
+            try {
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    .format(java.util.Date())
+
+                val dailyUsage = database.globalDailyUsageDao().getUsageForDateSync(today) ?: return@launch
+                val currentCount = dailyUsage.emergencyUnlockCount
+                val nextUnlockNumber = currentCount + 1
+                val maxUnlocks = com.focusblock.app.database.entity.GlobalDailyUsage.MAX_EMERGENCY_UNLOCKS_PER_DAY
+
+                // Check if more unlocks are allowed
+                if (nextUnlockNumber > maxUnlocks) {
+                    Log.w(TAG, "Emergency unlock denied - max unlocks ($maxUnlocks) reached for today")
+                    return@launch
+                }
+
+                // Get duration and penalty for this unlock
+                val durationMinutes = com.focusblock.app.database.entity.GlobalDailyUsage.getEmergencyUnlockDuration(nextUnlockNumber)
+                val penalty = com.focusblock.app.database.entity.GlobalDailyUsage.getTomorrowPenalty(nextUnlockNumber)
+
+                if (durationMinutes <= 0) {
+                    Log.w(TAG, "Emergency unlock denied - no duration for unlock #$nextUnlockNumber")
+                    return@launch
+                }
+
+                // Calculate expiration time
+                val expiresAt = System.currentTimeMillis() + durationMinutes * 60 * 1000L
+
+                // Update database
+                database.globalDailyUsageDao().activateEmergencyUnlock(today, expiresAt, penalty)
+
+                // Update cache
+                cachedEmergencyUnlockCount = nextUnlockNumber
+                cachedEmergencyUnlockExpiresAt = expiresAt
+                globalLimitEnforcementActive = false
+
+                // Show notification
+                showEmergencyUnlockActivatedNotification(nextUnlockNumber, durationMinutes, penalty)
+
+                Log.i(TAG, "Emergency unlock #$nextUnlockNumber activated: ${durationMinutes}min, penalty: -${penalty}min tomorrow")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to activate emergency unlock", e)
+            }
+        }
+    }
+
+    /**
+     * Check if emergency unlock can be activated
+     */
+    fun canActivateEmergencyUnlock(): Boolean {
+        return cachedEmergencyUnlockCount < com.focusblock.app.database.entity.GlobalDailyUsage.MAX_EMERGENCY_UNLOCKS_PER_DAY
+                && globalLimitEnforcementActive
+                && cachedEmergencyUnlockExpiresAt <= System.currentTimeMillis()
+    }
+
     // ========== BEDTIME MODE ==========
 
     /**
@@ -2516,41 +2636,71 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     return@launch
                 }
 
-                val limitMinutes = cachedGlobalLimitMinutes
-                val warningMinutes = limitMinutes - cachedGlobalLimitWarningMinutes
+                // Calculate effective limit (base limit - yesterday's penalty)
+                val yesterday = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    .format(java.util.Date(System.currentTimeMillis() - 24 * 60 * 60 * 1000))
+                val yesterdayPenalty = database.globalDailyUsageDao().getTomorrowPenalty(yesterday) ?: 0
+                val effectiveLimitMinutes = (cachedGlobalLimitMinutes - yesterdayPenalty).coerceAtLeast(30)
+                cachedEffectiveLimitMinutes = effectiveLimitMinutes
+
+                val warning75Minutes = (effectiveLimitMinutes * 0.75).toInt()
+                val warningMinutes = effectiveLimitMinutes - cachedGlobalLimitWarningMinutes
                 val now = System.currentTimeMillis()
 
-                // Check if override is active
+                // Update emergency unlock cache
+                cachedEmergencyUnlockCount = dailyUsage.emergencyUnlockCount
+                cachedEmergencyUnlockExpiresAt = dailyUsage.currentEmergencyUnlockExpiresAt ?: 0L
+
+                // Check if emergency unlock is active
+                val emergencyUnlockExpires = dailyUsage.currentEmergencyUnlockExpiresAt
+                val hasActiveEmergencyUnlock = emergencyUnlockExpires != null && now < emergencyUnlockExpires
+
+                // Check if emergency unlock just expired - clear it and notify
+                if (emergencyUnlockExpires != null && now >= emergencyUnlockExpires) {
+                    database.globalDailyUsageDao().clearEmergencyUnlock(today)
+                    showEmergencyUnlockExpiredNotification()
+                    Log.i(TAG, "Emergency unlock expired - blocking resumed")
+                }
+
+                // Also check legacy override
                 val overrideExpires = dailyUsage.overrideExpiresAt
                 val hasActiveOverride = overrideExpires != null && now < overrideExpires
 
-                if (hasActiveOverride) {
+                if (hasActiveEmergencyUnlock || hasActiveOverride) {
                     globalLimitEnforcementActive = false
-                    Log.d(TAG, "Global Limit: Override active until ${java.util.Date(overrideExpires!!)}")
+                    val unlockType = if (hasActiveEmergencyUnlock) "Emergency" else "Override"
+                    val expiresAt = emergencyUnlockExpires ?: overrideExpires!!
+                    Log.d(TAG, "Global Limit: $unlockType unlock active until ${java.util.Date(expiresAt)}")
                     return@launch
                 }
 
-                // Check and enforce limit
+                // Check and enforce limit with 75% warning
                 when {
                     // Limit reached - enforce blocking
-                    totalUsageMinutes >= limitMinutes -> {
+                    totalUsageMinutes >= effectiveLimitMinutes -> {
                         if (!dailyUsage.limitNotificationShown) {
                             database.globalDailyUsageDao().markLimitReached(today)
-                            showGlobalLimitReachedNotification(totalUsageMinutes, limitMinutes)
+                            showGlobalLimitReachedNotification(totalUsageMinutes, effectiveLimitMinutes)
                         }
                         globalLimitEnforcementActive = true
 
                         // Block current non-excluded app if user is actively using one
                         val currentPackage = lastForegroundPackage
-                        if (currentPackage != null && !isExcludedFromGlobalLimit(currentPackage)) {
-                            Log.i(TAG, "Global Limit: Enforcing block on $currentPackage (usage: $totalUsageMinutes >= limit: $limitMinutes)")
+                        if (currentPackage != null && !isExcludedFromGlobalLimit(currentPackage) && !cachedWhitelistedPackages.contains(currentPackage)) {
+                            Log.i(TAG, "Global Limit: Enforcing block on $currentPackage (usage: $totalUsageMinutes >= limit: $effectiveLimitMinutes)")
                             blockApp(currentPackage)
                         }
                     }
-                    // Warning threshold - show notification
+                    // 100% - cachedGlobalLimitWarningMinutes (e.g., 85%) warning
                     totalUsageMinutes >= warningMinutes && !dailyUsage.warningShown -> {
                         database.globalDailyUsageDao().markWarningShown(today)
-                        showGlobalLimitWarningNotification(totalUsageMinutes, limitMinutes)
+                        showGlobalLimitWarningNotification(totalUsageMinutes, effectiveLimitMinutes)
+                        globalLimitEnforcementActive = false
+                    }
+                    // 75% warning - early heads up
+                    totalUsageMinutes >= warning75Minutes && !dailyUsage.warning75Shown -> {
+                        database.globalDailyUsageDao().markWarning75Shown(today)
+                        show75PercentWarningNotification(totalUsageMinutes, effectiveLimitMinutes)
                         globalLimitEnforcementActive = false
                     }
                     else -> {
@@ -2558,7 +2708,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     }
                 }
 
-                Log.v(TAG, "Global Limit check: usage=$totalUsageMinutes min, limit=$limitMinutes min, enforcing=$globalLimitEnforcementActive")
+                // Log penalty info if applicable
+                val penaltyInfo = if (yesterdayPenalty > 0) " (penalty: -${yesterdayPenalty}min)" else ""
+                Log.v(TAG, "Global Limit check: usage=$totalUsageMinutes min, limit=$effectiveLimitMinutes min$penaltyInfo, enforcing=$globalLimitEnforcementActive")
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error checking Global Daily Limit", e)
@@ -2744,6 +2896,120 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             .build()
 
         notificationManager.notify(GLOBAL_LIMIT_WARNING_NOTIFICATION_ID, notification)
+    }
+
+    /**
+     * Show 75% threshold warning notification
+     */
+    private fun show75PercentWarningNotification(currentMinutes: Int, limitMinutes: Int) {
+        val remainingMinutes = limitMinutes - currentMinutes
+        val percentUsed = ((currentMinutes.toFloat() / limitMinutes) * 100).toInt()
+        Log.i(TAG, "Global Limit: Showing 75% warning notification - $remainingMinutes min remaining")
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_ALERTS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("75% of Daily Limit Used")
+            .setContentText("$remainingMinutes minutes remaining. Plan your usage wisely.")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("You've used $percentUsed% of your daily screen time limit. You have $remainingMinutes minutes remaining. Consider saving some time for later."))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(GLOBAL_LIMIT_WARNING_NOTIFICATION_ID + 10, notification)
+    }
+
+    /**
+     * Show notification when emergency unlock expires
+     */
+    private fun showEmergencyUnlockExpiredNotification() {
+        Log.i(TAG, "Emergency Unlock: Showing expired notification")
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        val unlockCount = cachedEmergencyUnlockCount
+        val unlocksRemaining = com.focusblock.app.database.entity.GlobalDailyUsage.MAX_EMERGENCY_UNLOCKS_PER_DAY - unlockCount
+        val remainingText = if (unlocksRemaining > 0)
+            "$unlocksRemaining emergency unlock(s) remaining today."
+        else
+            "No more emergency unlocks available today."
+
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_ALERTS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Emergency Unlock Ended")
+            .setContentText("Blocking has resumed. $remainingText")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("Your emergency unlock has expired. Distracting apps are now blocked again. $remainingText"))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(GLOBAL_LIMIT_WARNING_NOTIFICATION_ID + 20, notification)
+        vibrateDevice()
+    }
+
+    /**
+     * Show notification when emergency unlock is activated
+     */
+    private fun showEmergencyUnlockActivatedNotification(unlockNumber: Int, durationMinutes: Int, penalty: Int) {
+        Log.i(TAG, "Emergency Unlock: Showing activated notification (unlock #$unlockNumber, ${durationMinutes}min)")
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+
+        val penaltyText = if (penalty > 0)
+            " Tomorrow's limit will be reduced by $penalty minutes."
+        else
+            ""
+
+        val unlocksRemaining = com.focusblock.app.database.entity.GlobalDailyUsage.MAX_EMERGENCY_UNLOCKS_PER_DAY - unlockNumber
+        val remainingText = if (unlocksRemaining > 0)
+            " $unlocksRemaining unlock(s) remaining today."
+        else
+            " This was your last emergency unlock today."
+
+        val notification = NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_ALERTS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Emergency Unlock Active ($durationMinutes min)")
+            .setContentText("Apps unblocked for $durationMinutes minutes.$penaltyText")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("Emergency unlock #$unlockNumber activated. Apps are unblocked for $durationMinutes minutes.$penaltyText$remainingText"))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(GLOBAL_LIMIT_WARNING_NOTIFICATION_ID + 30, notification)
     }
 
     /**

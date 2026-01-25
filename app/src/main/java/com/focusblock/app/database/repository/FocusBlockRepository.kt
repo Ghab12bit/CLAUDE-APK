@@ -374,6 +374,31 @@ class FocusBlockRepository @Inject constructor(
     suspend fun activateGlobalOverride(date: String, overrideTime: Long, expiresAt: Long, cooldownUntil: Long) =
         globalDailyUsageDao.activateOverride(date, overrideTime, expiresAt, cooldownUntil)
     suspend fun clearGlobalOverride(date: String) = globalDailyUsageDao.clearOverride(date)
+
+    // ========== ESCALATING EMERGENCY UNLOCK ==========
+    suspend fun markWarning75Shown(date: String) = globalDailyUsageDao.markWarning75Shown(date)
+    suspend fun activateEmergencyUnlock(date: String, expiresAt: Long, penalty: Int) =
+        globalDailyUsageDao.activateEmergencyUnlock(date, expiresAt, penalty)
+    suspend fun clearEmergencyUnlock(date: String) = globalDailyUsageDao.clearEmergencyUnlock(date)
+    suspend fun getTomorrowPenalty(date: String): Int = globalDailyUsageDao.getTomorrowPenalty(date) ?: 0
+
+    /**
+     * Get the effective daily limit for today, considering yesterday's penalties
+     */
+    suspend fun getEffectiveDailyLimit(): Int {
+        val settings = getGlobalDailyLimitSettingsSync() ?: return 120 // Default 2 hours
+        val baseLimit = settings.dailyLimitMinutes
+
+        // Get yesterday's date to check for penalties
+        val yesterday = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date(System.currentTimeMillis() - 24 * 60 * 60 * 1000))
+
+        val penalty = getTomorrowPenalty(yesterday)
+        val effectiveLimit = (baseLimit - penalty).coerceAtLeast(30) // Minimum 30 minutes
+
+        return effectiveLimit
+    }
+
     suspend fun deleteOldGlobalUsage(beforeDate: String) = globalDailyUsageDao.deleteOldUsage(beforeDate)
 
     // Daily Usage Summary (for Today vs Yesterday comparison)

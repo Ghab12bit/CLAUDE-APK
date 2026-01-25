@@ -402,17 +402,67 @@ data class GlobalDailyUsage(
     val date: String, // YYYY-MM-DD format
     val totalUsageMinutes: Int = 0,
     val limitReached: Boolean = false,
-    val warningShown: Boolean = false,
+    val warningShown: Boolean = false, // 100% limit warning
+    val warning75Shown: Boolean = false, // 75% threshold warning
     val limitNotificationShown: Boolean = false,
-    // Override tracking - allows temporary access after limit is reached
+
+    // ========== ESCALATING EMERGENCY UNLOCK SYSTEM ==========
+    // Each emergency unlock is progressively more costly:
+    // 1st: 15 min, no penalty
+    // 2nd: 10 min, -10 min tomorrow
+    // 3rd: 5 min, -20 min tomorrow
+    // 4th+: BLOCKED (no more unlocks today)
+    val emergencyUnlockCount: Int = 0, // How many emergency unlocks used today
+    val currentEmergencyUnlockExpiresAt: Long? = null, // When current unlock window ends
+    val tomorrowLimitPenaltyMinutes: Int = 0, // Penalty to apply to tomorrow's limit
+
+    // Legacy override tracking (kept for compatibility)
     val overrideCount: Int = 0, // Number of times user overrode today
     val lastOverrideTime: Long? = null, // When last override was activated
     val overrideExpiresAt: Long? = null, // When current override window ends
     val overrideCooldownUntil: Long? = null, // Prevent rapid repeated overrides
+
     // 3+ hours excessive usage notification tracking
     val excessiveUsageNotificationShown: Boolean = false,
     val lastUpdated: Long = System.currentTimeMillis()
-)
+) {
+    companion object {
+        // Emergency unlock durations (in minutes)
+        const val EMERGENCY_UNLOCK_1_MINUTES = 15
+        const val EMERGENCY_UNLOCK_2_MINUTES = 10
+        const val EMERGENCY_UNLOCK_3_MINUTES = 5
+        const val MAX_EMERGENCY_UNLOCKS_PER_DAY = 3
+
+        // Penalties for tomorrow's limit (in minutes)
+        const val PENALTY_UNLOCK_2_MINUTES = 10
+        const val PENALTY_UNLOCK_3_MINUTES = 20
+
+        /**
+         * Get emergency unlock duration for the given attempt number
+         * Returns 0 if no more unlocks allowed
+         */
+        fun getEmergencyUnlockDuration(attemptNumber: Int): Int {
+            return when (attemptNumber) {
+                1 -> EMERGENCY_UNLOCK_1_MINUTES
+                2 -> EMERGENCY_UNLOCK_2_MINUTES
+                3 -> EMERGENCY_UNLOCK_3_MINUTES
+                else -> 0 // No more unlocks allowed
+            }
+        }
+
+        /**
+         * Get penalty for tomorrow's limit for the given attempt number
+         */
+        fun getTomorrowPenalty(attemptNumber: Int): Int {
+            return when (attemptNumber) {
+                1 -> 0 // No penalty for first unlock
+                2 -> PENALTY_UNLOCK_2_MINUTES
+                3 -> PENALTY_UNLOCK_3_MINUTES
+                else -> 0
+            }
+        }
+    }
+}
 
 // ========== DAILY USAGE COMPARISON (TODAY VS YESTERDAY) ==========
 

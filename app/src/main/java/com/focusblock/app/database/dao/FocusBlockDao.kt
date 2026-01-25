@@ -553,6 +553,32 @@ interface GlobalDailyUsageDao {
     @Query("UPDATE global_daily_usage SET overrideExpiresAt = NULL, lastUpdated = :timestamp WHERE date = :date")
     suspend fun clearOverride(date: String, timestamp: Long = System.currentTimeMillis())
 
+    // ========== ESCALATING EMERGENCY UNLOCK METHODS ==========
+
+    @Query("UPDATE global_daily_usage SET warning75Shown = 1, lastUpdated = :timestamp WHERE date = :date")
+    suspend fun markWarning75Shown(date: String, timestamp: Long = System.currentTimeMillis())
+
+    @Query("""
+        UPDATE global_daily_usage SET
+            emergencyUnlockCount = emergencyUnlockCount + 1,
+            currentEmergencyUnlockExpiresAt = :expiresAt,
+            tomorrowLimitPenaltyMinutes = tomorrowLimitPenaltyMinutes + :penalty,
+            lastUpdated = :timestamp
+        WHERE date = :date
+    """)
+    suspend fun activateEmergencyUnlock(
+        date: String,
+        expiresAt: Long,
+        penalty: Int,
+        timestamp: Long = System.currentTimeMillis()
+    )
+
+    @Query("UPDATE global_daily_usage SET currentEmergencyUnlockExpiresAt = NULL, lastUpdated = :timestamp WHERE date = :date")
+    suspend fun clearEmergencyUnlock(date: String, timestamp: Long = System.currentTimeMillis())
+
+    @Query("SELECT tomorrowLimitPenaltyMinutes FROM global_daily_usage WHERE date = :date")
+    suspend fun getTomorrowPenalty(date: String): Int?
+
     @Query("DELETE FROM global_daily_usage WHERE date < :beforeDate")
     suspend fun deleteOldUsage(beforeDate: String)
 }

@@ -1846,6 +1846,17 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Use cached value and check if time-lock is still active
         val strictModeActive = isStrictModeActive()
 
+        // STRICT MODE BLOCKING - Block distracting apps when Strict Mode is active
+        // This is the PRIMARY blocking mechanism for Strict Mode
+        // Uses same exclusion logic as Global Daily Limit (excludes essential apps)
+        if (strictModeActive) {
+            // Don't block essential apps (phone, maps, settings, etc.)
+            if (!isExcludedFromGlobalLimit(packageName) && !cachedWhitelistedPackages.contains(packageName)) {
+                Log.i(TAG, "Strict Mode blocking: $packageName (time-locked until ${java.util.Date(cachedStrictModeEndTime)})")
+                return true
+            }
+        }
+
         // Check Quick Block session
         val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
         if (quickBlockSession != null) {

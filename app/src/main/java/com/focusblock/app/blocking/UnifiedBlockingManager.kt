@@ -4,6 +4,9 @@ import com.focusblock.app.database.entity.*
 import com.focusblock.app.database.repository.FocusBlockRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -61,11 +64,16 @@ class UnifiedBlockingManager @Inject constructor(
         IMPOSSIBLE      // Cannot be bypassed
     }
 
+    private fun getTodayDate(): String {
+        return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+    }
+
     /**
      * Check if an app is currently blocked and why
      */
     suspend fun getBlockingState(packageName: String): BlockingState {
         val reasons = mutableSetOf<BlockingReason>()
+        val todayDate = getTodayDate()
 
         // Check Hard Mode (highest priority - cannot be bypassed)
         val hardModeEnabled = repository.isHardModeEnabled()
@@ -109,7 +117,7 @@ class UnifiedBlockingManager @Inject constructor(
         if (appTimerSettings?.isEnabled == true) {
             val timerApps = appTimerSettings.timerApps.split(",")
             if (packageName in timerApps) {
-                val usage = repository.getAppTimerDailyUsageSync()
+                val usage = repository.getAppTimerDailyUsageSync(todayDate)
                 if (usage != null && usage.totalUsageMinutes >= appTimerSettings.dailyLimitMinutes) {
                     reasons.add(BlockingReason.APP_TIMER)
                 }
@@ -117,7 +125,7 @@ class UnifiedBlockingManager @Inject constructor(
         }
 
         // Check Focus Cycle (break period)
-        val focusCycle = repository.getFocusCycleSync()
+        val focusCycle = repository.getActiveFocusCycleSync()
         if (focusCycle?.isEnabled == true && focusCycle.breakStartTime != null) {
             val packages = focusCycle.selectedPackages.split(",")
             if (packageName in packages || (focusCycle.useQuickBlockApps && quickBlockSession != null)) {
@@ -132,7 +140,7 @@ class UnifiedBlockingManager @Inject constructor(
             val defaultApps = GlobalDailyLimitSettings::class.java.getDeclaredField("DEFAULT_DISTRACTING_APPS")
             if (packageName in trackedApps || (globalSettings.useAppTimerApps && appTimerSettings != null &&
                         packageName in appTimerSettings.timerApps.split(","))) {
-                val usage = repository.getGlobalDailyUsageSync()
+                val usage = repository.getGlobalDailyUsageSync(todayDate)
                 if (usage != null && usage.totalUsageMinutes >= globalSettings.dailyLimitMinutes) {
                     // Check whitelist (tracked but not blocked)
                     val whitelisted = globalSettings.whitelistedPackages.split(",")

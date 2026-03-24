@@ -493,7 +493,6 @@ class FocusBlockRepository @Inject constructor(
     suspend fun hasCompletedOnboarding(): Boolean = onboardingDao.hasCompletedOnboarding() ?: false
 
     // ========== UNIFIED BLOCKING SUPPORT ==========
-    suspend fun getBlockedPackageNames(): List<String> = blockedAppDao.getBlockedPackageNames()
 
     suspend fun isHardModeEnabled(): Boolean {
         // Check both legacy Hard Mode and Global Daily Limit Hard Mode

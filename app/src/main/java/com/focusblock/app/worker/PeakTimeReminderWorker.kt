@@ -67,6 +67,12 @@ class PeakTimeReminderWorker(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
+            // Quiet hours: no reminders between 10 PM (22:00) and 8 AM (08:00)
+            val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+            if (currentHour >= 22 || currentHour < 8) {
+                return@withContext Result.success()
+            }
+
             val prefs = applicationContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             val lastReminderTime = prefs.getLong(KEY_LAST_REMINDER_TIME, 0L)
             val now = System.currentTimeMillis()
@@ -77,17 +83,27 @@ class PeakTimeReminderWorker(
                 return@withContext Result.success()
             }
 
+            // Calculate today's midnight to detect stale sessions from previous days
+            val todayMidnight = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+
             // Check if there's an active blocking session (Quick Block or Focus Cycle)
             val database = FocusBlockDatabase.getDatabase(applicationContext)
             val activeSession = database.quickBlockSessionDao().getActiveSessionSync()
             val activeFocusCycle = database.focusCycleDao().getActiveFocusCycleSync()
 
-            // Check for continuous screen time
+            // Check for continuous screen time - only count sessions that started today
             val sessionStart: Long? = when {
-                activeSession != null -> activeSession.startTime
+                activeSession != null && activeSession.startTime >= todayMidnight ->
+                    activeSession.startTime
                 activeFocusCycle != null && activeFocusCycle.isEnabled -> {
-                    // For Focus Cycle, use cycleStartTime if active, or createdAt if armed
-                    activeFocusCycle.cycleStartTime ?: activeFocusCycle.createdAt
+                    // For Focus Cycle, use cycleStartTime if it's from today; ignore stale sessions
+                    val cycleStart = activeFocusCycle.cycleStartTime ?: activeFocusCycle.createdAt
+                    if (cycleStart >= todayMidnight) cycleStart else null
                 }
                 else -> null
             }

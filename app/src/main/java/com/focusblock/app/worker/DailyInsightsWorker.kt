@@ -13,6 +13,7 @@ import com.focusblock.app.FocusBlockApp
 import com.focusblock.app.R
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.GlobalDailyLimitSettings
+import com.focusblock.app.receiver.ChargingStateReceiver
 import com.focusblock.app.ui.MainActivity
 import java.text.SimpleDateFormat
 import java.util.*
@@ -58,11 +59,6 @@ class DailyInsightsWorker(
                 1, TimeUnit.DAYS
             )
                 .setInitialDelay(initialDelay, TimeUnit.MILLISECONDS)
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiresBatteryNotLow(true)
-                        .build()
-                )
                 .build()
 
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
@@ -78,6 +74,14 @@ class DailyInsightsWorker(
     override suspend fun doWork(): Result {
         try {
             Log.i(TAG, "DailyInsightsWorker started at ${Date()}")
+
+            // Only run in the evening window (8 PM - midnight) to prevent 4 AM wake-ups.
+            // WorkManager can drift or be deferred by battery constraints and fire at odd hours.
+            val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+            if (currentHour < 20 || currentHour > 23) {
+                Log.i(TAG, "Outside evening window (hour=$currentHour), skipping")
+                return Result.success()
+            }
 
             val database = FocusBlockDatabase.getDatabase(applicationContext)
 
@@ -102,6 +106,9 @@ class DailyInsightsWorker(
             if (notification != null) {
                 showNotification(notification.first, notification.second, NOTIFICATION_ID)
             }
+
+            // 3. Show charging pattern insight if significant phone use while charging detected
+            analyzeChargingPatternAndNotify(today)
 
             Log.i(TAG, "DailyInsightsWorker completed successfully")
             return Result.success()
@@ -146,7 +153,11 @@ class DailyInsightsWorker(
             val todayMinutes = (todayUsage / 60_000).toInt()
             val averageMinutes = (averageUsage / 60_000).toInt()
 
-            Log.i(TAG, "Usage analysis: today=${todayMinutes}m, average=${averageMinutes}m, daysWithData=$daysWithData")
+            // Get yesterday's usage explicitly for a clear day-over-day comparison
+            val yesterdayUsage = calculateDayUsage(usageStatsManager, 1)
+            val yesterdayMinutes = (yesterdayUsage / 60_000).toInt()
+
+            Log.i(TAG, "Usage analysis: today=${todayMinutes}m, yesterday=${yesterdayMinutes}m, average=${averageMinutes}m, daysWithData=$daysWithData")
 
             // Save today's usage to database
             val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
@@ -168,24 +179,58 @@ class DailyInsightsWorker(
                 }
             }
 
-            // If today's usage is >20% higher than average, suggest reduction
-            if (averageMinutes > 30 && todayMinutes > averageMinutes * 1.2) {
-                val increasePercent = ((todayMinutes - averageMinutes) * 100) / averageMinutes
-                val suggestedLimit = (averageMinutes * 0.8).toInt().coerceAtLeast(60) // 20% reduction, min 1 hour
+            // Compare today vs yesterday first (more meaningful than 7-day average)
+            val hasYesterdayData = yesterdayMinutes > 30
+            val hasTodayData = todayMinutes > 10
 
-                val title = "Screen Time Up ${increasePercent}%"
-                val message = "You've used ${formatMinutes(todayMinutes)} today (avg: ${formatMinutes(averageMinutes)}). " +
-                        "Set a ${formatMinutes(suggestedLimit)} daily limit to reduce usage by 20%."
-
-                showNotification(title, message, USAGE_NOTIFICATION_ID)
-                Log.i(TAG, "Sent usage increase notification: $title")
-            } else if (averageMinutes > 30 && todayMinutes < averageMinutes * 0.8) {
-                // Usage is down - celebrate!
-                val decreasePercent = ((averageMinutes - todayMinutes) * 100) / averageMinutes
-                val title = "Great Progress!"
-                val message = "Your screen time is down ${decreasePercent}% today! Keep building healthy habits."
-                showNotification(title, message, USAGE_NOTIFICATION_ID)
-                Log.i(TAG, "Sent usage decrease notification: $title")
+            if (hasYesterdayData && hasTodayData) {
+                when {
+                    todayMinutes > yesterdayMinutes * 1.2 -> {
+                        // Today is >20% worse than yesterday
+                        val increasePercent = ((todayMinutes - yesterdayMinutes) * 100) / yesterdayMinutes
+                        val suggestedLimit = (averageMinutes * 0.8).toInt().coerceAtLeast(60)
+                        val title = "Screen Time Up ${increasePercent}% vs Yesterday"
+                        val message = "Yesterday: ${formatMinutes(yesterdayMinutes)} → Today: ${formatMinutes(todayMinutes)}. " +
+                                "Try setting a ${formatMinutes(suggestedLimit)} daily limit tomorrow."
+                        showNotification(title, message, USAGE_NOTIFICATION_ID)
+                        Log.i(TAG, "Sent usage increase notification: $title")
+                    }
+                    todayMinutes < yesterdayMinutes * 0.8 -> {
+                        // Today is >20% better than yesterday - celebrate!
+                        val decreasePercent = ((yesterdayMinutes - todayMinutes) * 100) / yesterdayMinutes
+                        val title = "Great Progress! Down ${decreasePercent}% vs Yesterday"
+                        val message = "Yesterday: ${formatMinutes(yesterdayMinutes)} → Today: ${formatMinutes(todayMinutes)}. Keep building healthy habits!"
+                        showNotification(title, message, USAGE_NOTIFICATION_ID)
+                        Log.i(TAG, "Sent usage decrease notification: $title")
+                    }
+                    averageMinutes > 30 && todayMinutes > averageMinutes * 1.2 -> {
+                        // Similar to yesterday but above 7-day average
+                        val increasePercent = ((todayMinutes - averageMinutes) * 100) / averageMinutes
+                        val suggestedLimit = (averageMinutes * 0.8).toInt().coerceAtLeast(60)
+                        val title = "Above Average Screen Time"
+                        val message = "Today: ${formatMinutes(todayMinutes)} (7-day avg: ${formatMinutes(averageMinutes)}, ${increasePercent}% higher). " +
+                                "Try a ${formatMinutes(suggestedLimit)} limit tomorrow."
+                        showNotification(title, message, USAGE_NOTIFICATION_ID)
+                        Log.i(TAG, "Sent above-average usage notification: $title")
+                    }
+                }
+            } else if (averageMinutes > 30 && hasTodayData) {
+                // Fallback to average-based comparison when no yesterday data
+                if (todayMinutes > averageMinutes * 1.2) {
+                    val increasePercent = ((todayMinutes - averageMinutes) * 100) / averageMinutes
+                    val suggestedLimit = (averageMinutes * 0.8).toInt().coerceAtLeast(60)
+                    val title = "Screen Time Up ${increasePercent}%"
+                    val message = "You've used ${formatMinutes(todayMinutes)} today (avg: ${formatMinutes(averageMinutes)}). " +
+                            "Set a ${formatMinutes(suggestedLimit)} daily limit to reduce usage by 20%."
+                    showNotification(title, message, USAGE_NOTIFICATION_ID)
+                    Log.i(TAG, "Sent usage increase notification: $title")
+                } else if (todayMinutes < averageMinutes * 0.8) {
+                    val decreasePercent = ((averageMinutes - todayMinutes) * 100) / averageMinutes
+                    val title = "Great Progress!"
+                    val message = "Your screen time is down ${decreasePercent}% vs your average! Keep building healthy habits."
+                    showNotification(title, message, USAGE_NOTIFICATION_ID)
+                    Log.i(TAG, "Sent usage decrease notification: $title")
+                }
             }
 
         } catch (e: Exception) {
@@ -374,5 +419,34 @@ class DailyInsightsWorker(
         notificationManager.notify(notificationId, notification)
 
         Log.i(TAG, "Sent notification: $title")
+    }
+
+    /**
+     * Reads today's charging usage from ChargingStateReceiver's SharedPreferences.
+     * If the user spent a meaningful amount of time on distracting apps while the phone
+     * was plugged in, show an adaptive tip to break the charging-scroll habit.
+     */
+    private fun analyzeChargingPatternAndNotify(today: String) {
+        try {
+            val chargingPrefs = applicationContext.getSharedPreferences(
+                ChargingStateReceiver.PREF_NAME, Context.MODE_PRIVATE
+            )
+            val savedDate = chargingPrefs.getString(ChargingStateReceiver.KEY_CHARGING_USAGE_DATE, null)
+            if (savedDate != today) return // No charging data for today yet
+
+            val chargingUsageMs = chargingPrefs.getLong(ChargingStateReceiver.KEY_CHARGING_USAGE_TODAY_MS, 0L)
+            val chargingMinutes = (chargingUsageMs / 60_000).toInt()
+
+            // Only notify if they used their phone meaningfully while charging (>= 20 min)
+            if (chargingMinutes < 20) return
+
+            val title = "Phone Habit While Charging"
+            val message = "You spent ${formatMinutes(chargingMinutes)} on distracting apps while your phone was charging today. " +
+                    "Try leaving your phone face-down on the charger — or charge it in another room."
+            showNotification(title, message, NOTIFICATION_ID + 2)
+            Log.i(TAG, "Sent charging pattern insight: $chargingMinutes min while charging")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to analyze charging pattern", e)
+        }
     }
 }

@@ -311,7 +311,6 @@ class FocusBlockRepository @Inject constructor(
 
     suspend fun requestHardModeUnlock() = globalDailyLimitSettingsDao.requestHardModeUnlock()
     suspend fun disableHardMode() = globalDailyLimitSettingsDao.disableHardMode()
-    suspend fun isHardModeEnabled(): Boolean = globalDailyLimitSettingsDao.isHardModeEnabled() ?: false
     suspend fun getHardModeLockUntil(): Long = globalDailyLimitSettingsDao.getHardModeLockUntil() ?: 0L
     suspend fun getHardModeUnlockRequestedAt(): Long = globalDailyLimitSettingsDao.getHardModeUnlockRequestedAt() ?: 0L
 

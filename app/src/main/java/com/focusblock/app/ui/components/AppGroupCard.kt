@@ -278,7 +278,7 @@ fun CreateGroupDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    AppGroupIconType.values().forEach { iconType ->
+                    AppGroupIconType.entries.forEach { iconType ->
                         val isSelected = selectedIconType == iconType
                         Surface(
                             modifier = Modifier

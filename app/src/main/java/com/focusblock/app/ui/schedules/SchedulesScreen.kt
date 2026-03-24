@@ -555,7 +555,7 @@ fun ScheduleEditDialog(
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        ScheduleIconType.values().take(6).forEach { type ->
+                        ScheduleIconType.entries.take(6).forEach { type ->
                             val color = getScheduleColor(type)
                             val isSelected = iconType == type
                             Box(

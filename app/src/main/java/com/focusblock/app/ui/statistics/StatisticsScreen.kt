@@ -46,7 +46,7 @@ fun StatisticsScreen(
     viewModel: InsightsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val pagerState = rememberPagerState(pageCount = { InsightsTab.values().size })
+    val pagerState = rememberPagerState(pageCount = { InsightsTab.entries.size })
     val coroutineScope = rememberCoroutineScope()
 
     // State for showing peak time detail screen
@@ -54,7 +54,7 @@ fun StatisticsScreen(
 
     // Sync pager with viewmodel
     LaunchedEffect(pagerState.currentPage) {
-        viewModel.setTab(InsightsTab.values()[pagerState.currentPage])
+        viewModel.setTab(InsightsTab.entries[pagerState.currentPage])
     }
 
     // Show Peak Time Detail screen if requested
@@ -490,7 +490,7 @@ fun InsightsHeader(
                     .background(CardDark),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                InsightsTab.values().forEach { tab ->
+                InsightsTab.entries.forEach { tab ->
                     val isSelected = selectedTab == tab
                     Surface(
                         modifier = Modifier

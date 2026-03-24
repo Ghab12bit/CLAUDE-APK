@@ -762,6 +762,9 @@ interface AppGroupDao {
     @Query("SELECT * FROM app_groups WHERE isEnabled = 1 ORDER BY name ASC")
     fun getEnabledGroups(): Flow<List<AppGroup>>
 
+    @Query("SELECT * FROM app_groups WHERE isEnabled = 1 ORDER BY name ASC")
+    suspend fun getEnabledGroupsSync(): List<AppGroup>
+
     @Query("SELECT * FROM app_groups WHERE id = :id")
     suspend fun getGroup(id: Long): AppGroup?
 

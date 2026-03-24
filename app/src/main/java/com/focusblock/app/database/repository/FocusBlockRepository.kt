@@ -472,10 +472,7 @@ class FocusBlockRepository @Inject constructor(
     suspend fun setAppGroupEnabled(id: Long, enabled: Boolean) = appGroupDao.setEnabled(id, enabled)
     suspend fun updateAppGroupPackages(id: Long, packages: String) = appGroupDao.updatePackages(id, packages)
     suspend fun getGroupsContainingApp(packageName: String): List<AppGroup> = appGroupDao.getGroupsContainingApp(packageName)
-    suspend fun getEnabledAppGroupsSync(): List<AppGroup> = appGroupDao.getEnabledGroups().let { flow ->
-        // Note: For sync access, this requires coroutine context
-        emptyList() // Placeholder - would need suspend query
-    }
+    suspend fun getEnabledAppGroupsSync(): List<AppGroup> = appGroupDao.getEnabledGroupsSync()
 
     // App Group Membership
     fun getGroupMembers(groupId: Long): Flow<List<AppGroupMembership>> = appGroupMembershipDao.getMembersForGroup(groupId)

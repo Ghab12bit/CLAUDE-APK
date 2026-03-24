@@ -137,7 +137,6 @@ class UnifiedBlockingManager @Inject constructor(
         val globalSettings = repository.getGlobalDailyLimitSettingsSync()
         if (globalSettings?.isEnabled == true) {
             val trackedApps = globalSettings.trackedPackages.split(",")
-            val defaultApps = GlobalDailyLimitSettings::class.java.getDeclaredField("DEFAULT_DISTRACTING_APPS")
             if (packageName in trackedApps || (globalSettings.useAppTimerApps && appTimerSettings != null &&
                         packageName in appTimerSettings.timerApps.split(","))) {
                 val usage = repository.getGlobalDailyUsageSync(todayDate)

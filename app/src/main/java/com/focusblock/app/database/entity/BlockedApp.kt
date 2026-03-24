@@ -641,3 +641,102 @@ data class BedtimeModeSettings(
         return "$startFormatted - $endFormatted"
     }
 }
+
+// ========== APP GROUPS ==========
+
+/**
+ * App Group - Organize apps into logical groups for easier management
+ * Groups can be blocked together and have shared settings
+ */
+@Entity(tableName = "app_groups")
+data class AppGroup(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val name: String,
+    val iconType: AppGroupIconType = AppGroupIconType.CUSTOM,
+    val colorHex: String = "#0A84FF",
+    val packages: String = "", // Comma-separated package names
+    val isEnabled: Boolean = true, // Can be toggled for quick block
+    val dailyLimitMinutes: Int? = null, // Optional per-group limit
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+) {
+    fun getPackageList(): List<String> =
+        packages.split(",").filter { it.isNotBlank() }
+
+    fun getAppCount(): Int = getPackageList().size
+
+    companion object {
+        // Predefined group templates
+        val SOCIAL_MEDIA_PACKAGES = listOf(
+            "com.instagram.android",
+            "com.facebook.katana",
+            "com.twitter.android",
+            "com.snapchat.android",
+            "com.zhiliaoapp.musically",
+            "com.linkedin.android"
+        )
+
+        val ENTERTAINMENT_PACKAGES = listOf(
+            "com.google.android.youtube",
+            "com.netflix.mediaclient",
+            "com.amazon.avod.thirdpartyclient",
+            "tv.twitch.android.app",
+            "com.disney.disneyplus"
+        )
+
+        val GAMING_PACKAGES = listOf(
+            "com.supercell.clashofclans",
+            "com.supercell.clashroyale",
+            "com.king.candycrushsaga",
+            "com.tencent.ig"
+        )
+
+        val NEWS_PACKAGES = listOf(
+            "com.reddit.frontpage",
+            "flipboard.app",
+            "com.buzzfeed.android"
+        )
+    }
+}
+
+enum class AppGroupIconType {
+    SOCIAL,      // Social media icon
+    ENTERTAINMENT, // Video/media icon
+    GAMING,      // Gaming icon
+    NEWS,        // News/reading icon
+    WORK,        // Work/productivity icon
+    CUSTOM       // Custom user icon
+}
+
+/**
+ * App Group Membership - tracks which apps belong to which groups
+ * Allows an app to be in multiple groups
+ */
+@Entity(
+    tableName = "app_group_membership",
+    primaryKeys = ["groupId", "packageName"]
+)
+data class AppGroupMembership(
+    val groupId: Long,
+    val packageName: String,
+    val addedAt: Long = System.currentTimeMillis()
+)
+
+// ========== ONBOARDING ==========
+
+/**
+ * Onboarding State - tracks user's onboarding progress
+ */
+@Entity(tableName = "onboarding_state")
+data class OnboardingState(
+    @PrimaryKey
+    val id: Int = 1, // Singleton
+    val hasCompletedOnboarding: Boolean = false,
+    val hasSeenWelcome: Boolean = false,
+    val hasSelectedApps: Boolean = false,
+    val hasSetDailyLimit: Boolean = false,
+    val hasEnabledPermissions: Boolean = false,
+    val completedAt: Long? = null,
+    val createdAt: Long = System.currentTimeMillis()
+)

@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -20,8 +21,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.focusblock.app.database.FocusBlockDatabase
+import com.focusblock.app.database.entity.OnboardingState
 import com.focusblock.app.service.AppBlockingService
 import com.focusblock.app.ui.home.HomeScreen
+import com.focusblock.app.ui.onboarding.OnboardingScreen
 import com.focusblock.app.ui.schedules.SchedulesScreen
 import com.focusblock.app.ui.settings.SettingsScreen
 import com.focusblock.app.ui.statistics.StatisticsScreen
@@ -32,6 +36,9 @@ import com.focusblock.app.ui.theme.TextSecondary
 import com.focusblock.app.ui.theme.FocusBlockTheme
 import com.focusblock.app.utils.PermissionUtils
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -42,7 +49,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             FocusBlockTheme {
-                MainApp()
+                MainAppWithOnboarding()
             }
         }
     }
@@ -53,6 +60,73 @@ class MainActivity : ComponentActivity() {
         val permissionStatus = PermissionUtils.getPermissionStatus(this)
         if (permissionStatus.hasRequiredPermissions) {
             AppBlockingService.start(this)
+        }
+    }
+}
+
+@Composable
+fun MainAppWithOnboarding() {
+    val context = LocalContext.current
+    var hasCompletedOnboarding by remember { mutableStateOf<Boolean?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
+    // Check onboarding status
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            try {
+                val db = FocusBlockDatabase.getInstance(context)
+                val completed = db.focusBlockDao().hasCompletedOnboarding() ?: false
+                withContext(Dispatchers.Main) {
+                    hasCompletedOnboarding = completed
+                }
+            } catch (e: Exception) {
+                // If error, assume not completed
+                withContext(Dispatchers.Main) {
+                    hasCompletedOnboarding = false
+                }
+            }
+        }
+    }
+
+    when (hasCompletedOnboarding) {
+        null -> {
+            // Loading state
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = androidx.compose.ui.Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+        false -> {
+            OnboardingScreen(
+                onComplete = {
+                    coroutineScope.launch(Dispatchers.IO) {
+                        try {
+                            val db = FocusBlockDatabase.getInstance(context)
+                            // Insert initial onboarding state
+                            db.focusBlockDao().insertOnboardingState(
+                                OnboardingState(
+                                    id = 1,
+                                    hasCompletedOnboarding = true,
+                                    completedAt = System.currentTimeMillis()
+                                )
+                            )
+                            withContext(Dispatchers.Main) {
+                                hasCompletedOnboarding = true
+                            }
+                        } catch (e: Exception) {
+                            // Just proceed anyway
+                            withContext(Dispatchers.Main) {
+                                hasCompletedOnboarding = true
+                            }
+                        }
+                    }
+                }
+            )
+        }
+        true -> {
+            MainApp()
         }
     }
 }

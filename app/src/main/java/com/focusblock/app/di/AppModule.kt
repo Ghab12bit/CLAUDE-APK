@@ -147,4 +147,24 @@ object AppModule {
     fun provideBedtimeModeSettingsDao(database: FocusBlockDatabase): BedtimeModeSettingsDao {
         return database.bedtimeModeSettingsDao()
     }
+
+    // App Groups
+    @Provides
+    @Singleton
+    fun provideAppGroupDao(database: FocusBlockDatabase): AppGroupDao {
+        return database.appGroupDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideAppGroupMembershipDao(database: FocusBlockDatabase): AppGroupMembershipDao {
+        return database.appGroupMembershipDao()
+    }
+
+    // Onboarding
+    @Provides
+    @Singleton
+    fun provideOnboardingDao(database: FocusBlockDatabase): OnboardingDao {
+        return database.onboardingDao()
+    }
 }

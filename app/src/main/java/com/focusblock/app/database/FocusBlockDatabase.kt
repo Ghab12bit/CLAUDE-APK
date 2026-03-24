@@ -32,9 +32,14 @@ import com.focusblock.app.database.entity.*
         EssentialAppWhitelist::class,
         SuggestedBlockingApp::class,
         // Bedtime Mode
-        BedtimeModeSettings::class
+        BedtimeModeSettings::class,
+        // App Groups
+        AppGroup::class,
+        AppGroupMembership::class,
+        // Onboarding
+        OnboardingState::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class FocusBlockDatabase : RoomDatabase() {
@@ -63,6 +68,14 @@ abstract class FocusBlockDatabase : RoomDatabase() {
     abstract fun suggestedBlockingAppDao(): SuggestedBlockingAppDao
     // Bedtime Mode
     abstract fun bedtimeModeSettingsDao(): BedtimeModeSettingsDao
+    // App Groups
+    abstract fun appGroupDao(): AppGroupDao
+    abstract fun appGroupMembershipDao(): AppGroupMembershipDao
+    // Onboarding
+    abstract fun onboardingDao(): OnboardingDao
+
+    // Combined DAO access for widget and services
+    abstract fun focusBlockDao(): FocusBlockDao
 
     companion object {
         @Volatile
@@ -81,5 +94,8 @@ abstract class FocusBlockDatabase : RoomDatabase() {
                 instance
             }
         }
+
+        // Alias for getDatabase
+        fun getInstance(context: Context): FocusBlockDatabase = getDatabase(context)
     }
 }

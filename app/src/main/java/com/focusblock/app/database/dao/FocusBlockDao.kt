@@ -751,3 +751,123 @@ interface BedtimeModeSettingsDao {
     @Query("UPDATE bedtime_mode_settings SET overrideUsedToday = :used, lastOverrideDate = :date WHERE id = 1")
     suspend fun setOverrideUsed(used: Boolean, date: String)
 }
+
+// ========== APP GROUPS ==========
+
+@Dao
+interface AppGroupDao {
+    @Query("SELECT * FROM app_groups ORDER BY name ASC")
+    fun getAllGroups(): Flow<List<AppGroup>>
+
+    @Query("SELECT * FROM app_groups WHERE isEnabled = 1 ORDER BY name ASC")
+    fun getEnabledGroups(): Flow<List<AppGroup>>
+
+    @Query("SELECT * FROM app_groups WHERE id = :id")
+    suspend fun getGroup(id: Long): AppGroup?
+
+    @Query("SELECT * FROM app_groups WHERE id = :id")
+    fun getGroupFlow(id: Long): Flow<AppGroup?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(group: AppGroup): Long
+
+    @Update
+    suspend fun update(group: AppGroup)
+
+    @Delete
+    suspend fun delete(group: AppGroup)
+
+    @Query("UPDATE app_groups SET isEnabled = :enabled, updatedAt = :timestamp WHERE id = :id")
+    suspend fun setEnabled(id: Long, enabled: Boolean, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE app_groups SET packages = :packages, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updatePackages(id: Long, packages: String, timestamp: Long = System.currentTimeMillis())
+
+    @Query("SELECT * FROM app_groups WHERE packages LIKE '%' || :packageName || '%'")
+    suspend fun getGroupsContainingApp(packageName: String): List<AppGroup>
+}
+
+@Dao
+interface AppGroupMembershipDao {
+    @Query("SELECT * FROM app_group_membership WHERE groupId = :groupId")
+    fun getMembersForGroup(groupId: Long): Flow<List<AppGroupMembership>>
+
+    @Query("SELECT * FROM app_group_membership WHERE packageName = :packageName")
+    suspend fun getGroupsForApp(packageName: String): List<AppGroupMembership>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(membership: AppGroupMembership)
+
+    @Delete
+    suspend fun delete(membership: AppGroupMembership)
+
+    @Query("DELETE FROM app_group_membership WHERE groupId = :groupId")
+    suspend fun deleteAllForGroup(groupId: Long)
+
+    @Query("DELETE FROM app_group_membership WHERE packageName = :packageName")
+    suspend fun deleteAppFromAllGroups(packageName: String)
+}
+
+// ========== ONBOARDING ==========
+
+@Dao
+interface OnboardingDao {
+    @Query("SELECT * FROM onboarding_state WHERE id = 1")
+    fun getOnboardingState(): Flow<OnboardingState?>
+
+    @Query("SELECT * FROM onboarding_state WHERE id = 1")
+    suspend fun getOnboardingStateSync(): OnboardingState?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(state: OnboardingState)
+
+    @Update
+    suspend fun update(state: OnboardingState)
+
+    @Query("UPDATE onboarding_state SET hasCompletedOnboarding = 1, completedAt = :timestamp WHERE id = 1")
+    suspend fun completeOnboarding(timestamp: Long = System.currentTimeMillis())
+
+    @Query("SELECT hasCompletedOnboarding FROM onboarding_state WHERE id = 1")
+    suspend fun hasCompletedOnboarding(): Boolean?
+}
+
+// ========== COMBINED DAO FOR WIDGET/SERVICES ==========
+
+@Dao
+interface FocusBlockDao {
+    // Quick block for widget
+    @Query("SELECT * FROM quick_block_sessions WHERE isActive = 1 ORDER BY startTime DESC LIMIT 1")
+    suspend fun getActiveQuickBlockSessionDirect(): QuickBlockSession?
+
+    @Query("SELECT * FROM blocked_apps WHERE isBlocked = 1")
+    suspend fun getActiveBlockedAppsDirect(): List<BlockedApp>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertQuickBlockSession(session: QuickBlockSession): Long
+
+    @Query("UPDATE quick_block_sessions SET isActive = 0 WHERE id = :id")
+    suspend fun endQuickBlockSession(id: Long)
+
+    // Onboarding state
+    @Query("SELECT hasCompletedOnboarding FROM onboarding_state WHERE id = 1")
+    suspend fun hasCompletedOnboarding(): Boolean?
+
+    @Query("UPDATE onboarding_state SET hasCompletedOnboarding = 1, completedAt = :timestamp WHERE id = 1")
+    suspend fun completeOnboarding(timestamp: Long = System.currentTimeMillis())
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOnboardingState(state: OnboardingState)
+
+    // App groups
+    @Query("SELECT * FROM app_groups ORDER BY name ASC")
+    fun getAllAppGroups(): Flow<List<AppGroup>>
+
+    @Query("SELECT * FROM app_groups WHERE isEnabled = 1")
+    suspend fun getEnabledAppGroupsDirect(): List<AppGroup>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAppGroup(group: AppGroup): Long
+
+    @Query("UPDATE app_groups SET isEnabled = :enabled WHERE id = :id")
+    suspend fun setAppGroupEnabled(id: Long, enabled: Boolean)
+}

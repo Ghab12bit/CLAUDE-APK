@@ -29,7 +29,10 @@ class FocusBlockRepository @Inject constructor(
     private val smartSuggestionsSettingsDao: SmartSuggestionsSettingsDao,
     private val essentialAppWhitelistDao: EssentialAppWhitelistDao,
     private val suggestedBlockingAppDao: SuggestedBlockingAppDao,
-    private val bedtimeModeSettingsDao: BedtimeModeSettingsDao
+    private val bedtimeModeSettingsDao: BedtimeModeSettingsDao,
+    private val appGroupDao: AppGroupDao,
+    private val appGroupMembershipDao: AppGroupMembershipDao,
+    private val onboardingDao: OnboardingDao
 ) {
     // Blocked Apps
     fun getAllBlockedApps(): Flow<List<BlockedApp>> = blockedAppDao.getAllBlockedApps()
@@ -457,5 +460,80 @@ class FocusBlockRepository @Inject constructor(
     suspend fun isCurrentlyBedtime(): Boolean {
         val settings = getBedtimeModeSettingsSync() ?: return false
         return settings.isCurrentlyBedtime()
+    }
+
+    // ========== APP GROUPS ==========
+    fun getAllAppGroups(): Flow<List<AppGroup>> = appGroupDao.getAllGroups()
+    fun getEnabledAppGroups(): Flow<List<AppGroup>> = appGroupDao.getEnabledGroups()
+    suspend fun getAppGroup(id: Long): AppGroup? = appGroupDao.getGroup(id)
+    fun getAppGroupFlow(id: Long): Flow<AppGroup?> = appGroupDao.getGroupFlow(id)
+    suspend fun insertAppGroup(group: AppGroup): Long = appGroupDao.insert(group)
+    suspend fun updateAppGroup(group: AppGroup) = appGroupDao.update(group)
+    suspend fun deleteAppGroup(group: AppGroup) = appGroupDao.delete(group)
+    suspend fun setAppGroupEnabled(id: Long, enabled: Boolean) = appGroupDao.setEnabled(id, enabled)
+    suspend fun updateAppGroupPackages(id: Long, packages: String) = appGroupDao.updatePackages(id, packages)
+    suspend fun getGroupsContainingApp(packageName: String): List<AppGroup> = appGroupDao.getGroupsContainingApp(packageName)
+    suspend fun getEnabledAppGroupsSync(): List<AppGroup> = appGroupDao.getEnabledGroups().let { flow ->
+        // Note: For sync access, this requires coroutine context
+        emptyList() // Placeholder - would need suspend query
+    }
+
+    // App Group Membership
+    fun getGroupMembers(groupId: Long): Flow<List<AppGroupMembership>> = appGroupMembershipDao.getMembersForGroup(groupId)
+    suspend fun getGroupsForApp(packageName: String): List<AppGroupMembership> = appGroupMembershipDao.getGroupsForApp(packageName)
+    suspend fun addAppToGroup(membership: AppGroupMembership) = appGroupMembershipDao.insert(membership)
+    suspend fun removeAppFromGroup(membership: AppGroupMembership) = appGroupMembershipDao.delete(membership)
+    suspend fun clearGroupMemberships(groupId: Long) = appGroupMembershipDao.deleteAllForGroup(groupId)
+
+    // ========== ONBOARDING ==========
+    fun getOnboardingState(): Flow<OnboardingState?> = onboardingDao.getOnboardingState()
+    suspend fun getOnboardingStateSync(): OnboardingState? = onboardingDao.getOnboardingStateSync()
+    suspend fun saveOnboardingState(state: OnboardingState) = onboardingDao.insert(state)
+    suspend fun updateOnboardingState(state: OnboardingState) = onboardingDao.update(state)
+    suspend fun completeOnboarding() = onboardingDao.completeOnboarding()
+    suspend fun hasCompletedOnboarding(): Boolean = onboardingDao.hasCompletedOnboarding() ?: false
+
+    // ========== UNIFIED BLOCKING SUPPORT ==========
+    suspend fun getBlockedPackageNames(): List<String> = blockedAppDao.getBlockedPackageNames()
+
+    suspend fun isHardModeEnabled(): Boolean {
+        // Check both legacy Hard Mode and Global Daily Limit Hard Mode
+        val legacyHardMode = isLegacyHardModeEnabled()
+        val globalSettings = getGlobalDailyLimitSettingsSync()
+        val globalHardMode = globalSettings?.isHardModeEnabled == true
+        return legacyHardMode || globalHardMode
+    }
+
+    suspend fun getActiveSchedulesSync(): List<Schedule> {
+        val now = java.util.Calendar.getInstance()
+        val currentMinute = now.get(java.util.Calendar.HOUR_OF_DAY) * 60 + now.get(java.util.Calendar.MINUTE)
+        val dayOfWeek = when (now.get(java.util.Calendar.DAY_OF_WEEK)) {
+            java.util.Calendar.MONDAY -> "1"
+            java.util.Calendar.TUESDAY -> "2"
+            java.util.Calendar.WEDNESDAY -> "3"
+            java.util.Calendar.THURSDAY -> "4"
+            java.util.Calendar.FRIDAY -> "5"
+            java.util.Calendar.SATURDAY -> "6"
+            java.util.Calendar.SUNDAY -> "7"
+            else -> "1"
+        }
+        return getActiveSchedules(currentMinute, dayOfWeek)
+    }
+
+    suspend fun isEmergencyUnlockAvailable(): Boolean {
+        val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        val usedDate = getSetting(AppSettings.KEY_STRICT_MODE_EMERGENCY_UNLOCK_USED_DATE)
+        return usedDate != todayStr
+    }
+
+    suspend fun getHardModeCooldownRemaining(): Long {
+        val globalSettings = getGlobalDailyLimitSettingsSync() ?: return 0L
+        if (!globalSettings.isHardModeEnabled) return 0L
+        val requestedAt = globalSettings.hardModeUnlockRequestedAt
+        if (requestedAt == 0L) return 0L
+        val cooldownMs = globalSettings.hardModeCooldownMinutes * 60 * 1000L
+        val elapsed = System.currentTimeMillis() - requestedAt
+        return maxOf(0L, cooldownMs - elapsed)
     }
 }

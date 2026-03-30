@@ -114,6 +114,7 @@ data class HomeUiState(
     // Hard Mode - prevents easy bypass of limits
     val isHardModeEnabled: Boolean = false, // Legacy PIN-based Hard Mode
     val legacyHardModeUnlockTime: Long? = null, // When PIN unlock becomes available
+    val hardModePin: String? = null, // Cached PIN for verification (avoids UI-blocking DB query)
     val isHardModeLocked: Boolean = false, // Can't disable limits while locked
     val hardModeLockUntil: Long = 0L, // Timestamp when lock expires
     val hardModeUnlockRequestedAt: Long = 0L, // When user requested unlock
@@ -374,10 +375,14 @@ class HomeViewModel @Inject constructor(
             // Load hard mode status
             repository.getLegacyHardModeEnabledFlow().collect { enabled ->
                 _uiState.update { it.copy(isHardModeEnabled = enabled) }
-                // Also load unlock time when hard mode is enabled
+                // Also load unlock time and PIN when hard mode is enabled
                 if (enabled) {
                     val unlockTime = repository.getHardModeUnlockTime()
-                    _uiState.update { it.copy(legacyHardModeUnlockTime = unlockTime) }
+                    val pin = repository.getHardModePin()
+                    _uiState.update { it.copy(
+                        legacyHardModeUnlockTime = unlockTime,
+                        hardModePin = pin
+                    )}
                 }
             }
         }
@@ -967,14 +972,15 @@ class HomeViewModel @Inject constructor(
             return false
         }
 
-        // Check if Hard Mode unlock time has passed
-        val unlockTime = kotlinx.coroutines.runBlocking { repository.getHardModeUnlockTime() }
+        // Use cached unlock time to avoid blocking UI thread
+        val unlockTime = _uiState.value.legacyHardModeUnlockTime
         if (unlockTime != null && unlockTime > System.currentTimeMillis()) {
             // Unlock time hasn't passed yet
             return false
         }
 
-        val savedPin = kotlinx.coroutines.runBlocking { repository.getHardModePin() }
+        // Use cached PIN to avoid blocking UI thread (prevents ANR)
+        val savedPin = _uiState.value.hardModePin
 
         // If no PIN was set, allow any PIN to work (or empty PIN)
         // This handles the case where Hard Mode was enabled without a PIN being set
@@ -988,6 +994,8 @@ class HomeViewModel @Inject constructor(
                 if (!_uiState.value.isStrictModeLocked) {
                     repository.setStrictModeEnabled(false)
                 }
+                // Clear cached PIN
+                _uiState.update { it.copy(hardModePin = null) }
             }
             true
         } else {

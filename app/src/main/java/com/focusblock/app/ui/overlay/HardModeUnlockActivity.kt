@@ -26,8 +26,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import android.content.Intent
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.AppSettings
+import com.focusblock.app.service.AppBlockingService
+import com.focusblock.app.service.FocusBlockAccessibilityService
 import com.focusblock.app.ui.theme.*
 import com.focusblock.app.utils.TimeUtils
 import kotlinx.coroutines.launch
@@ -217,12 +220,31 @@ fun HardModeUnlockScreen(
                     onClick = {
                         if (pin == storedPin) {
                             scope.launch {
+                                // Disable Hard Mode and Strict Mode
                                 database.settingsDao().insert(
                                     AppSettings(AppSettings.KEY_HARD_MODE_ENABLED, "false")
                                 )
                                 database.settingsDao().insert(
                                     AppSettings(AppSettings.KEY_STRICT_MODE_ENABLED, "false")
                                 )
+
+                                // Deactivate all Quick Block sessions
+                                database.quickBlockSessionDao().deactivateAll()
+
+                                // Unblock all apps that were blocked by Quick Block
+                                val blockedApps = database.blockedAppDao().getBlockedPackageNames()
+                                blockedApps.forEach { packageName ->
+                                    database.blockedAppDao().setBlocked(packageName, false)
+                                }
+
+                                // Stop blocking service
+                                AppBlockingService.stop(context)
+
+                                // Notify accessibility service to refresh state
+                                val refreshIntent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_STRICT_MODE_CACHE)
+                                refreshIntent.`package` = context.packageName
+                                context.sendBroadcast(refreshIntent)
+
                                 onUnlocked()
                             }
                         } else {

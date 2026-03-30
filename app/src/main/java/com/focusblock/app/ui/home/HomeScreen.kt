@@ -84,16 +84,28 @@ fun HomeScreen(
 
     LaunchedEffect(Unit) {
         viewModel.refreshPermissions()
+        // Load saved Quick Block apps from previous session
+        val savedApps = viewModel.getSavedQuickBlockApps()
+        if (savedApps.isNotEmpty()) {
+            selectedApps = savedApps
+        }
     }
 
     // Sync selectedApps with permanently blocked apps
     // This ensures new apps from Smart Suggestions appear in the selection
     LaunchedEffect(uiState.blockedApps) {
-        val blockedPackages = uiState.blockedApps.map { it.packageName }
-        // Add any new blocked apps to selection
-        val newApps = blockedPackages.filter { it !in selectedApps }
-        if (newApps.isNotEmpty()) {
-            selectedApps = selectedApps + newApps
+        // Only add new blocked apps if we don't have saved apps
+        // (savedApps takes priority)
+        if (selectedApps.isEmpty()) {
+            val blockedPackages = uiState.blockedApps.map { it.packageName }
+            selectedApps = blockedPackages
+        } else {
+            // Add any new blocked apps to existing selection
+            val blockedPackages = uiState.blockedApps.map { it.packageName }
+            val newApps = blockedPackages.filter { it !in selectedApps }
+            if (newApps.isNotEmpty()) {
+                selectedApps = selectedApps + newApps
+            }
         }
     }
 

@@ -846,8 +846,18 @@ class HomeViewModel @Inject constructor(
 
     fun getInstalledApps(): List<AppUtils.AppInfo> = installedApps.value
 
+    /**
+     * Get saved Quick Block apps from previous sessions
+     */
+    suspend fun getSavedQuickBlockApps(): List<String> {
+        return repository.getQuickBlockSavedApps()
+    }
+
     fun startQuickBlock(selectedPackages: List<String>, durationMinutes: Int? = null) {
         viewModelScope.launch {
+            // Save the selected apps for future use
+            repository.saveQuickBlockApps(selectedPackages)
+
             // Get currently blocked packages BEFORE making any changes
             val previouslyBlocked = repository.getBlockedPackageNames().toSet()
 
@@ -892,21 +902,17 @@ class HomeViewModel @Inject constructor(
     }
 
     fun stopQuickBlock(forceStop: Boolean = false): StopQuickBlockResult {
-        var result = StopQuickBlockResult.SUCCESS
+        // Check if strict mode is time-locked - cannot be bypassed (synchronous check)
+        if (_uiState.value.isStrictModeLocked) {
+            return StopQuickBlockResult.STRICT_MODE_LOCKED
+        }
+
+        // Check if strict mode or hard mode prevents stopping (unless force stop with PIN)
+        if (!forceStop && (_uiState.value.isStrictModeEnabled || _uiState.value.isHardModeEnabled)) {
+            return StopQuickBlockResult.NEEDS_PIN
+        }
 
         viewModelScope.launch {
-            // Check if strict mode is time-locked - cannot be bypassed
-            if (_uiState.value.isStrictModeLocked) {
-                result = StopQuickBlockResult.STRICT_MODE_LOCKED
-                return@launch
-            }
-
-            // Check if strict mode or hard mode prevents stopping (unless force stop with PIN)
-            if (!forceStop && (_uiState.value.isStrictModeEnabled || _uiState.value.isHardModeEnabled)) {
-                result = StopQuickBlockResult.NEEDS_PIN
-                return@launch
-            }
-
             val session = _uiState.value.quickBlockSession
             if (session != null) {
                 // Get the apps that Quick Block added (not previously blocked)
@@ -928,6 +934,14 @@ class HomeViewModel @Inject constructor(
 
             repository.deactivateAllQuickBlockSessions()
 
+            // Stop the blocking service
+            AppBlockingService.stop(application)
+
+            // Notify accessibility service to refresh its state
+            val refreshIntent = android.content.Intent(FocusBlockAccessibilityService.ACTION_REFRESH_STRICT_MODE_CACHE)
+            refreshIntent.`package` = application.packageName
+            application.sendBroadcast(refreshIntent)
+
             // Also update UI state immediately for responsive feedback
             _uiState.update { it.copy(
                 isQuickBlockActive = false,
@@ -937,7 +951,7 @@ class HomeViewModel @Inject constructor(
             )}
         }
 
-        return result
+        return StopQuickBlockResult.SUCCESS
     }
 
     enum class StopQuickBlockResult {
@@ -961,7 +975,12 @@ class HomeViewModel @Inject constructor(
         }
 
         val savedPin = kotlinx.coroutines.runBlocking { repository.getHardModePin() }
-        return if (pin == savedPin) {
+
+        // If no PIN was set, allow any PIN to work (or empty PIN)
+        // This handles the case where Hard Mode was enabled without a PIN being set
+        val pinMatches = savedPin == null || savedPin.isEmpty() || pin == savedPin
+
+        return if (pinMatches) {
             stopQuickBlock(forceStop = true)
             viewModelScope.launch {
                 repository.setLegacyHardModeEnabled(false)

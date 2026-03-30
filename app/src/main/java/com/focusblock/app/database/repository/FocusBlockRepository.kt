@@ -199,6 +199,22 @@ class FocusBlockRepository @Inject constructor(
     // Get list of currently blocked packages
     suspend fun getBlockedPackageNames(): List<String> = blockedAppDao.getBlockedPackageNames()
 
+    // Quick Block Saved Apps - persist app selection for future use
+    suspend fun getQuickBlockSavedApps(): List<String> {
+        val savedApps = getSetting(AppSettings.KEY_QUICK_BLOCK_SAVED_APPS) ?: ""
+        return savedApps.split(",").filter { it.isNotBlank() }
+    }
+
+    suspend fun saveQuickBlockApps(packageNames: List<String>) {
+        setSetting(AppSettings.KEY_QUICK_BLOCK_SAVED_APPS, packageNames.joinToString(","))
+    }
+
+    fun getQuickBlockSavedAppsFlow(): Flow<List<String>> {
+        return getSettingFlow(AppSettings.KEY_QUICK_BLOCK_SAVED_APPS).map { savedApps ->
+            savedApps?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+        }
+    }
+
     // Pomodoro
     fun getPomodoroSessionsForDate(date: String): Flow<List<PomodoroSession>> =
         pomodoroSessionDao.getSessionsForDate(date)

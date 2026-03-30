@@ -113,6 +113,9 @@ data class AppSettings(
 
         // 20% Usage Reduction Notification
         const val KEY_USAGE_REDUCTION_NOTIFICATION_ENABLED = "usage_reduction_notification_enabled"
+
+        // Quick Block saved app selection (comma-separated package names)
+        const val KEY_QUICK_BLOCK_SAVED_APPS = "quick_block_saved_apps"
     }
 }
 

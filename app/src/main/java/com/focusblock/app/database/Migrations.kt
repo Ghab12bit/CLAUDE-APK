@@ -360,5 +360,78 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(MIGRATION_12_13)
+    /**
+     * 13 -> 14: the person, and what they have at stake.
+     *
+     * Adds the user's own reason for the protected time (captured once, shown
+     * at the moment of the urge), the impulse-pause setting, park mode, and
+     * stake tracking. Purely additive -- no existing table is touched.
+     */
+    val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `focus_profile` (
+                    `id` INTEGER NOT NULL,
+                    `reason` TEXT NOT NULL,
+                    `reasonDetail` TEXT NOT NULL,
+                    `pauseSeconds` INTEGER NOT NULL,
+                    `allowBreathThrough` INTEGER NOT NULL,
+                    `parkUntil` INTEGER,
+                    `parkStartedAt` INTEGER,
+                    `currentStreakDays` INTEGER NOT NULL,
+                    `longestStreakDays` INTEGER NOT NULL,
+                    `lastCleanDate` TEXT NOT NULL,
+                    `graceUsedMonth` TEXT NOT NULL,
+                    `totalProtectedMinutes` INTEGER NOT NULL,
+                    `windowsCompleted` INTEGER NOT NULL,
+                    `impulsesPassed` INTEGER NOT NULL,
+                    `impulsesFollowed` INTEGER NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`id`)
+                )
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `window_outcomes` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    `ruleId` INTEGER NOT NULL,
+                    `ruleName` TEXT NOT NULL,
+                    `date` TEXT NOT NULL,
+                    `startedAt` INTEGER NOT NULL,
+                    `endedAt` INTEGER NOT NULL,
+                    `minutesProtected` INTEGER NOT NULL,
+                    `impulsesPassed` INTEGER NOT NULL,
+                    `impulsesFollowed` INTEGER NOT NULL,
+                    `clean` INTEGER NOT NULL,
+                    `createdAt` INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `milestones` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    `kind` TEXT NOT NULL,
+                    `value` INTEGER NOT NULL,
+                    `achievedAt` INTEGER NOT NULL,
+                    `seen` INTEGER NOT NULL,
+                    `shared` INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+
+            val now = System.currentTimeMillis()
+            db.execSQL(
+                "INSERT OR IGNORE INTO focus_profile VALUES " +
+                    "(1, '', '', 8, 1, NULL, NULL, 0, 0, '', '', 0, 0, 0, 0, $now, $now)"
+            )
+        }
+    }
+
+    val ALL = arrayOf(MIGRATION_12_13, MIGRATION_13_14)
 }

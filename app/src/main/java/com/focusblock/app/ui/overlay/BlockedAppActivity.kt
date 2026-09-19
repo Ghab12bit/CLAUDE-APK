@@ -33,6 +33,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.BlockedByType
+import com.focusblock.app.database.entity.FocusProfile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import com.focusblock.app.ui.theme.*
 import com.focusblock.app.utils.AppUtils
 import kotlinx.coroutines.launch
@@ -148,14 +152,44 @@ fun BlockedAppScreen(
     alsoBlocking: String = "",
     onClose: () -> Unit
 ) {
-    val reason = if (ruleName.isNotBlank()) ruleName else when (blockedBy) {
-        BlockedByType.QUICK_BLOCK -> "a block you started"
-        BlockedByType.SCHEDULE, BlockedByType.STRICT_MODE, BlockedByType.HARD_MODE ->
-            "one of your routines"
-        BlockedByType.FOCUS_CYCLE -> "your hourly limit"
-        BlockedByType.APP_TIMER, BlockedByType.GLOBAL_LIMIT -> "your daily limit"
-        BlockedByType.BEDTIME -> "your night routine"
+    val context = LocalContext.current
+    val db = remember { FocusBlockDatabase.getDatabase(context) }
+    val scope = rememberCoroutineScope()
+
+    var profile by remember { mutableStateOf<FocusProfile?>(null) }
+    var secondsLeft by remember { mutableStateOf(-1) }
+    var recorded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val p = withContext(Dispatchers.IO) { db.focusProfileDao().require() }
+        profile = p
+        secondsLeft = p.pauseSeconds
+        // The pause. Long enough for an impulse to crest and fall, short
+        // enough not to read as punishment.
+        while (secondsLeft > 0) {
+            delay(1000)
+            secondsLeft -= 1
+        }
     }
+
+    // Backing out during or after the pause is the win condition, and the only
+    // number in the app that reflects something the user did rather than
+    // something the software did.
+    fun leave(followed: Boolean) {
+        if (!recorded) {
+            recorded = true
+            scope.launch(Dispatchers.IO) {
+                val dao = db.focusProfileDao()
+                dao.require()
+                if (followed) dao.recordImpulseFollowed() else dao.recordImpulsePassed()
+            }
+        }
+        onClose()
+    }
+
+    val p = profile
+    val paused = secondsLeft > 0
+    val reason = if (ruleName.isNotBlank()) ruleName else "one of your routines"
 
     Box(
         modifier = Modifier
@@ -169,75 +203,110 @@ fun BlockedAppScreen(
                 .padding(horizontal = 36.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // The anchor: a large, softly glowing shield.
+            // The anchor. During the pause it counts down, so the wait is
+            // visible and finite rather than an unexplained freeze.
             Box(contentAlignment = Alignment.Center) {
                 Box(
                     Modifier
-                        .size(132.dp)
+                        .size(136.dp)
                         .clip(CircleShape)
                         .background(SignalGlow)
                 )
                 Box(
                     Modifier
-                        .size(96.dp)
+                        .size(100.dp)
                         .clip(CircleShape)
                         .background(SignalSoft),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.Shield,
-                        contentDescription = null,
-                        tint = Signal,
-                        modifier = Modifier.size(44.dp)
+                    if (paused) {
+                        Text(
+                            text = "$secondsLeft",
+                            color = Signal,
+                            fontSize = 38.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.Shield,
+                            contentDescription = null,
+                            tint = Signal,
+                            modifier = Modifier.size(46.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(36.dp))
+
+            if (paused) {
+                Text(
+                    text = "Hold on",
+                    color = TextPrimary,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                // The user's own words, at the exact moment the urge is
+                // concrete and the goal would otherwise be abstract. Written
+                // once at setup, never asked for again.
+                Text(
+                    text = if (p?.hasReason() == true) p.reason else "This time is yours.",
+                    color = Signal,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 25.sp,
+                    textAlign = TextAlign.Center
+                )
+                if (p?.reasonDetail?.isNotBlank() == true) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = p.reasonDetail,
+                        color = TextSecondary,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                p?.stakeLine()?.let {
+                    Spacer(modifier = Modifier.height(18.dp))
+                    Text(it, color = TextSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
+                }
+            } else {
+                Text(
+                    text = "$appName is blocked",
+                    color = TextPrimary,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = if (endsAt > 0L) {
+                        "$reason · until " +
+                            java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                                .format(java.util.Date(endsAt))
+                    } else reason,
+                    color = Signal,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center
+                )
+                if (alsoBlocking.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Also blocked by $alsoBlocking",
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(40.dp))
-
-            Text(
-                text = appName,
-                color = TextPrimary,
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "is blocked",
-                color = TextPrimary,
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Text(
-                text = if (endsAt > 0L) {
-                    "$reason · until " + java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
-                        .format(java.util.Date(endsAt))
-                } else reason,
-                color = Signal,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center
-            )
-
-            if (alsoBlocking.isNotBlank()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "Also blocked by $alsoBlocking",
-                    color = TextSecondary,
-                    fontSize = 13.sp,
-                    textAlign = TextAlign.Center
-                )
-            }
-
-            Spacer(modifier = Modifier.height(56.dp))
+            Spacer(modifier = Modifier.height(48.dp))
 
             Button(
-                onClick = onClose,
+                onClick = { leave(followed = false) },
                 shape = RoundedCornerShape(28.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Signal),
                 modifier = Modifier
@@ -245,11 +314,25 @@ fun BlockedAppScreen(
                     .height(54.dp)
             ) {
                 Text(
-                    "Close",
+                    text = if (paused) "Put it down" else "Close",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White
                 )
+            }
+
+            // The escape hatch only appears once the pause has run. Offering it
+            // immediately would defeat the pause; withholding it entirely would
+            // provoke the reactance that gets blockers uninstalled.
+            if (!paused && p?.allowBreathThrough == true) {
+                Spacer(modifier = Modifier.height(14.dp))
+                TextButton(onClick = { leave(followed = true) }) {
+                    Text(
+                        "I still need to open it",
+                        color = TextTertiary,
+                        fontSize = 13.sp
+                    )
+                }
             }
         }
     }

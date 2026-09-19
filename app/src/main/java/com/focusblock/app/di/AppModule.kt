@@ -180,4 +180,10 @@ object AppModule {
     fun provideProtectionLockDao(database: FocusBlockDatabase): ProtectionLockDao {
         return database.protectionLockDao()
     }
+
+    @Provides
+    @Singleton
+    fun provideFocusProfileDao(database: FocusBlockDatabase): FocusProfileDao {
+        return database.focusProfileDao()
+    }
 }

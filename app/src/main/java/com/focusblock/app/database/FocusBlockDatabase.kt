@@ -42,9 +42,13 @@ import com.focusblock.app.database.entity.*
         BlockRule::class,
         RuleUsage::class,
         RuleOverride::class,
-        ProtectionLock::class
+        ProtectionLock::class,
+        // The person, and what they have at stake (v14)
+        FocusProfile::class,
+        WindowOutcome::class,
+        Milestone::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = false
 )
 abstract class FocusBlockDatabase : RoomDatabase() {
@@ -81,6 +85,7 @@ abstract class FocusBlockDatabase : RoomDatabase() {
     // Unified blocking model
     abstract fun blockRuleDao(): BlockRuleDao
     abstract fun protectionLockDao(): ProtectionLockDao
+    abstract fun focusProfileDao(): FocusProfileDao
 
     // Combined DAO access for widget and services
     abstract fun focusBlockDao(): FocusBlockDao

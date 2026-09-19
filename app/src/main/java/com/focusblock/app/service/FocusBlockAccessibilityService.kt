@@ -1976,6 +1976,26 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 putExtra(BlockedAppActivity.EXTRA_PACKAGE_NAME, packageName)
                 putExtra(BlockedAppActivity.EXTRA_APP_NAME, appName)
                 putExtra(BlockedAppActivity.EXTRA_BLOCKED_BY, blockedByType.name)
+
+                // Carry the real reason from the engine, so the block screen
+                // can name the rule the user created and say when it lifts,
+                // instead of naming an internal mode.
+                val decision = lastDecision?.takeIf { it.packageName == packageName }
+                decision?.primary?.let { primary ->
+                    putExtra(BlockedAppActivity.EXTRA_RULE_NAME, primary.ruleName)
+                    primary.endsAt?.let { putExtra(BlockedAppActivity.EXTRA_ENDS_AT, it) }
+
+                    val others = decision.reasons
+                        .filter { it.ruleId != primary.ruleId }
+                        .map { it.ruleName }
+                        .distinct()
+                    if (others.isNotEmpty()) {
+                        putExtra(
+                            BlockedAppActivity.EXTRA_ALSO_BLOCKING,
+                            others.joinToString(" and ")
+                        )
+                    }
+                }
             }
             Log.d(TAG, "Starting BlockedAppActivity with intent: $intent")
             startActivity(intent)

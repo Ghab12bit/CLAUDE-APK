@@ -45,6 +45,16 @@ class BlockedAppActivity : ComponentActivity() {
         const val EXTRA_PACKAGE_NAME = "package_name"
         const val EXTRA_APP_NAME = "app_name"
         const val EXTRA_BLOCKED_BY = "blocked_by"
+
+        /**
+         * The real reason, from BlockingEngine. The BlockedByType above is a
+         * coarse category kept for the block log; these carry what the user
+         * actually needs at this moment: which rule, until when, and what else
+         * would still be blocking if this one ended.
+         */
+        const val EXTRA_RULE_NAME = "rule_name"
+        const val EXTRA_ENDS_AT = "ends_at"
+        const val EXTRA_ALSO_BLOCKING = "also_blocking"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,7 +79,11 @@ class BlockedAppActivity : ComponentActivity() {
             BlockedByType.QUICK_BLOCK
         }
 
-        Log.i(TAG, "Blocking: $appName ($packageName) by $blockedBy")
+        val ruleName = intent.getStringExtra(EXTRA_RULE_NAME).orEmpty()
+        val endsAt = intent.getLongExtra(EXTRA_ENDS_AT, 0L)
+        val alsoBlocking = intent.getStringExtra(EXTRA_ALSO_BLOCKING).orEmpty()
+
+        Log.i(TAG, "Blocking: $appName ($packageName) by $blockedBy / $ruleName")
 
         setContent {
             FocusBlockTheme {
@@ -77,6 +91,9 @@ class BlockedAppActivity : ComponentActivity() {
                     packageName = packageName,
                     appName = appName,
                     blockedBy = blockedBy,
+                    ruleName = ruleName,
+                    endsAt = endsAt,
+                    alsoBlocking = alsoBlocking,
                     onClose = {
                         Log.d(TAG, "Close button pressed, going to home")
                         AppUtils.goToHome(this)
@@ -116,6 +133,9 @@ fun BlockedAppScreen(
     packageName: String,
     appName: String,
     blockedBy: BlockedByType,
+    ruleName: String = "",
+    endsAt: Long = 0L,
+    alsoBlocking: String = "",
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -360,21 +380,47 @@ fun BlockedAppScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Blocked by
+            // Which rule, and until when.
+            //
+            // This used to name the internal mode ("by Focus Cycle (Break
+            // Time)") without saying when it lifts, which told the user
+            // nothing they could act on. It now names the rule they created
+            // and the time it ends.
             Text(
-                text = when (blockedBy) {
-                    BlockedByType.QUICK_BLOCK -> "by Quick Block"
-                    BlockedByType.SCHEDULE -> "by Schedule"
-                    BlockedByType.STRICT_MODE -> "by Strict Mode"
-                    BlockedByType.HARD_MODE -> "by Hard Mode"
-                    BlockedByType.FOCUS_CYCLE -> "by Focus Cycle (Break Time)"
-                    BlockedByType.APP_TIMER -> "by App Timer (Limit Reached)"
-                    BlockedByType.GLOBAL_LIMIT -> "by Daily Usage Limit"
-                    BlockedByType.BEDTIME -> "by Bedtime Mode"
+                text = if (ruleName.isNotBlank()) "by $ruleName" else when (blockedBy) {
+                    BlockedByType.QUICK_BLOCK -> "by a block you started"
+                    BlockedByType.SCHEDULE -> "by one of your routines"
+                    BlockedByType.STRICT_MODE -> "by one of your routines"
+                    BlockedByType.HARD_MODE -> "by one of your routines"
+                    BlockedByType.FOCUS_CYCLE -> "by your hourly limit"
+                    BlockedByType.APP_TIMER -> "by your daily limit"
+                    BlockedByType.GLOBAL_LIMIT -> "by your daily limit"
+                    BlockedByType.BEDTIME -> "by your night routine"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
+
+            if (endsAt > 0L) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "until " + java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                        .format(java.util.Date(endsAt)),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextPrimary
+                )
+            }
+
+            // Overlap, stated up front. Ending one rule here must never look
+            // like it will unblock the app when another rule still covers it.
+            if (alsoBlocking.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Also blocked by $alsoBlocking",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
 
             Spacer(modifier = Modifier.height(32.dp))
 

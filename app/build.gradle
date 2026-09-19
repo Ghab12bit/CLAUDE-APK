@@ -1,3 +1,7 @@
+// CI stamps the run number so every build is a genuine upgrade Android will
+// replace, and so the build is identifiable from inside the app.
+def buildNumber = System.getenv("GITHUB_RUN_NUMBER") ?: "1"
+
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
@@ -18,8 +22,8 @@ android {
         // artifact, so installing a newer APK over an older one could silently
         // no-op and there was no way to tell which build was on the device.
         // CI stamps the run number; local builds stay at 1.
-        versionCode (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
-        versionName "1.0.0-b" + (System.getenv("GITHUB_RUN_NUMBER") ?: "dev")
+        versionCode buildNumber.toInteger()
+        versionName "1.0.0-b" + buildNumber
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

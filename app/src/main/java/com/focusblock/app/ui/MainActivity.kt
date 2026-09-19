@@ -31,7 +31,7 @@ import com.focusblock.app.service.AppBlockingService
 import com.focusblock.app.ui.now.NowScreen
 import com.focusblock.app.ui.setup.SetupScreen
 import com.focusblock.app.ui.routines.RoutinesScreen
-import com.focusblock.app.ui.settings.SettingsScreen
+import com.focusblock.app.ui.settings.ProfileScreen
 import com.focusblock.app.ui.statistics.StatisticsScreen
 import com.focusblock.app.ui.theme.BackgroundDark
 import com.focusblock.app.ui.theme.CardDark
@@ -178,7 +178,7 @@ sealed class Screen(
     )
     data object Settings : Screen(
         route = "settings",
-        title = "Profile",
+        title = "Setup",
         selectedIcon = Icons.Filled.Person,
         unselectedIcon = Icons.Outlined.Person
     )
@@ -259,7 +259,7 @@ fun MainApp() {
                 StatisticsScreen()
             }
             composable(Screen.Settings.route) {
-                SettingsScreen()
+                ProfileScreen()
             }
         }
     }

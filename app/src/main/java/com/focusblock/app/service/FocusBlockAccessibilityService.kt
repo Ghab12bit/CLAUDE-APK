@@ -29,7 +29,6 @@ import com.focusblock.app.database.entity.BlockedApp
 import com.focusblock.app.database.entity.BlockedByType
 import com.focusblock.app.database.entity.FocusCycle
 import com.focusblock.app.ui.MainActivity
-import com.focusblock.app.ui.overlay.AppTimerReflectionActivity
 import com.focusblock.app.ui.overlay.BlockedAppActivity
 import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.utils.TimeUtils
@@ -965,74 +964,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     /**
      * Start periodic App Timer usage check
      */
-    private fun startAppTimerCheck() {
-        stopAppTimerCheck()
 
-        appTimerRunnable = object : Runnable {
-            override fun run() {
-                checkAppTimerUsage()
-                appTimerHandler.postDelayed(this, APP_TIMER_CHECK_INTERVAL_MS)
-            }
-        }
-        appTimerHandler.post(appTimerRunnable!!)
-        Log.d(TAG, "App Timer usage monitoring started")
-    }
-
-    private fun stopAppTimerCheck() {
-        appTimerRunnable?.let {
-            appTimerHandler.removeCallbacks(it)
-        }
-        appTimerRunnable = null
-    }
 
     /**
      * Track timer app session - called on app switch
      */
-    private fun trackTimerAppSession(packageName: String, eventTime: Long) {
-        if (!cachedTimerEnabled || cachedTimerApps.isEmpty()) return
-
-        val wasOnTimerApp = lastForegroundPackage?.let { cachedTimerApps.contains(it) } ?: false
-        val isNowOnTimerApp = cachedTimerApps.contains(packageName)
-
-        when {
-            // Switched TO a timer app
-            isNowOnTimerApp && !wasOnTimerApp -> {
-                currentTimerAppStartTime = eventTime
-                Log.d(TAG, "App Timer: Started session on timer app $packageName")
-
-                // Immediately show notification with current usage
-                val appName = try {
-                    val pm = packageManager
-                    pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
-                } catch (e: Exception) {
-                    null
-                }
-                showAppTimerNotification(lastAppTimerUsageMinutes, cachedTimerLimitMinutes, appName)
-            }
-            // Switched FROM a timer app to non-timer app
-            wasOnTimerApp && !isNowOnTimerApp -> {
-                currentTimerAppStartTime = null
-                Log.d(TAG, "App Timer: Ended session on timer app (switched to $packageName)")
-
-                // Immediately dismiss notification
-                dismissAppTimerNotification()
-            }
-            // Still on timer app (different timer app) - keep the session time
-            isNowOnTimerApp && wasOnTimerApp && lastForegroundPackage != packageName -> {
-                // Keep currentTimerAppStartTime as-is
-                Log.d(TAG, "App Timer: Switched between timer apps $packageName")
-
-                // Update notification with new app name
-                val appName = try {
-                    val pm = packageManager
-                    pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
-                } catch (e: Exception) {
-                    null
-                }
-                showAppTimerNotification(lastAppTimerUsageMinutes, cachedTimerLimitMinutes, appName)
-            }
-        }
-    }
 
     /**
      * Check App Timer usage and enforce limit
@@ -1044,150 +980,6 @@ class FocusBlockAccessibilityService : AccessibilityService() {
      *
      * Priority: Focus Cycle enforcement > App Timer standalone
      */
-    private fun checkAppTimerUsage() {
-        if (!cachedTimerEnabled || cachedTimerApps.isEmpty()) return
-
-        immediateScope.launch {
-            try {
-                // Get today's date
-                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                    .format(java.util.Date())
-
-                // Get current total usage from UsageStats
-                val totalUsageMinutes = calculateTimerAppsUsage()
-
-                // Update daily usage in database
-                var dailyUsage = database.appTimerDailyUsageDao().getUsageForDateSync(today)
-                if (dailyUsage == null) {
-                    dailyUsage = com.focusblock.app.database.entity.AppTimerDailyUsage(
-                        date = today,
-                        totalUsageMinutes = totalUsageMinutes
-                    )
-                    database.appTimerDailyUsageDao().insert(dailyUsage)
-                } else {
-                    database.appTimerDailyUsageDao().updateUsage(today, totalUsageMinutes)
-                    dailyUsage = dailyUsage.copy(totalUsageMinutes = totalUsageMinutes)
-                }
-
-                lastAppTimerUsageMinutes = totalUsageMinutes
-
-                // Check if we need to trigger enforcement
-                val limitMinutes = cachedTimerLimitMinutes
-                val escalationMinutes = limitMinutes + cachedTimerEscalationMinutes
-
-                // Check if user is currently on a timer app
-                val currentPackage = lastForegroundPackage
-                val isOnTimerApp = currentPackage != null && cachedTimerApps.contains(currentPackage)
-
-                // FOCUS CYCLE INTEGRATION:
-                // Check if the current app is also in an active Focus Cycle
-                val activeFocusCycle = cachedFocusCycle
-                val focusCyclePackages = cachedFocusCyclePackages
-                val isInFocusCycle = currentPackage != null &&
-                    activeFocusCycle != null &&
-                    activeFocusCycle.isEnabled &&
-                    focusCyclePackages.contains(currentPackage)
-
-                // When limit reached, check Focus Cycle integration
-                if (totalUsageMinutes >= limitMinutes && isOnTimerApp) {
-                    if (isInFocusCycle && activeFocusCycle != null) {
-                        // INTEGRATION: Trigger Focus Cycle break instead of separate popup
-                        val isAlreadyInBreak = activeFocusCycle.breakStartTime != null
-                        if (!isAlreadyInBreak) {
-                            Log.i(TAG, "App Timer + Focus Cycle: Triggering break for $currentPackage (usage: $totalUsageMinutes >= limit: $limitMinutes)")
-                            // Force Focus Cycle into break phase
-                            val now = System.currentTimeMillis()
-                            database.focusCycleDao().update(
-                                activeFocusCycle.copy(
-                                    breakStartTime = now,
-                                    accumulatedUsageMillis = 0,
-                                    lastActiveTime = null,
-                                    isPaused = false
-                                )
-                            )
-                            // Update cache immediately
-                            cachedFocusCycle = cachedFocusCycle?.copy(
-                                breakStartTime = now,
-                                accumulatedUsageMillis = 0,
-                                lastActiveTime = null,
-                                isPaused = false
-                            )
-                            // Mark popup shown to prevent duplicate triggers
-                            if (!dailyUsage.limitReachedPopupShown) {
-                                database.appTimerDailyUsageDao().markLimitPopupShown(today)
-                            }
-                        }
-                    } else {
-                        // No Focus Cycle - show standalone popups
-                        when {
-                            // Escalation popup (limit + extra time exceeded)
-                            totalUsageMinutes >= escalationMinutes && !dailyUsage.escalationPopupShown -> {
-                                Log.i(TAG, "App Timer: Escalation threshold reached ($totalUsageMinutes >= $escalationMinutes min)")
-                                database.appTimerDailyUsageDao().markEscalationPopupShown(today)
-                                mainHandler.post {
-                                    showAppTimerReflection(totalUsageMinutes, limitMinutes, isEscalation = true)
-                                }
-                            }
-                            // First limit popup
-                            !dailyUsage.limitReachedPopupShown -> {
-                                Log.i(TAG, "App Timer: Limit reached ($totalUsageMinutes >= $limitMinutes min)")
-                                database.appTimerDailyUsageDao().markLimitPopupShown(today)
-                                mainHandler.post {
-                                    showAppTimerReflection(totalUsageMinutes, limitMinutes, isEscalation = false)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Log.v(TAG, "App Timer check: usage=$totalUsageMinutes min, limit=$limitMinutes min, onTimerApp=$isOnTimerApp, inFocusCycle=$isInFocusCycle")
-
-                // PROACTIVE ENFORCEMENT: When limit is reached and on timer app, BLOCK immediately
-                // This ensures the app is blocked even if no new accessibility events are triggered
-                // NOTE: Skip whitelisted apps - they are tracked but not blocked
-                if (totalUsageMinutes >= limitMinutes && isOnTimerApp && currentPackage != null) {
-                    // Check if app is whitelisted (tracked but not blocked)
-                    val isWhitelisted = cachedWhitelistedPackages.contains(currentPackage)
-
-                    // Check if override is active
-                    val overrideExpires = dailyUsage.overrideExpiresAt
-                    val now = System.currentTimeMillis()
-                    val hasActiveOverride = overrideExpires != null && now < overrideExpires
-
-                    if (!hasActiveOverride && !isBlockingInProgress && !isWhitelisted) {
-                        Log.i(TAG, "App Timer: Proactive enforcement - blocking $currentPackage (usage: $totalUsageMinutes >= limit: $limitMinutes)")
-                        // Block the app using the service scope (blockApp is a suspend function)
-                        blockApp(currentPackage)
-                    } else if (isWhitelisted) {
-                        Log.d(TAG, "App Timer: $currentPackage is whitelisted - not blocking (usage still tracked)")
-                    }
-                }
-
-                // Show/hide App Timer notification based on current state
-                if (isOnTimerApp) {
-                    // Get app name for notification
-                    val appName = try {
-                        val pm = packageManager
-                        pm.getApplicationLabel(pm.getApplicationInfo(currentPackage!!, 0)).toString()
-                    } catch (e: Exception) {
-                        null
-                    }
-
-                    mainHandler.post {
-                        showAppTimerNotification(totalUsageMinutes, limitMinutes, appName)
-                    }
-                } else {
-                    // Not on a timer app - dismiss notification
-                    mainHandler.post {
-                        dismissAppTimerNotification()
-                    }
-                }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error checking App Timer usage", e)
-            }
-        }
-    }
 
     /**
      * Calculate total usage of timer apps today using UsageEvents API
@@ -1290,26 +1082,6 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     /**
      * Show the App Timer reflection full-screen popup
      */
-    private fun showAppTimerReflection(totalUsageMinutes: Int, limitMinutes: Int, isEscalation: Boolean) {
-        Log.i(TAG, "Showing App Timer reflection popup: usage=$totalUsageMinutes, limit=$limitMinutes, escalation=$isEscalation")
-
-        // Vibrate to get attention
-        vibrateDevice()
-
-        try {
-            val timerApps = cachedTimerApps.joinToString(",")
-            val intent = AppTimerReflectionActivity.createIntent(
-                context = applicationContext,
-                totalUsageMinutes = totalUsageMinutes,
-                limitMinutes = limitMinutes,
-                isEscalation = isEscalation,
-                timerApps = timerApps
-            )
-            startActivity(intent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to show App Timer reflection", e)
-        }
-    }
 
     // ========== SCHEDULE ENFORCEMENT METHODS ==========
 
@@ -1433,17 +1205,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Track app sessions for gentle/firm reminders
         trackAppSession(packageName, eventTime)
 
-        // ========== APP TIMER TRACKING ==========
-        // Track timer app sessions for shared time limit
-        trackTimerAppSession(packageName, eventTime)
-
-        // ========== INSTANT FOCUS CYCLE HANDLING ==========
-        // Use cached state for immediate response, then persist async
-        handleFocusCycleInstant(packageName, eventTime)
-
         // Refresh cache periodically in background
         if (eventTime - lastCacheRefresh > CACHE_REFRESH_INTERVAL_MS) {
-            refreshFocusCycleCache()
             refreshDistractingAppsCache() // Also refresh distracting apps list
             refreshAppTimerCache() // Also refresh app timer settings
         }
@@ -1477,146 +1240,6 @@ class FocusBlockAccessibilityService : AccessibilityService() {
      * Handle Focus Cycle state transitions INSTANTLY using cached state
      * Database updates happen asynchronously
      */
-    private fun handleFocusCycleInstant(packageName: String, eventTime: Long) {
-        val cycle = cachedFocusCycle ?: return
-        if (!cycle.isEnabled) return
-
-        val packages = cachedFocusCyclePackages
-        if (packages.isEmpty()) {
-            Log.w(TAG, "Focus Cycle has no apps to track!")
-            return
-        }
-
-        val isSelectedApp = packages.contains(packageName)
-        Log.d(TAG, "Focus Cycle INSTANT: package=$packageName, isSelectedApp=$isSelectedApp, isArmed=${cycle.isArmed}, isPaused=${cycle.isPaused}, time=$eventTime")
-
-        when {
-            // Case 1: Cycle is armed (waiting for first app open)
-            cycle.isArmed -> {
-                if (isSelectedApp) {
-                    // INSTANT START - User opened a selected app
-                    Log.i(TAG, "Focus Cycle: INSTANT START - user opened $packageName at $eventTime")
-
-                    val updatedCycle = cycle.copy(
-                        isArmed = false,
-                        isPaused = false,
-                        cycleStartTime = eventTime,
-                        lastActiveTime = eventTime,
-                        accumulatedUsageMillis = 0,
-                        breakStartTime = null
-                    )
-
-                    // Update cache immediately for instant UI response
-                    cachedFocusCycle = updatedCycle
-
-                    // Persist to database async
-                    persistFocusCycleUpdate(updatedCycle)
-
-                    // Update notification/overlay immediately
-                    updateFocusCycleNotification(updatedCycle)
-
-                    // Show floating overlay when on tracked app
-                    FocusCycleOverlayService.show(applicationContext)
-
-                    // Show visible feedback
-                    mainHandler.post {
-                        android.widget.Toast.makeText(
-                            applicationContext,
-                            "Focus Cycle started! Timer running.",
-                            android.widget.Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                }
-            }
-
-            // Case 2: In break period - check if break is over
-            cycle.breakStartTime != null -> {
-                val breakEnd = cycle.breakStartTime + timeToMillis(cycle.breakDurationMinutes)
-                if (eventTime >= breakEnd) {
-                    // Break is over - re-arm the cycle
-                    Log.i(TAG, "Focus Cycle: Break ended - re-arming cycle at $eventTime")
-                    val updatedCycle = cycle.copy(
-                        isArmed = true,
-                        isPaused = false,
-                        cycleStartTime = null,
-                        breakStartTime = null,
-                        accumulatedUsageMillis = 0,
-                        lastActiveTime = null
-                    )
-                    cachedFocusCycle = updatedCycle
-                    persistFocusCycleUpdate(updatedCycle)
-                    updateFocusCycleNotification(updatedCycle)
-                }
-            }
-
-            // Case 3: In usage window
-            cycle.cycleStartTime != null -> {
-                // Calculate current accumulated time
-                val previousAccumulated = cycle.accumulatedUsageMillis
-                val lastActive = cycle.lastActiveTime ?: cycle.cycleStartTime!!
-
-                // Add time if we were on a selected app
-                val wasOnSelectedApp = lastForegroundPackage?.let { packages.contains(it) } ?: false
-                val additionalTime = if (wasOnSelectedApp && !cycle.isPaused) {
-                    eventTime - lastActive
-                } else {
-                    0L
-                }
-                val totalAccumulated = previousAccumulated + additionalTime
-                val usageWindowMillis = timeToMillis(cycle.usageWindowMinutes)
-
-                // Check if usage window is exhausted
-                if (totalAccumulated >= usageWindowMillis) {
-                    // Start break period
-                    Log.i(TAG, "Focus Cycle: Usage window exhausted - starting break at $eventTime")
-                    val updatedCycle = cycle.copy(
-                        isPaused = false,
-                        breakStartTime = eventTime,
-                        accumulatedUsageMillis = totalAccumulated,
-                        lastActiveTime = eventTime
-                    )
-                    cachedFocusCycle = updatedCycle
-                    persistFocusCycleUpdate(updatedCycle)
-                    updateFocusCycleNotification(updatedCycle)
-
-                    // Hide overlay during break
-                    FocusCycleOverlayService.hide(applicationContext)
-                } else if (isSelectedApp) {
-                    // INSTANT RESUME - User is on a selected app
-                    if (cycle.isPaused) {
-                        Log.d(TAG, "Focus Cycle: INSTANT RESUME - user returned to $packageName at $eventTime")
-                    }
-                    val updatedCycle = cycle.copy(
-                        isPaused = false,
-                        accumulatedUsageMillis = totalAccumulated,
-                        lastActiveTime = eventTime
-                    )
-                    cachedFocusCycle = updatedCycle
-                    persistFocusCycleUpdate(updatedCycle)
-                    updateFocusCycleNotification(updatedCycle)
-
-                    // Show overlay when on tracked app
-                    FocusCycleOverlayService.show(applicationContext)
-                } else {
-                    // INSTANT PAUSE - User switched to non-selected app
-                    if (!cycle.isPaused) {
-                        Log.d(TAG, "Focus Cycle: INSTANT PAUSE - user left to $packageName at $eventTime")
-                    }
-                    val updatedCycle = cycle.copy(
-                        isPaused = true,
-                        accumulatedUsageMillis = totalAccumulated,
-                        lastActiveTime = eventTime
-                    )
-                    cachedFocusCycle = updatedCycle
-                    persistFocusCycleUpdate(updatedCycle)
-                    updateFocusCycleNotification(updatedCycle)
-
-                    // Hide overlay when on non-tracked app
-                    FocusCycleOverlayService.hide(applicationContext)
-                }
-            }
-        }
-    }
 
     /**
      * Persist Focus Cycle update to database asynchronously
@@ -1789,7 +1412,6 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         isServiceRunning = false
         stopQuickBlockTimerCheck() // Clean up Quick Block timer
         stopSessionDurationCheck() // Clean up session duration timer
-        stopAppTimerCheck() // Clean up App Timer check
         stopScheduleCheck() // Clean up schedule enforcement check
         stopGlobalLimitCheck() // Clean up Global Limit check
         stopUsageComparisonCheck() // Clean up Usage Comparison check

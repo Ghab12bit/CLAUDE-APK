@@ -2,6 +2,22 @@ package com.focusblock.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
+// ============================================================================
+// Signal colour
+//
+// The app has exactly one job, so it gets exactly one loud colour. Lime on
+// near-black reads as "live" at a glance, which is the single thing the old
+// interface failed to communicate: five small grey ticks did not tell the user
+// their phone was actually protected.
+//
+// Lime = protection is real and on. Blue = something you can tap. Everything
+// else stays quiet so those two mean something.
+// ============================================================================
+val Signal = Color(0xFFC8F169)
+val SignalDim = Color(0xFF8FAE4A)
+val SignalGlow = Color(0x1FC8F169)
+val SignalBorder = Color(0x4DC8F169)
+
 // Primary Brand Colors
 val Primary = Color(0xFF0A84FF)
 val PrimaryVariant = Color(0xFF0066CC)
@@ -9,17 +25,18 @@ val PrimaryLight = Color(0xFF4DA3FF)
 val PrimaryDark = Color(0xFF0055AA)
 
 // Background Colors - Refined depth system
-val BackgroundDark = Color(0xFF0A0E14)
+// Deeper than before: the accent needs somewhere dark to sit.
+val BackgroundDark = Color(0xFF07090D)
 val BackgroundDarkSecondary = Color(0xFF0F141A)
 val BackgroundDarkTertiary = Color(0xFF151B23)
-val SurfaceDark = Color(0xFF161D26)
+val SurfaceDark = Color(0xFF11161E)
 val SurfaceElevated = Color(0xFF1A222D)
-val CardDark = Color(0xFF1C2532)
+val CardDark = Color(0xFF141A23)
 val CardDarkElevated = Color(0xFF212A38)
 
 // Text Colors - Better contrast hierarchy
-val TextPrimary = Color(0xFFF0F3F6)
-val TextSecondary = Color(0xFF8B949E)
+val TextPrimary = Color(0xFFFFFFFF)
+val TextSecondary = Color(0xFF9BA6B2)
 val TextTertiary = Color(0xFF5C6570)
 val TextMuted = Color(0xFF484F58)
 

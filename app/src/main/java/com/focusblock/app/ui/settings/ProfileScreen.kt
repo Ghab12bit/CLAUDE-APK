@@ -25,6 +25,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.focusblock.app.database.entity.CommitmentLevel
+import com.focusblock.app.ui.components.HeroState
+import com.focusblock.app.ui.components.ScreenTitle
+import com.focusblock.app.ui.components.SectionHeading
+import com.focusblock.app.ui.components.StatusHero
+import com.focusblock.app.ui.components.SummaryRow
 import com.focusblock.app.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -44,6 +49,7 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
     val snackbarHostState = remember { SnackbarHostState() }
     var showAllowlist by remember { mutableStateOf(false) }
     var showPinDialog by remember { mutableStateOf(false) }
+    var permissionsExpanded by remember { mutableStateOf(false) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -73,17 +79,69 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item { ScreenTitle("Setup") }
+
+            // The answer first, at a size that reads instantly. Five small grey
+            // ticks could not distinguish a protected phone from a broken one.
             item {
-                Text("Setup", color = TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                val granted = listOf(
+                    state.hasAccessibility,
+                    state.hasUsageAccess,
+                    state.hasOverlay,
+                    state.batteryUnrestricted,
+                    state.canScheduleExactAlarms
+                )
+                val ok = granted.count { it }
+                StatusHero(
+                    state = when {
+                        !state.hasAccessibility || !state.hasUsageAccess -> HeroState.BROKEN
+                        ok == granted.size -> HeroState.LIVE
+                        else -> HeroState.IDLE
+                    },
+                    headline = when {
+                        !state.hasAccessibility -> "Blocking can't run"
+                        !state.hasUsageAccess -> "Budgets can't be counted"
+                        ok == granted.size -> "Everything's in place"
+                        else -> "Working, with gaps"
+                    },
+                    detail = when {
+                        !state.hasAccessibility ->
+                            "The accessibility service is off, so no app can be blocked."
+                        !state.hasUsageAccess ->
+                            "Usage access is off, so time budgets can't be measured."
+                        ok == granted.size ->
+                            "All $ok permissions granted. ${state.ruleCount} routines enabled."
+                        else -> "$ok of ${granted.size} permissions granted."
+                    }
+                )
             }
 
             // ---------------- Permissions ----------------
-            item { SectionLabel("Permissions") }
+            item {
+                val allOk = state.hasAccessibility && state.hasUsageAccess &&
+                    state.hasOverlay && state.batteryUnrestricted && state.canScheduleExactAlarms
+                Column {
+                    SectionHeading("Permissions")
+                    Spacer(Modifier.height(8.dp))
+                    if (allOk && !permissionsExpanded) {
+                        Box(Modifier.clickable { permissionsExpanded = true }) {
+                            SummaryRow(
+                                ok = true,
+                                okText = "All five granted",
+                                problemText = ""
+                            )
+                        }
+                    }
+                }
+            }
+            if (!(state.hasAccessibility && state.hasUsageAccess && state.hasOverlay &&
+                    state.batteryUnrestricted && state.canScheduleExactAlarms) || permissionsExpanded
+            ) {
             item {
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(18.dp))
                         .background(CardDark)
                 ) {
                     PermRow(
@@ -120,9 +178,10 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
                     )
                 }
             }
+            }
 
             // ---------------- Apps ----------------
-            item { SectionLabel("Apps") }
+            item { SectionHeading("Apps") }
             item {
                 RowCard(
                     title = "Always allowed",
@@ -136,7 +195,7 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
             }
 
             // ---------------- Protection ----------------
-            item { SectionLabel("Protection") }
+            item { SectionHeading("Protection") }
             item {
                 ProtectionCard(
                     state = state,
@@ -146,7 +205,7 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
                 )
             }
 
-            item { SectionLabel("About") }
+            item { SectionHeading("About") }
             item {
                 Column(
                     Modifier

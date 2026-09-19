@@ -23,6 +23,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.focusblock.app.database.entity.CommitmentLevel
+import com.focusblock.app.ui.components.HeroState
+import com.focusblock.app.ui.components.ScreenTitle
+import com.focusblock.app.ui.components.SectionHeading
+import com.focusblock.app.ui.components.StatusHero
 import com.focusblock.app.ui.theme.*
 
 /**
@@ -69,17 +73,47 @@ fun NowScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { ProtectionCard(state.protection, onFixPermissions) }
-
+            // The whole point of the screen, stated at a size you can read
+            // without looking for it.
             item {
-                SectionLabel(
-                    if (state.blockedGroups.isEmpty()) "Nothing is blocked right now"
-                    else "Blocked right now"
+                val p = state.protection
+                val blockedApps = state.blockedGroups.sumOf { it.apps.size }
+                StatusHero(
+                    state = when {
+                        !p.enforcing -> HeroState.BROKEN
+                        blockedApps > 0 -> HeroState.LIVE
+                        else -> HeroState.IDLE
+                    },
+                    headline = when {
+                        !p.enforcing -> "Blocking isn't running"
+                        blockedApps > 0 -> "$blockedApps apps blocked"
+                        else -> "Nothing blocked"
+                    },
+                    detail = when {
+                        !p.enforcing -> p.firstProblem ?: "Check permissions in Setup."
+                        blockedApps > 0 -> state.blockedGroups.firstOrNull()?.reasonLine.orEmpty()
+                        state.upcoming.isNotEmpty() ->
+                            "Next: ${state.upcoming.first().name}, ${state.upcoming.first().startsAtLabel}."
+                        else -> "No routine is running. Start a block below."
+                    },
+                    trailing = if (!p.enforcing) {
+                        {
+                            Button(
+                                onClick = onFixPermissions,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                            ) { Text("Fix this", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+                        }
+                    } else null
                 )
             }
 
+            if (state.blockedGroups.isNotEmpty()) {
+                item { SectionHeading("Blocked right now") }
+            }
+
             if (state.blockedGroups.isEmpty()) {
-                item { EmptyBlockingCard() }
+                // The hero already says nothing is blocked; no second card.
             } else {
                 items(state.blockedGroups, key = { it.ruleId }) { group ->
                     BlockedGroupCard(
@@ -94,7 +128,7 @@ fun NowScreen(
             }
 
             if (state.upcoming.isNotEmpty()) {
-                item { SectionLabel("Next up") }
+                item { SectionHeading("Next up") }
                 items(state.upcoming, key = { "next_${it.ruleId}" }) { next ->
                     UpcomingRow(next, onOpenRoutines)
                 }
@@ -109,81 +143,6 @@ fun NowScreen(
                 )
             }
         }
-    }
-}
-
-/**
- * Reports the signals that actually determine whether a block will happen,
- * rather than a badge derived from a flag. A green tick here is a claim the
- * app can back up.
- */
-@Composable
-private fun ProtectionCard(status: ProtectionStatus, onFix: () -> Unit) {
-    val tint = when {
-        !status.enforcing -> AccentRed
-        !status.fullyHealthy -> AccentOrange
-        else -> AccentGreen
-    }
-
-    Card(
-        colors = CardDefaults.cardColors(containerColor = CardDark),
-        shape = RoundedCornerShape(18.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, tint.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(tint)
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = status.headline,
-                    color = TextPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            SignalRow("Accessibility service", status.accessibilityConnected)
-            SignalRow("Usage access", status.usageAccessGranted)
-            SignalRow("Display over apps", status.overlayGranted)
-            SignalRow("Battery unrestricted", status.batteryUnrestricted)
-
-            status.firstProblem?.let { problem ->
-                Spacer(Modifier.height(12.dp))
-                Text(problem, color = tint, fontSize = 13.sp)
-                Spacer(Modifier.height(8.dp))
-                TextButton(onClick = onFix, contentPadding = PaddingValues(0.dp)) {
-                    Text("Fix this", color = Primary, fontWeight = FontWeight.Medium)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SignalRow(label: String, ok: Boolean) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = if (ok) Icons.Filled.CheckCircle else Icons.Filled.Warning,
-            contentDescription = null,
-            tint = if (ok) AccentGreen else AccentOrange,
-            modifier = Modifier.size(15.dp)
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(label, color = if (ok) TextSecondary else TextPrimary, fontSize = 13.sp)
     }
 }
 
@@ -272,7 +231,7 @@ private fun AlwaysAllowedRow(apps: List<AppLabel>) {
         Icon(
             Icons.Filled.CheckCircle,
             contentDescription = null,
-            tint = AccentGreen,
+            tint = Signal,
             modifier = Modifier.size(15.dp)
         )
         Spacer(Modifier.width(10.dp))
@@ -304,29 +263,6 @@ private fun UpcomingRow(next: UpcomingRule, onOpen: () -> Unit) {
             Text("${next.appCount} apps", color = TextTertiary, fontSize = 12.sp)
         }
         Text(next.startsAtLabel, color = TextSecondary, fontSize = 13.sp)
-    }
-}
-
-@Composable
-private fun EmptyBlockingCard() {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(SurfaceDark)
-            .padding(18.dp)
-    ) {
-        Text(
-            "No rule is blocking anything at the moment.",
-            color = TextSecondary,
-            fontSize = 14.sp
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "Start a block below, or set up a routine so it happens without you deciding.",
-            color = TextTertiary,
-            fontSize = 13.sp
-        )
     }
 }
 
@@ -399,15 +335,4 @@ private fun RowScope.DurationChip(label: String, onClick: () -> Unit) {
     ) {
         Text(label, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
     }
-}
-
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text,
-        color = TextSecondary,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(top = 4.dp)
-    )
 }

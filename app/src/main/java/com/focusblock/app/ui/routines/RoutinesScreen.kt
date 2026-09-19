@@ -25,6 +25,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.focusblock.app.blocking.RuleTemplates
 import com.focusblock.app.database.entity.BlockRule
 import com.focusblock.app.database.entity.CommitmentLevel
+import com.focusblock.app.ui.components.HeroState
+import com.focusblock.app.ui.components.ScreenTitle
+import com.focusblock.app.ui.components.StatusHero
 import com.focusblock.app.ui.theme.*
 
 /**
@@ -69,14 +72,25 @@ fun RoutinesScreen(viewModel: RoutinesViewModel = hiltViewModel()) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                Column {
-                    Text("Routines", color = TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        "Blocking that happens without you deciding",
-                        color = TextSecondary,
-                        fontSize = 13.sp
-                    )
-                }
+                ScreenTitle("Routines", "Blocking that happens without you deciding")
+            }
+
+            item {
+                val active = state.routines.count { it.isActiveNow }
+                val enabled = state.routines.count { it.rule.isEnabled }
+                StatusHero(
+                    state = if (active > 0) HeroState.LIVE else HeroState.IDLE,
+                    headline = when {
+                        active > 0 -> if (active == 1) "1 routine running" else "$active routines running"
+                        enabled > 0 -> "Nothing running yet"
+                        else -> "No routines"
+                    },
+                    detail = when {
+                        active > 0 -> state.routines.firstOrNull { it.isActiveNow }?.summary.orEmpty()
+                        enabled > 0 -> "$enabled set up and waiting for their window."
+                        else -> "Add one so blocking happens without you deciding."
+                    }
+                )
             }
 
             if (state.routines.isEmpty() && !state.loading) {
@@ -161,7 +175,7 @@ private fun RoutineCard(
             .fillMaxWidth()
             .then(
                 if (row.isActiveNow)
-                    Modifier.border(1.dp, AccentGreen.copy(alpha = 0.4f), RoundedCornerShape(18.dp))
+                    Modifier.border(1.dp, SignalBorder, RoundedCornerShape(18.dp))
                 else Modifier
             )
             .clickable(onClick = onEdit)
@@ -209,7 +223,7 @@ private fun RoutineCard(
                 Text(
                     if (row.isActiveNow) "Active now · ${row.appCount} apps"
                     else "${row.appCount} apps",
-                    color = if (row.isActiveNow) AccentGreen else TextTertiary,
+                    color = if (row.isActiveNow) Signal else TextTertiary,
                     fontSize = 12.sp
                 )
                 IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {

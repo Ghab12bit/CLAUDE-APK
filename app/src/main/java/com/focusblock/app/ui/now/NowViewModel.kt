@@ -44,6 +44,8 @@ data class NowUiState(
     val alwaysAllowed: List<AppLabel> = emptyList(),
     val upcoming: List<UpcomingRule> = emptyList(),
     val savedApps: List<String> = emptyList(),
+    val pickerApps: List<PickableApp> = emptyList(),
+    val pickerLoading: Boolean = false,
     val manualRuleRunning: BlockRule? = null,
     val message: String? = null
 )
@@ -108,6 +110,14 @@ data class UpcomingRule(
 )
 
 data class AppLabel(val packageName: String, val label: String)
+
+data class PickableApp(
+    val packageName: String,
+    val label: String,
+    val selected: Boolean,
+    /** Communication or utility apps: labelled, never pre-selected. */
+    val essential: Boolean
+)
 
 @HiltViewModel
 class NowViewModel @Inject constructor(
@@ -208,6 +218,13 @@ class NowViewModel @Inject constructor(
 
                 val manual = rules.firstOrNull { it.manualIsRunning(now) }
 
+                // Seed the one-off block's app list from the routines the user
+                // has already built, so "Block now" is a single tap instead of
+                // a picker they must fill in from scratch every time.
+                val seeded = _uiState.value.savedApps.ifEmpty {
+                    rules.filter { it.isEnabled }.flatMap { it.packageList() }.distinct()
+                }
+
                 _uiState.update {
                     it.copy(
                         loading = false,
@@ -215,7 +232,8 @@ class NowViewModel @Inject constructor(
                         blockedGroups = groups,
                         alwaysAllowed = allowed.sortedBy { a -> a.label },
                         upcoming = upcoming,
-                        manualRuleRunning = manual
+                        manualRuleRunning = manual,
+                        savedApps = seeded
                     )
                 }
             } catch (e: Exception) {
@@ -306,6 +324,49 @@ class NowViewModel @Inject constructor(
 
     fun setSavedApps(packages: List<String>) {
         _uiState.update { it.copy(savedApps = packages) }
+    }
+
+    /**
+     * Load the app picker for a one-off block.
+     *
+     * The home screen previously offered "Block now" and "Choose apps" with no
+     * picker behind either: savedApps was never populated, so the primary
+     * action always refused, and "Choose apps" opened the allowlist instead.
+     */
+    fun openPicker() {
+        _uiState.update { it.copy(pickerLoading = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>()
+            val selected = _uiState.value.savedApps.toSet()
+            val apps = AppUtils.getInstalledApps(context)
+                .filter { it.packageName !in BlockRule.NEVER_BLOCK }
+                .map {
+                    PickableApp(
+                        packageName = it.packageName,
+                        label = it.appName,
+                        selected = it.packageName in selected,
+                        essential = it.packageName in RuleTemplates.ESSENTIAL_NEVER_SUGGEST
+                    )
+                }
+                .sortedWith(
+                    compareByDescending<PickableApp> { it.selected }
+                        .thenBy { it.essential }
+                        .thenBy { it.label.lowercase() }
+                )
+            _uiState.update { it.copy(pickerApps = apps, pickerLoading = false) }
+        }
+    }
+
+    fun togglePickerApp(packageName: String) {
+        _uiState.update { state ->
+            val apps = state.pickerApps.map {
+                if (it.packageName == packageName) it.copy(selected = !it.selected) else it
+            }
+            state.copy(
+                pickerApps = apps,
+                savedApps = apps.filter { it.selected }.map { it.packageName }
+            )
+        }
     }
 
     fun consumeMessage() {

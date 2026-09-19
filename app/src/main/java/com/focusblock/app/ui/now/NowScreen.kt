@@ -53,6 +53,7 @@ fun NowScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    var showPicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -138,11 +139,33 @@ fun NowScreen(
             item {
                 ActionRow(
                     hasManualRunning = state.manualRuleRunning != null,
-                    onStart = { minutes -> viewModel.startBlockNow(state.savedApps, minutes) },
-                    onEditApps = onEditApps
+                    selectedCount = state.savedApps.size,
+                    onStart = { minutes ->
+                        // No apps chosen yet? Open the picker rather than
+                        // refusing with an error and leaving nowhere to go.
+                        if (state.savedApps.isEmpty()) {
+                            viewModel.openPicker()
+                            showPicker = true
+                        } else {
+                            viewModel.startBlockNow(state.savedApps, minutes)
+                        }
+                    },
+                    onEditApps = {
+                        viewModel.openPicker()
+                        showPicker = true
+                    }
                 )
             }
         }
+    }
+
+    if (showPicker) {
+        AppPickerSheet(
+            apps = state.pickerApps,
+            loading = state.pickerLoading,
+            onToggle = viewModel::togglePickerApp,
+            onDone = { showPicker = false }
+        )
     }
 }
 
@@ -273,6 +296,7 @@ private fun UpcomingRow(next: UpcomingRule, onOpen: () -> Unit) {
 @Composable
 private fun ActionRow(
     hasManualRunning: Boolean,
+    selectedCount: Int,
     onStart: (Int?) -> Unit,
     onEditApps: () -> Unit
 ) {
@@ -291,7 +315,11 @@ private fun ActionRow(
             Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(
-                if (hasManualRunning) "Block already running" else "Block now",
+                when {
+                    hasManualRunning -> "Block already running"
+                    selectedCount == 0 -> "Choose apps to block"
+                    else -> "Block now"
+                },
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold
             )
@@ -317,7 +345,89 @@ private fun ActionRow(
             colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Choose apps", fontSize = 14.sp)
+            Text(
+                if (selectedCount == 0) "Choose apps"
+                else "$selectedCount apps selected · change",
+                fontSize = 14.sp
+            )
+        }
+    }
+}
+
+/**
+ * Pick the apps a one-off block covers.
+ *
+ * Pre-filled from the apps already in the user's routines, so the common case
+ * is open-and-go rather than ticking a list from scratch.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppPickerSheet(
+    apps: List<PickableApp>,
+    loading: Boolean,
+    onToggle: (String) -> Unit,
+    onDone: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDone, containerColor = BackgroundDarkTertiary) {
+        Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+            Text(
+                "Block which apps?",
+                color = TextPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "${apps.count { it.selected }} selected",
+                color = Signal,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(Modifier.height(14.dp))
+
+            if (loading) {
+                Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Primary, modifier = Modifier.size(24.dp))
+                }
+            } else {
+                LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    items(apps, key = { it.packageName }) { app ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { onToggle(app.packageName) }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = app.selected,
+                                onCheckedChange = { onToggle(app.packageName) },
+                                colors = CheckboxDefaults.colors(checkedColor = Primary)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(app.label, color = TextPrimary, fontSize = 14.sp)
+                                if (app.essential) {
+                                    Text(
+                                        "You may need this for calls or clients",
+                                        color = AccentOrange,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = onDone,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Primary),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) {
+                    Text("Done", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
     }
 }

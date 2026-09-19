@@ -37,9 +37,14 @@ import com.focusblock.app.database.entity.*
         AppGroup::class,
         AppGroupMembership::class,
         // Onboarding
-        OnboardingState::class
+        OnboardingState::class,
+        // Unified blocking model (v13)
+        BlockRule::class,
+        RuleUsage::class,
+        RuleOverride::class,
+        ProtectionLock::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class FocusBlockDatabase : RoomDatabase() {
@@ -73,6 +78,9 @@ abstract class FocusBlockDatabase : RoomDatabase() {
     abstract fun appGroupMembershipDao(): AppGroupMembershipDao
     // Onboarding
     abstract fun onboardingDao(): OnboardingDao
+    // Unified blocking model
+    abstract fun blockRuleDao(): BlockRuleDao
+    abstract fun protectionLockDao(): ProtectionLockDao
 
     // Combined DAO access for widget and services
     abstract fun focusBlockDao(): FocusBlockDao
@@ -88,7 +96,10 @@ abstract class FocusBlockDatabase : RoomDatabase() {
                     FocusBlockDatabase::class.java,
                     "focusblock_database"
                 )
-                .fallbackToDestructiveMigration()
+                // Destructive fallback is deliberately NOT used: it silently
+                // deleted the user's entire configuration on every schema
+                // change. Migrations must be written instead.
+                .addMigrations(*Migrations.ALL)
                 .build()
                 INSTANCE = instance
                 instance

@@ -98,13 +98,28 @@ explanation.
 - **Protection card** reports real signals — accessibility connected, usage access,
   overlay, battery — rather than a badge derived from a flag.
 - **Routines** — create, edit and arm rules; everything on one sheet.
-- **Setup** — fresh install to one working routine in about a minute.
+- **Setup** — fresh install to one working routine in about a minute. Apps are
+  pre-ticked from your own last-week usage; communication apps are labelled, never
+  pre-ticked, and any you leave unticked are written to the real allowlist.
 - **Block screen** names the routine and when it lifts, and states overlap.
+- **Settings** shows only what still drives behaviour: the five permissions that
+  decide whether blocking can happen (including exact alarms), the allowlist, and the
+  protection lock. Two deliberate asymmetries — allowlisting is permitted even while
+  locked (a safety valve a commitment can remove is not a safety valve), and the lock
+  can be extended but never shortened while it holds.
+- **Insights** keeps the real screen-time data and adds *protected windows*: minutes
+  of a routine's blocked apps used inside that routine's own window, and how many
+  times the block screen appeared. No score, grade or streak is derived from it.
 
-**Removed**
-- Focus Cycle state machine + overlay service, Pomodoro, `UnifiedBlockingManager`,
-  auto-block-on-excess-social, and six notification systems (session reminders, timer
-  warnings, limit warnings, 3-hour nags, daily comparisons, peak-time reminders).
+**Removed** — about 17,500 lines
+- The 6,204-line `HomeScreen` and its ViewModel, the old Settings and Schedules
+  screens, the onboarding flow.
+- Focus Cycle state machine and overlay service, App Timer polling and its reflection
+  activity, Pomodoro, `UnifiedBlockingManager`, auto-block-on-excess-social.
+- Six notification systems: session reminders, timer warnings, limit warnings, 3-hour
+  nags, daily comparisons, peak-time reminders.
+- `HardModeUnlockActivity` — the PIN screen that disabled Strict Mode *and* killed
+  every Quick Block session in one handler (defect #8).
 
 ---
 
@@ -189,17 +204,18 @@ None of this is knowable from CI. Listed in the order most likely to bite.
 
 ## 7. Known limitations
 
-- **Insights is not yet rewritten.** It still works and reads usage directly, but the
-  "during protected windows" view is not built. Its nagging notifications are gone.
-- **The legacy `HomeScreen.kt` (6,204 lines) is unreachable but still in the tree.**
-  Kept for one release so its remaining dialogs can be ported; it compiles and does
-  nothing.
 - **Old tables are retained.** The migration reads them and leaves them in place, so a
   translation bug cannot cost data. They can be dropped once the model is trusted.
-- **The Settings screen still exposes some legacy controls** that no longer drive
-  enforcement. Next to port.
-- **`SCHEDULE_EXACT_ALARM` is not surfaced** as a permission in the protection card.
-- **No test covers the accessibility service end to end.** That needs a device.
+- **No test covers the accessibility service end to end.** That needs a device, and it
+  is the component everything else depends on.
+- **The protected-windows figure is not attributed.** It reports minutes used inside a
+  window without distinguishing an allowlisted app from a block that failed. Honest,
+  but blunt.
+- **Overnight windows are measured only to midnight** in the protected-windows view.
+  Enforcement handles them correctly; the reporting does not yet stitch the two halves.
+- **Widget still reflects the old model** and has not been reviewed against rules.
+- **No usage-condition rule is created by setup.** Only the evening window is; daily
+  budgets and hourly limits are available as templates in Routines.
 
 ---
 

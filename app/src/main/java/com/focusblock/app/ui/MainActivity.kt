@@ -29,7 +29,7 @@ import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.OnboardingState
 import com.focusblock.app.service.AppBlockingService
 import com.focusblock.app.ui.now.NowScreen
-import com.focusblock.app.ui.onboarding.OnboardingScreen
+import com.focusblock.app.ui.setup.SetupScreen
 import com.focusblock.app.ui.routines.RoutinesScreen
 import com.focusblock.app.ui.settings.SettingsScreen
 import com.focusblock.app.ui.statistics.StatisticsScreen
@@ -120,7 +120,7 @@ fun MainAppWithOnboarding() {
             }
         }
         false -> {
-            OnboardingScreen(
+            SetupScreen(
                 onComplete = {
                     coroutineScope.launch(Dispatchers.IO) {
                         try {

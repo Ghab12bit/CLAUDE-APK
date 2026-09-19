@@ -20,6 +20,7 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import androidx.core.app.NotificationCompat
 import com.focusblock.app.FocusBlockApp
+import com.focusblock.app.blocking.BlockingEngine
 import com.focusblock.app.R
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.AppSettings
@@ -175,6 +176,30 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private var lastBlockTime = 0L
     private var isBlockingInProgress = false
     private val database by lazy { FocusBlockDatabase.getDatabase(applicationContext) }
+
+    /**
+     * The single rule engine. This service holds no blocking policy of its
+     * own: it observes which app came to the foreground, asks the engine, and
+     * acts on the answer.
+     */
+    private val blockingEngine by lazy {
+        BlockingEngine(
+            database.blockRuleDao(),
+            database.blockedAppDao(),
+            database.protectionLockDao()
+        )
+    }
+
+    /** The most recent decision, kept so blockApp() can explain it. */
+    @Volatile
+    private var lastDecision: BlockingEngine.Decision? = null
+
+    /** Foreground app and the moment it came to the front, for usage accounting. */
+    @Volatile
+    private var usageTrackedPackage: String? = null
+    @Volatile
+    private var usageTrackedSince: Long = 0L
+
     private var lastForegroundPackage: String? = null
 
     // ========== QUICK BLOCK TIMER ENFORCEMENT ==========
@@ -1391,6 +1416,12 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Log for instant trigger verification
         Log.d(TAG, "cycleTriggeredOnAppOpen($packageName, $eventTime)")
 
+        // ========== USAGE ACCOUNTING FOR THE RULE ENGINE ==========
+        // Credit time spent on the previous app to every rule that covers it,
+        // then start the clock on this one. This is what makes a combined
+        // budget ("60 minutes across Instagram + Reddit + YouTube") correct.
+        creditForegroundUsage(packageName, eventTime)
+
         // ========== MINDFUL SESSION TRACKING ==========
         // Track app sessions for gentle/firm reminders
         trackAppSession(packageName, eventTime)
@@ -1793,206 +1824,56 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         return false
     }
 
+    /**
+     * Close out usage for the app being left and open a window for the new one.
+     *
+     * Called on every foreground change. Time is credited to the app the user
+     * is LEAVING, because that is the interval we can measure exactly.
+     */
+    private fun creditForegroundUsage(newPackage: String, eventTime: Long) {
+        val previous = usageTrackedPackage
+        val since = usageTrackedSince
+
+        usageTrackedPackage = newPackage
+        usageTrackedSince = eventTime
+
+        if (previous == null || previous == newPackage || since <= 0L) return
+
+        val elapsedSeconds = (eventTime - since) / 1000L
+        // Ignore implausible intervals: a negative clock adjustment, or a gap
+        // so long the screen was almost certainly off.
+        if (elapsedSeconds <= 0 || elapsedSeconds > 4 * 60 * 60) return
+
+        immediateScope.launch {
+            try {
+                blockingEngine.recordUsage(previous, elapsedSeconds, eventTime)
+                blockingEngine.recordLaunch(newPackage, eventTime)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to record usage for $previous", e)
+            }
+        }
+    }
+
+    /**
+     * Decide whether an app may run.
+     *
+     * This delegates entirely to [BlockingEngine]. It previously carried its
+     * own ~200-line rule set that diverged from the one in AppBlockingService,
+     * so the answer depended on which service happened to be alive. There is
+     * now exactly one rule set, and this method holds no policy of its own.
+     *
+     * The decision is cached so blockApp() can explain it without re-querying.
+     */
     private suspend fun shouldBlockApp(packageName: String): Boolean {
-        Log.d(TAG, "shouldBlockApp() checking: $packageName")
-
-        val blockedAppDao = database.blockedAppDao()
-        val scheduleDao = database.scheduleDao()
-        val quickBlockSessionDao = database.quickBlockSessionDao()
-        val settingsDao = database.settingsDao()
-        val focusCycleDao = database.focusCycleDao()
-        val appTimerSettingsDao = database.appTimerSettingsDao()
-        val appTimerDailyUsageDao = database.appTimerDailyUsageDao()
-
-        // Check if in allowlist - always allow these apps
-        val blockedApp = blockedAppDao.getBlockedApp(packageName)
-        if (blockedApp?.isInAllowlist == true) {
-            Log.d(TAG, "App is in allowlist, allowing: $packageName")
-            return false
+        val decision = blockingEngine.evaluate(packageName)
+        lastDecision = decision
+        if (decision.isBlocked) {
+            Log.i(
+                TAG,
+                "Blocked $packageName by ${decision.reasons.joinToString { it.ruleName }}"
+            )
         }
-
-        // ============ GLOBAL DAILY LIMIT ENFORCEMENT (HIGHEST PRIORITY) ============
-        // Check if this app should be blocked due to Global Daily Limit
-        // This enforces even when all other modes are OFF
-        if (cachedGlobalLimitEnabled && !isExcludedFromGlobalLimit(packageName)) {
-            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                .format(java.util.Date())
-            val globalDailyUsage = database.globalDailyUsageDao().getUsageForDateSync(today)
-            // Use cached value for speed, but calculate fresh if cache is stale (0)
-            val currentUsage = if (lastGlobalUsageMinutes == 0) {
-                val freshUsage = calculateTotalScreenTime()
-                lastGlobalUsageMinutes = freshUsage
-                Log.d(TAG, "Global Limit: Calculated fresh usage on demand: $freshUsage min")
-                freshUsage
-            } else {
-                lastGlobalUsageMinutes
-            }
-            val limitMinutes = cachedGlobalLimitMinutes
-
-            if (currentUsage >= limitMinutes) {
-                // Check if override is active and not expired
-                val overrideExpires = globalDailyUsage?.overrideExpiresAt
-                val now = System.currentTimeMillis()
-
-                if (overrideExpires != null && now < overrideExpires) {
-                    // Override is active - allow for now
-                    Log.d(TAG, "Global Limit: Override active for $packageName (expires in ${(overrideExpires - now)/1000}s)")
-                    // Don't return false yet - let other modes check too
-                } else {
-                    // No active override - block the app
-                    Log.i(TAG, "Global Limit blocking: $packageName (usage: $currentUsage min >= limit: $limitMinutes min)")
-                    return true
-                }
-            }
-        }
-
-        // ============ APP TIMER ENFORCEMENT ============
-        // Check if this app should be blocked due to App Timer limit
-        val timerSettings = appTimerSettingsDao.getSettingsSync()
-        if (timerSettings != null && timerSettings.isEnabled) {
-            val timerApps = timerSettings.timerApps.split(",").filter { it.isNotBlank() }
-            if (timerApps.contains(packageName)) {
-                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                    .format(java.util.Date())
-                val dailyUsage = appTimerDailyUsageDao.getUsageForDateSync(today)
-                val currentUsage = lastAppTimerUsageMinutes // Use cached value for speed
-                val limitMinutes = timerSettings.dailyLimitMinutes
-
-                if (currentUsage >= limitMinutes) {
-                    // Check if override is active and not expired
-                    val overrideExpires = dailyUsage?.overrideExpiresAt
-                    val now = System.currentTimeMillis()
-
-                    if (overrideExpires != null && now < overrideExpires) {
-                        // Override is active - allow for now
-                        Log.d(TAG, "App Timer: Override active for $packageName (expires in ${(overrideExpires - now)/1000}s)")
-                        return false
-                    }
-
-                    // No active override - block the app
-                    Log.i(TAG, "App Timer blocking: $packageName (usage: $currentUsage min >= limit: $limitMinutes min)")
-                    return true
-                }
-            }
-        }
-
-        // ============ MODE PRIORITY RULES ============
-        // Priority: Strict Mode > Focus Cycles > Quick Block
-        // Use cached value and check if time-lock is still active
-        val strictModeActive = isStrictModeActive()
-
-        // STRICT MODE BLOCKING - Block distracting apps when Strict Mode is active
-        // This is the PRIMARY blocking mechanism for Strict Mode
-        // Uses same exclusion logic as Global Daily Limit (excludes essential apps)
-        if (strictModeActive) {
-            // Don't block essential apps (phone, maps, settings, etc.)
-            if (!isExcludedFromGlobalLimit(packageName) && !cachedWhitelistedPackages.contains(packageName)) {
-                Log.i(TAG, "Strict Mode blocking: $packageName (time-locked until ${java.util.Date(cachedStrictModeEndTime)})")
-                return true
-            }
-        }
-
-        // Check Quick Block session
-        val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
-        if (quickBlockSession != null) {
-            val blockedPackages = quickBlockSession.blockedPackages.split(",")
-            if (blockedPackages.contains(packageName)) {
-                val now = System.currentTimeMillis()
-
-                // For Pomodoro/Focus sessions with a timer:
-                // - During focus period (before endTime): apps are ALLOWED
-                // - After focus period ends (timer expired): apps are BLOCKED (break time)
-                if (quickBlockSession.isPomodoroSession && quickBlockSession.endTime != null) {
-                    // Focus/work period - apps are allowed until timer ends
-                    if (now < quickBlockSession.endTime) {
-                        Log.d(TAG, "Focus period active - allowing $packageName (${(quickBlockSession.endTime - now)/1000}s remaining)")
-                        return false // Allow during focus period
-                    }
-                    // Timer expired - should block (break period)
-                    Log.d(TAG, "Focus period ended - blocking $packageName for break")
-                    return true
-                }
-
-                // Non-Pomodoro Quick Block or break period - block normally
-                Log.i(TAG, "Quick Block blocking: $packageName (session active)")
-                return true
-            }
-        }
-
-        // Check Focus Cycles (blocks during break phase OR when usage window exhausted)
-        if (!strictModeActive) {
-            val activeFocusCycle = focusCycleDao.getActiveFocusCycleSync()
-            if (activeFocusCycle != null && activeFocusCycle.isEnabled) {
-                val now = System.currentTimeMillis()
-                val breakStart = activeFocusCycle.breakStartTime
-                val cycleStart = activeFocusCycle.cycleStartTime
-                val usageWindowMillis = timeToMillis(activeFocusCycle.usageWindowMinutes)
-
-                // Check if should block based on Focus Cycle state
-                val shouldBlock = when {
-                    // Case 1: In break period - block until break ends
-                    breakStart != null -> {
-                        val breakEnd = breakStart + timeToMillis(activeFocusCycle.breakDurationMinutes)
-                        now < breakEnd
-                    }
-                    // Case 2: Usage window started - check ACCUMULATED time (not wall-clock!)
-                    cycleStart != null -> {
-                        val accumulatedMillis = activeFocusCycle.accumulatedUsageMillis
-                        // Block if accumulated usage exceeds window
-                        accumulatedMillis >= usageWindowMillis
-                    }
-                    // Case 3: Cycle not started yet (armed state)
-                    else -> false
-                }
-
-                if (shouldBlock) {
-                    // Get packages to check (consider useQuickBlockApps)
-                    var focusCyclePackages = activeFocusCycle.selectedPackages
-                        .split(",")
-                        .filter { it.isNotBlank() }
-
-                    // If no explicit packages and useQuickBlockApps is true, use Quick Block apps
-                    if (focusCyclePackages.isEmpty() && activeFocusCycle.useQuickBlockApps) {
-                        val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
-                        focusCyclePackages = quickBlockSession?.blockedPackages
-                            ?.split(",")
-                            ?.filter { it.isNotBlank() } ?: emptyList()
-                    }
-
-                    if (focusCyclePackages.contains(packageName)) {
-                        val reason = if (breakStart != null) "break phase" else "usage window exhausted"
-                        Log.i(TAG, "Focus Cycle blocking: $packageName ($reason)")
-                        return true
-                    }
-                }
-            }
-        }
-
-        // Check schedules
-        val currentMinute = TimeUtils.getCurrentMinuteOfDay()
-        val dayOfWeek = TimeUtils.getCurrentDayOfWeek().toString()
-        val activeSchedules = scheduleDao.getActiveSchedules(currentMinute, dayOfWeek)
-
-        for (schedule in activeSchedules) {
-            val blockedPackages = schedule.blockedPackages.split(",")
-            if (blockedPackages.contains(packageName)) {
-                Log.d(TAG, "Schedule blocking: $packageName (schedule: ${schedule.name})")
-                return true
-            }
-        }
-
-        // IMPORTANT: We do NOT check isBlocked = true here anymore
-        // The isBlocked flag was being set by Quick Block sessions but not cleared on timer expiry
-        // This caused apps to remain blocked even after all blocking modes were inactive
-        //
-        // Apps are only blocked when an ACTIVE blocking policy is in effect:
-        // - Active Quick Block session (checked above)
-        // - Active Focus Cycle break (checked above)
-        // - Active Schedule (checked above)
-        // - App Timer limit reached (checked above)
-
-        Log.d(TAG, "No active blocking policy for: $packageName")
-        return false
+        return decision.isBlocked
     }
 
     private suspend fun blockApp(packageName: String) {
@@ -2058,99 +1939,23 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
     }
 
-    private suspend fun determineBlockedByType(packageName: String): BlockedByType {
-        val settingsDao = database.settingsDao()
-        val quickBlockSessionDao = database.quickBlockSessionDao()
-        val focusCycleDao = database.focusCycleDao()
-        val appTimerSettingsDao = database.appTimerSettingsDao()
-
-        val hardModeEnabled = settingsDao.getValue("hard_mode_enabled")?.toBooleanStrictOrNull() ?: false
-        if (hardModeEnabled) {
-            return BlockedByType.HARD_MODE
+    /**
+     * Label a block for the log and the block screen.
+     *
+     * This used to re-derive the reason with its own copy of the rules, which
+     * could disagree with the decision that actually caused the block -- and
+     * did, since it checked Bedtime Mode while shouldBlockApp() did not. It
+     * now reads the decision the engine already made.
+     */
+    private fun determineBlockedByType(packageName: String): BlockedByType {
+        val decision = lastDecision?.takeIf { it.packageName == packageName }
+        return when (decision?.primary?.trigger) {
+            BlockingEngine.Trigger.MANUAL -> BlockedByType.QUICK_BLOCK
+            BlockingEngine.Trigger.SCHEDULE -> BlockedByType.SCHEDULE
+            BlockingEngine.Trigger.DAILY_BUDGET -> BlockedByType.APP_TIMER
+            BlockingEngine.Trigger.HOURLY_BUDGET -> BlockedByType.FOCUS_CYCLE
+            null -> BlockedByType.QUICK_BLOCK
         }
-
-        // Check Global Daily Limit (highest priority after hard mode)
-        // Skip blocking for whitelisted apps (tracked but not blocked, e.g., WhatsApp for work)
-        if (cachedGlobalLimitEnabled && !isExcludedFromGlobalLimit(packageName) && !cachedWhitelistedPackages.contains(packageName)) {
-            if (lastGlobalUsageMinutes >= cachedGlobalLimitMinutes) {
-                return BlockedByType.GLOBAL_LIMIT
-            }
-        }
-
-        // Check Bedtime Mode - block distractive apps during sleep hours
-        // Also respect the whitelist (e.g., WhatsApp for work)
-        if (isCurrentlyBedtime() && !isExcludedFromGlobalLimit(packageName) && !cachedWhitelistedPackages.contains(packageName)) {
-            // Block distractive apps during bedtime (use same detection as Global Limit)
-            return BlockedByType.BEDTIME
-        }
-
-        // Check Strict Mode - uses cached values with time-lock check
-        // Also excludes essential apps (phone, maps, settings, etc.) so device remains usable
-        if (isStrictModeActive() && !isExcludedFromGlobalLimit(packageName) && !cachedWhitelistedPackages.contains(packageName)) {
-            return BlockedByType.STRICT_MODE
-        }
-
-        // Check App Timer first (it's an enforcement limit)
-        // NOTE: Skip whitelisted apps - they are tracked but not blocked
-        val timerSettings = appTimerSettingsDao.getSettingsSync()
-        if (timerSettings != null && timerSettings.isEnabled) {
-            val timerApps = timerSettings.timerApps.split(",").filter { it.isNotBlank() }
-            if (timerApps.contains(packageName)) {
-                // Check if this app is whitelisted (tracked but not blocked)
-                if (!cachedWhitelistedPackages.contains(packageName)) {
-                    val currentUsage = lastAppTimerUsageMinutes
-                    if (currentUsage >= timerSettings.dailyLimitMinutes) {
-                        return BlockedByType.APP_TIMER
-                    }
-                }
-            }
-        }
-
-        val activeFocusCycle = focusCycleDao.getActiveFocusCycleSync()
-        if (activeFocusCycle != null && activeFocusCycle.isEnabled) {
-            val focusCyclePackages = activeFocusCycle.selectedPackages
-                .split(",")
-                .filter { it.isNotBlank() }
-
-            if (focusCyclePackages.contains(packageName)) {
-                val now = System.currentTimeMillis()
-                val breakStart = activeFocusCycle.breakStartTime
-                val cycleStart = activeFocusCycle.cycleStartTime
-                val usageWindowMillis = timeToMillis(activeFocusCycle.usageWindowMinutes)
-
-                // Check if should block based on Focus Cycle state
-                val shouldBlock = when {
-                    // Case 1: In break period - block until break ends
-                    breakStart != null -> {
-                        val breakEnd = breakStart + timeToMillis(activeFocusCycle.breakDurationMinutes)
-                        now < breakEnd
-                    }
-                    // Case 2: Usage window started - check ACCUMULATED time (not wall-clock!)
-                    // Focus Cycle pauses when user switches to non-tracked app
-                    cycleStart != null -> {
-                        val accumulatedMillis = activeFocusCycle.accumulatedUsageMillis
-                        // Block if accumulated usage exceeds window
-                        accumulatedMillis >= usageWindowMillis
-                    }
-                    // Case 3: Cycle not started yet (armed state)
-                    else -> false
-                }
-
-                if (shouldBlock) {
-                    return BlockedByType.FOCUS_CYCLE
-                }
-            }
-        }
-
-        val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
-        if (quickBlockSession != null) {
-            val blockedPackages = quickBlockSession.blockedPackages.split(",")
-            if (blockedPackages.contains(packageName)) {
-                return BlockedByType.QUICK_BLOCK
-            }
-        }
-
-        return BlockedByType.SCHEDULE
     }
 
     private fun showBlockingScreen(packageName: String, appName: String, blockedByType: BlockedByType) {

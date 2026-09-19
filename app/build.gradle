@@ -14,8 +14,12 @@ android {
         applicationId "com.focusblock.app"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "1.0.0"
+        // Every build used to ship as versionCode 1 with an identically named
+        // artifact, so installing a newer APK over an older one could silently
+        // no-op and there was no way to tell which build was on the device.
+        // CI stamps the run number; local builds stay at 1.
+        versionCode (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+        versionName "1.0.0-b" + (System.getenv("GITHUB_RUN_NUMBER") ?: "dev")
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -224,7 +224,18 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
                         color = TextSecondary,
                         fontSize = 13.sp
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(12.dp))
+                    // Shown so the build on the device is never a guess. Every
+                    // APK previously reported version 1.0.0 regardless of what
+                    // was in it, which made "did the update install?"
+                    // impossible to answer from inside the app.
+                    Text(
+                        "Build ${com.focusblock.app.BuildConfig.VERSION_NAME}",
+                        color = Signal,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(Modifier.height(4.dp))
                     Text("${state.ruleCount} routines enabled", color = TextTertiary, fontSize = 12.sp)
                 }
             }

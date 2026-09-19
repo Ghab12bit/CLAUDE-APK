@@ -7,6 +7,7 @@ import android.util.Log
 import com.focusblock.app.blocking.RuleAlarmScheduler
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.service.AppBlockingService
+import com.focusblock.app.service.FocusBlockAccessibilityService
 import com.focusblock.app.utils.PermissionUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -54,6 +55,16 @@ class RuleAlarmReceiver : BroadcastReceiver() {
 
                 ruleDao.pruneOverridesBefore(now)
                 RuleAlarmScheduler.rescheduleAll(appContext, ruleDao.getAllRulesSync())
+
+                // The boundary itself must enforce, not just tidy up.
+                //
+                // A window opening at 20:45 finds the user already inside the
+                // app it is meant to block -- they were scrolling at 20:44 and
+                // never switched app, so the accessibility service received no
+                // event. Poking the live service here makes the rule bite at
+                // the moment it starts instead of whenever the user next
+                // happens to switch app.
+                FocusBlockAccessibilityService.recheckNow()
 
                 if (PermissionUtils.getPermissionStatus(appContext).hasRequiredPermissions) {
                     AppBlockingService.update(appContext)

@@ -66,6 +66,18 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         fun getInstance(): FocusBlockAccessibilityService? = instance
 
         /**
+         * Ask the live service to re-evaluate whatever is on screen right now.
+         *
+         * Called from the rule boundary alarm so that 20:45 itself triggers
+         * enforcement, rather than waiting up to one re-check interval.
+         */
+        fun recheckNow() {
+            instance?.let { service ->
+                service.mainHandler.post { service.recheckForegroundApp() }
+            }
+        }
+
+        /**
          * Get emergency unlock info for UI
          */
         fun getEmergencyUnlockInfo(): EmergencyUnlockInfo? {
@@ -87,6 +99,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
         // ========== SCHEDULE ENFORCEMENT ==========
         private const val SCHEDULE_CHECK_INTERVAL_MS = 60_000L // Check every minute
+
+        // How often the app already on screen is re-evaluated. Short enough
+        // that a window opening mid-scroll bites almost immediately, long
+        // enough not to matter for battery.
+        private const val FOREGROUND_RECHECK_INTERVAL_MS = 15_000L
 
         // ========== GLOBAL DAILY USAGE LIMIT ==========
         private const val GLOBAL_LIMIT_CHECK_INTERVAL_MS = 30_000L // Check every 30 seconds
@@ -252,6 +269,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
     // ========== SCHEDULE ENFORCEMENT ==========
     private val scheduleCheckHandler = Handler(Looper.getMainLooper())
+    private var foregroundRecheckRunnable: Runnable? = null
     private var scheduleCheckRunnable: Runnable? = null
     private var lastScheduleCheck: Long = 0L
 
@@ -372,6 +390,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Still needed: the set of apps whose sessions we measure for usage
         // budgets and for the insights screen.
         refreshDistractingAppsCache()
+
+        // Catches an app the user is ALREADY inside when a window opens.
+        startForegroundRecheck()
 
         // Arm the next boundary for every rule, in case an alarm was lost to a
         // force-stop or a battery-manager kill.
@@ -1110,77 +1131,59 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Periodically check if the current foreground app should be blocked due to an active schedule.
-     * This catches cases where the user was already in an app when a schedule became active.
+     * Re-check the app that is ALREADY on screen.
+     *
+     * This is the difference between a routine that works and one that does
+     * not. The accessibility service only receives an event when the user
+     * SWITCHES app, so a rule whose window opens at 20:45 never sees the
+     * Instagram session that started at 20:30 -- the user simply keeps
+     * scrolling and the routine silently never engages. That is the single
+     * most likely situation for an evening wind-down rule to be in.
+     *
+     * The polling fallback cannot cover it either: AppBlockingService stands
+     * down entirely whenever this service is alive. And the boundary alarm only
+     * does housekeeping. So without this loop there is nothing in the app that
+     * can block an app you are already inside.
      */
-    private fun checkScheduleEnforcement() {
+    private fun recheckForegroundApp() {
         val currentPackage = lastForegroundPackage ?: return
-        val now = System.currentTimeMillis()
-
-        // Don't check too frequently (redundant with event-based checking)
-        if (now - lastScheduleCheck < 30_000L) return
-        lastScheduleCheck = now
-
-        // Don't block our own app or system components
+        if (isBlockingInProgress) return
         if (shouldIgnorePackage(currentPackage)) return
 
-        // Check if blocking is already in progress
-        if (isBlockingInProgress) return
+        val now = System.currentTimeMillis()
+        if (currentPackage == lastBlockedPackage && now - lastBlockTime < BLOCK_COOLDOWN) return
 
-        immediateScope.launch {
+        serviceScope.launch {
             try {
-                val scheduleDao = database.scheduleDao()
-                val blockedAppDao = database.blockedAppDao()
-
-                // Check if in allowlist
-                val blockedApp = blockedAppDao.getBlockedApp(currentPackage)
-                if (blockedApp?.isInAllowlist == true) return@launch
-
-                // Check schedules
-                val currentMinute = TimeUtils.getCurrentMinuteOfDay()
-                val dayOfWeek = TimeUtils.getCurrentDayOfWeek().toString()
-                val activeSchedules = scheduleDao.getActiveSchedules(currentMinute, dayOfWeek)
-
-                for (schedule in activeSchedules) {
-                    val blockedPackages = schedule.blockedPackages.split(",")
-                    if (blockedPackages.contains(currentPackage)) {
-                        Log.i(TAG, "Schedule enforcement: Blocking $currentPackage (schedule: ${schedule.name})")
-
-                        // Block the app
-                        val appName = AppUtils.getAppName(applicationContext, currentPackage)
-
-                        mainHandler.post {
-                            // Vibrate to alert
-                            vibrateDevice()
-                            // Go home first
-                            performGlobalAction(GLOBAL_ACTION_HOME)
-                        }
-
-                        // Small delay then show blocking screen
-                        kotlinx.coroutines.delay(150)
-
-                        mainHandler.post {
-                            showBlockingScreen(currentPackage, appName, BlockedByType.SCHEDULE)
-                        }
-
-                        // Log the block
-                        database.blockLogDao().insert(
-                            BlockLog(
-                                packageName = currentPackage,
-                                appName = appName,
-                                blockedBy = BlockedByType.SCHEDULE
-                            )
-                        )
-                        database.blockedAppDao().incrementBlockCount(currentPackage)
-
-                        break // Only block once
-                    }
+                if (shouldBlockApp(currentPackage)) {
+                    Log.i(TAG, "Re-check caught an app already in the foreground: $currentPackage")
+                    lastBlockedPackage = currentPackage
+                    lastBlockTime = System.currentTimeMillis()
+                    blockApp(currentPackage)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error in schedule enforcement check", e)
+                Log.e(TAG, "Foreground re-check failed", e)
             }
         }
     }
+
+    private fun startForegroundRecheck() {
+        stopForegroundRecheck()
+        foregroundRecheckRunnable = object : Runnable {
+            override fun run() {
+                recheckForegroundApp()
+                scheduleCheckHandler.postDelayed(this, FOREGROUND_RECHECK_INTERVAL_MS)
+            }
+        }
+        scheduleCheckHandler.post(foregroundRecheckRunnable!!)
+        Log.i(TAG, "Foreground re-check started")
+    }
+
+    private fun stopForegroundRecheck() {
+        foregroundRecheckRunnable?.let { scheduleCheckHandler.removeCallbacks(it) }
+        foregroundRecheckRunnable = null
+    }
+
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
@@ -1349,6 +1352,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         stopQuickBlockTimerCheck() // Clean up Quick Block timer
         stopSessionDurationCheck() // Clean up session duration timer
         stopScheduleCheck() // Clean up schedule enforcement check
+        stopForegroundRecheck()
         stopGlobalLimitCheck() // Clean up Global Limit check
         stopUsageComparisonCheck() // Clean up Usage Comparison check
         dismissAppTimerNotification() // Dismiss App Timer notification

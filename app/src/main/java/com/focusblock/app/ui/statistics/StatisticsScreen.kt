@@ -32,6 +32,7 @@ import com.focusblock.app.utils.AppUtils
 import com.focusblock.app.viewmodel.InsightsViewModel
 import com.focusblock.app.viewmodel.InsightsTab
 import com.focusblock.app.viewmodel.AppCategory
+import com.focusblock.app.viewmodel.ProtectedWindowStat
 import com.focusblock.app.viewmodel.RepeatOffenderApp
 import com.focusblock.app.viewmodel.OffenderSeverity
 import kotlinx.coroutines.launch
@@ -226,6 +227,13 @@ fun StatisticsScreen(
                     onExcludeApp = { pkg, name -> viewModel.excludeAppFromUsage(pkg, name) },
                     onManageExcluded = { viewModel.toggleExcludedAppsDialog() }
                 )
+            }
+
+            // How each protected window actually went
+            if (uiState.protectedWindows.isNotEmpty()) {
+                item {
+                    ProtectedWindowsCard(windows = uiState.protectedWindows)
+                }
             }
 
             // Repeat Offenders (apps user keeps trying to open)
@@ -1592,4 +1600,72 @@ fun ExcludedAppsDialog(
         containerColor = CardDark,
         shape = RoundedCornerShape(20.dp)
     )
+}
+
+/**
+ * What actually happened inside each protected window.
+ *
+ * Measurements only: minutes of the blocked apps used inside the window, and
+ * how many times the block screen appeared. No score, no grade, no streak --
+ * an invented number would be easier to read and much easier to game.
+ */
+@Composable
+fun ProtectedWindowsCard(windows: List<ProtectedWindowStat>) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Your protected windows",
+                style = MaterialTheme.typography.titleMedium,
+                color = TextPrimary
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Usage of blocked apps inside each routine's own window",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+
+            windows.forEach { window ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = window.ruleName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = window.windowLabel,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = if (window.heldClean) "Nothing got through"
+                            else "${window.minutesInsideWindow}m used",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (window.heldClean) AccentGreen else TextPrimary
+                        )
+                        if (window.blockedAttempts > 0) {
+                            Text(
+                                text = "${window.blockedAttempts} blocked",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

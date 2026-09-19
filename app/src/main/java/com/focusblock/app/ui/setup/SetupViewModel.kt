@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
-enum class SetupStep { WHAT_IT_DOES, PERMISSIONS, CHOOSE_APPS, EVENING_BLOCK, DONE }
+enum class SetupStep { WHAT_IT_DOES, PERMISSIONS, CHOOSE_APPS, EVENING_BLOCK, REASON, DONE }
 
 data class SetupApp(
     val packageName: String,
@@ -49,6 +49,11 @@ data class SetupUiState(
     val daysOfWeek: String = "1,2,3,4,5",
     val commitment: CommitmentLevel = CommitmentLevel.LOCKED,
     val saving: Boolean = false,
+    /**
+     * What the protected time is FOR, in the user's words. Asked once, here,
+     * and shown back at the moment of the urge -- never prompted for again.
+     */
+    val reason: String = "",
     val message: String? = null
 ) {
     val selectedPackages: List<String> get() = apps.filter { it.selected }.map { it.packageName }
@@ -73,7 +78,8 @@ class SetupViewModel @Inject constructor(
     application: Application,
     private val ruleDao: BlockRuleDao,
     private val blockedAppDao: BlockedAppDao,
-    private val engine: BlockingEngine
+    private val engine: BlockingEngine,
+    private val profileDao: com.focusblock.app.database.dao.FocusProfileDao
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(SetupUiState())
@@ -105,7 +111,8 @@ class SetupViewModel @Inject constructor(
             SetupStep.WHAT_IT_DOES -> SetupStep.PERMISSIONS
             SetupStep.PERMISSIONS -> SetupStep.CHOOSE_APPS
             SetupStep.CHOOSE_APPS -> SetupStep.EVENING_BLOCK
-            SetupStep.EVENING_BLOCK -> SetupStep.DONE
+            SetupStep.EVENING_BLOCK -> SetupStep.REASON
+            SetupStep.REASON -> SetupStep.DONE
             SetupStep.DONE -> SetupStep.DONE
         }
         goTo(next)
@@ -118,7 +125,8 @@ class SetupViewModel @Inject constructor(
             SetupStep.PERMISSIONS -> SetupStep.WHAT_IT_DOES
             SetupStep.CHOOSE_APPS -> SetupStep.PERMISSIONS
             SetupStep.EVENING_BLOCK -> SetupStep.CHOOSE_APPS
-            SetupStep.DONE -> SetupStep.EVENING_BLOCK
+            SetupStep.REASON -> SetupStep.EVENING_BLOCK
+            SetupStep.DONE -> SetupStep.REASON
         }
         goTo(prev)
     }
@@ -202,6 +210,8 @@ class SetupViewModel @Inject constructor(
 
     fun setCommitment(level: CommitmentLevel) = _uiState.update { it.copy(commitment = level) }
 
+    fun setReason(text: String) = _uiState.update { it.copy(reason = text.take(80)) }
+
     /**
      * Create the routine and finish.
      *
@@ -246,6 +256,11 @@ class SetupViewModel @Inject constructor(
                         )
                     }
                 }
+
+                // Stored on the profile, not on the rule: it belongs to the
+                // person, and the block screen reads it whatever is blocking.
+                profileDao.require()
+                profileDao.setReason(state.reason.trim(), "")
 
                 val rule = RuleTemplates.EVENING_WORK.build(state.selectedPackages).copy(
                     startMinute = state.startMinute,

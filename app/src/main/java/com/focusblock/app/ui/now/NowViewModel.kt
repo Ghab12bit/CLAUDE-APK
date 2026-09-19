@@ -47,6 +47,11 @@ data class NowUiState(
     val pickerApps: List<PickableApp> = emptyList(),
     val pickerLoading: Boolean = false,
     val manualRuleRunning: BlockRule? = null,
+    /** What the user has at stake right now. Null until there is something real. */
+    val streakDays: Int = 0,
+    val impulsesPassed: Int = 0,
+    val protectedHours: Int = 0,
+    val reason: String = "",
     val message: String? = null
 )
 
@@ -124,7 +129,8 @@ class NowViewModel @Inject constructor(
     application: Application,
     private val ruleDao: BlockRuleDao,
     private val blockedAppDao: BlockedAppDao,
-    private val engine: BlockingEngine
+    private val engine: BlockingEngine,
+    private val profileDao: com.focusblock.app.database.dao.FocusProfileDao
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(NowUiState())
@@ -217,6 +223,7 @@ class NowViewModel @Inject constructor(
                     .toList()
 
                 val manual = rules.firstOrNull { it.manualIsRunning(now) }
+                val profile = profileDao.require()
 
                 // Seed the one-off block's app list from the routines the user
                 // has already built, so "Block now" is a single tap instead of
@@ -233,7 +240,11 @@ class NowViewModel @Inject constructor(
                         alwaysAllowed = allowed.sortedBy { a -> a.label },
                         upcoming = upcoming,
                         manualRuleRunning = manual,
-                        savedApps = seeded
+                        savedApps = seeded,
+                        streakDays = profile.currentStreakDays,
+                        impulsesPassed = profile.impulsesPassed,
+                        protectedHours = (profile.totalProtectedMinutes / 60).toInt(),
+                        reason = profile.reason
                     )
                 }
             } catch (e: Exception) {

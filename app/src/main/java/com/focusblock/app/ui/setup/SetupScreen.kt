@@ -78,6 +78,7 @@ fun SetupScreen(
                     SetupStep.PERMISSIONS -> Permissions(state, viewModel)
                     SetupStep.CHOOSE_APPS -> ChooseApps(state, viewModel)
                     SetupStep.EVENING_BLOCK -> EveningBlock(state, viewModel)
+                    SetupStep.REASON -> Reason(state, viewModel)
                     SetupStep.DONE -> Done(state)
                 }
             }
@@ -373,6 +374,77 @@ private fun CommitmentChoice(current: CommitmentLevel, onChange: (CommitmentLeve
     }
 }
 
+
+/**
+ * The one question worth asking, asked once.
+ *
+ * At 9pm the urge to scroll is concrete and "get clients" is a word. This
+ * captures the user's own phrasing so the block screen can put it back in front
+ * of them at the exact moment the urge is winning. It is asked HERE and never
+ * again -- there is no nightly prompt, no reflection, no log. Skipping it is a
+ * first-class option and the blocker works identically without it.
+ */
+@Composable
+private fun Reason(state: SetupUiState, viewModel: SetupViewModel) {
+    Column(Modifier.verticalScroll(rememberScrollState())) {
+        Heading("What's this time for?")
+        Text(
+            "When you reach for Instagram at 9pm, the urge is specific and your " +
+                "reason is vague. This puts your reason where the urge is.",
+            color = TextSecondary,
+            fontSize = 14.sp
+        )
+        Spacer(Modifier.height(20.dp))
+
+        OutlinedTextField(
+            value = state.reason,
+            onValueChange = viewModel::setReason,
+            placeholder = { Text("Send 3 client messages", color = TextTertiary) },
+            singleLine = false,
+            minLines = 2,
+            textStyle = androidx.compose.ui.text.TextStyle(
+                color = TextPrimary,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Medium
+            ),
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(16.dp))
+        Text(
+            "Written once. You'll never be asked again.",
+            color = TextTertiary,
+            fontSize = 12.sp
+        )
+
+        Spacer(Modifier.height(24.dp))
+        Text("Or start from one of these", color = TextSecondary, fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(10.dp))
+        REASON_SUGGESTIONS.forEach { suggestion ->
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SurfaceDark)
+                    .clickable { viewModel.setReason(suggestion) }
+                    .padding(14.dp)
+            ) {
+                Text(suggestion, color = TextPrimary, fontSize = 14.sp)
+            }
+        }
+    }
+}
+
+private val REASON_SUGGESTIONS = listOf(
+    "Send 3 client messages",
+    "Ship one thing I can show someone",
+    "Work on my own business, not someone else's feed",
+    "Two hours that belong to me"
+)
+
 @Composable
 private fun Done(state: SetupUiState) {
     Column(
@@ -429,7 +501,7 @@ private fun NavRow(state: SetupUiState, viewModel: SetupViewModel, onComplete: (
         Button(
             onClick = {
                 when (state.step) {
-                    SetupStep.EVENING_BLOCK -> viewModel.finish { viewModel.next() }
+                    SetupStep.REASON -> viewModel.finish { viewModel.next() }
                     SetupStep.DONE -> onComplete()
                     else -> viewModel.next()
                 }
@@ -444,7 +516,11 @@ private fun NavRow(state: SetupUiState, viewModel: SetupViewModel, onComplete: (
                     SetupStep.WHAT_IT_DOES -> "Get started"
                     SetupStep.PERMISSIONS -> if (state.canEnforce) "Next" else "Continue anyway"
                     SetupStep.CHOOSE_APPS -> "Next"
-                    SetupStep.EVENING_BLOCK -> if (state.saving) "Saving..." else "Create routine"
+                    SetupStep.EVENING_BLOCK -> "Next"
+                    SetupStep.REASON ->
+                        if (state.saving) "Saving..."
+                        else if (state.reason.isBlank()) "Skip for now"
+                        else "Create routine"
                     SetupStep.DONE -> "Open FocusBlock"
                 },
                 fontSize = 15.sp,

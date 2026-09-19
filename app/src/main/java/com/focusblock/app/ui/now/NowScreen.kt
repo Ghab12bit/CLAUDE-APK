@@ -109,6 +109,21 @@ fun NowScreen(
                 )
             }
 
+            // The stake. Framed as what there is to lose, never as a score.
+            if (state.streakDays > 0 || state.impulsesPassed > 0 || state.protectedHours > 0) {
+                item {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        StakeTile("${state.streakDays}", "day streak", Modifier.weight(1f),
+                            highlight = state.streakDays >= 2)
+                        StakeTile("${state.impulsesPassed}", "urges passed", Modifier.weight(1f))
+                        StakeTile("${state.protectedHours}h", "protected", Modifier.weight(1f))
+                    }
+                }
+            }
+
             if (state.blockedGroups.isNotEmpty()) {
                 item { SectionHeading("Blocked right now") }
             }
@@ -429,6 +444,40 @@ private fun AppPickerSheet(
                 }
             }
         }
+    }
+}
+
+/**
+ * One number, large, with a quiet label. Restores the density the original app
+ * had -- something to look at and take in at a glance -- while measuring things
+ * that reflect what the person did rather than what the software did.
+ */
+@Composable
+private fun StakeTile(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    highlight: Boolean = false
+) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (highlight) SignalGlow else CardDark)
+            .then(
+                if (highlight) Modifier.border(1.dp, SignalBorder, RoundedCornerShape(16.dp))
+                else Modifier
+            )
+            .padding(vertical = 16.dp, horizontal = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            value,
+            color = if (highlight) Signal else TextPrimary,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(label, color = TextTertiary, fontSize = 11.sp)
     }
 }
 

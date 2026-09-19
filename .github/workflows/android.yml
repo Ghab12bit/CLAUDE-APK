@@ -36,6 +36,23 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}-
 
+      # A malformed manifest otherwise surfaces as a manifest-merger stack
+      # trace well into the build. This fails in about a second instead.
+      - name: Validate XML resources
+        run: |
+          python3 - <<'EOF'
+          import glob, sys, xml.dom.minidom
+          bad = []
+          for f in glob.glob('app/src/main/**/*.xml', recursive=True):
+              try:
+                  xml.dom.minidom.parse(f)
+              except Exception as e:
+                  bad.append(f"{f}: {e}")
+          if bad:
+              print("Malformed XML:"); [print(" ", b) for b in bad]; sys.exit(1)
+          print("All XML files parse.")
+          EOF
+
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
 

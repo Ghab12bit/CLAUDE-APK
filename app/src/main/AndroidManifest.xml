@@ -100,11 +100,6 @@
         <receiver
             android:name=".receiver.RuleAlarmReceiver"
             android:exported="false" />
-            </intent-filter>
-        </receiver>
-                <action android:name="android.intent.action.ACTION_POWER_DISCONNECTED" />
-            </intent-filter>
-        </receiver>
 
         <!-- Home Screen Widget -->
         <receiver

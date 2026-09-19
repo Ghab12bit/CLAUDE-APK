@@ -40,7 +40,7 @@ import kotlinx.coroutines.launch
 // Color scheme for categories
 val DistractiveColor = Color(0xFF8B5CF6) // Purple
 val NeutralColor = Color(0xFF06B6D4) // Cyan
-val ProductiveColor = Color(0xFF10B981) // Green
+val ProductiveColor = Signal // Green
 
 @Composable
 fun StatisticsScreen(
@@ -168,13 +168,7 @@ fun StatisticsScreen(
 
             // ========== KEY METRICS SECTION ==========
             item {
-                Text(
-                    text = "Key Metrics",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.5.sp
-                )
+                com.focusblock.app.ui.components.SectionHeading("Key Metrics")
             }
 
             // Key metrics in a compact row
@@ -208,13 +202,7 @@ fun StatisticsScreen(
 
             // ========== APPS SECTION ==========
             item {
-                Text(
-                    text = "Apps",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.5.sp
-                )
+                com.focusblock.app.ui.components.SectionHeading("Apps")
             }
 
             // Most Used Apps
@@ -256,13 +244,7 @@ fun StatisticsScreen(
 
             // ========== DETAILS SECTION ==========
             item {
-                Text(
-                    text = "Timeline",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.5.sp
-                )
+                com.focusblock.app.ui.components.SectionHeading("Timeline")
             }
 
             // Usage Timeline Chart - moved to bottom as it's detail-level
@@ -329,13 +311,13 @@ fun CompactSummaryCard(
                 // Change indicator
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = if (isPositive) Color(0xFF10B981).copy(alpha = 0.15f)
+                    color = if (isPositive) Signal.copy(alpha = 0.15f)
                             else Color(0xFFEF4444).copy(alpha = 0.15f)
                 ) {
                     Text(
                         text = changeText,
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (isPositive) Color(0xFF10B981) else Color(0xFFEF4444),
+                        color = if (isPositive) Signal else Color(0xFFEF4444),
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                     )
@@ -459,34 +441,17 @@ fun InsightsHeader(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = SurfaceDark,
-        shadowElevation = 2.dp
+        color = BackgroundDark,
+        shadowElevation = 0.dp
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Settings,
-                    contentDescription = "Settings",
-                    tint = TextSecondary
-                )
-                Text(
-                    text = "Insights",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary
-                )
-                Icon(
-                    imageVector = Icons.Filled.AutoAwesome,
-                    contentDescription = "AI",
-                    tint = Primary
-                )
-            }
+            // Matches the other screens: one big left-aligned title, no
+            // decorative gear, no "AI" sparkle. The sparkle in particular
+            // implied an intelligence the screen does not have -- these are
+            // measurements, not inferences.
+            com.focusblock.app.ui.components.ScreenTitle("Insights")
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -562,7 +527,7 @@ fun HeroMetricCard(
             Text(
                 text = changeText,
                 style = MaterialTheme.typography.bodySmall,
-                color = if (isPositive) Color(0xFF10B981) else Color(0xFFEF4444)
+                color = if (isPositive) Signal else Color(0xFFEF4444)
             )
 
             // Weekly trend indicator
@@ -575,7 +540,7 @@ fun HeroMetricCard(
                         .background(
                             color = when {
                                 weeklyTrendPercent > 10 -> Color(0xFFEF4444).copy(alpha = 0.1f)
-                                weeklyTrendPercent < -10 -> Color(0xFF10B981).copy(alpha = 0.1f)
+                                weeklyTrendPercent < -10 -> SignalGlow
                                 else -> TextSecondary.copy(alpha = 0.1f)
                             },
                             shape = RoundedCornerShape(8.dp)
@@ -591,7 +556,7 @@ fun HeroMetricCard(
                         contentDescription = null,
                         tint = when {
                             weeklyTrendPercent > 10 -> Color(0xFFEF4444)
-                            weeklyTrendPercent < -10 -> Color(0xFF10B981)
+                            weeklyTrendPercent < -10 -> Signal
                             else -> TextSecondary
                         },
                         modifier = Modifier.size(16.dp)
@@ -602,7 +567,7 @@ fun HeroMetricCard(
                         style = MaterialTheme.typography.labelMedium,
                         color = when {
                             weeklyTrendPercent > 10 -> Color(0xFFEF4444)
-                            weeklyTrendPercent < -10 -> Color(0xFF10B981)
+                            weeklyTrendPercent < -10 -> Signal
                             else -> TextSecondary
                         }
                     )

@@ -17,6 +17,7 @@ import com.focusblock.app.FocusBlockApp
 import com.focusblock.app.R
 import com.focusblock.app.database.entity.BlockLog
 import com.focusblock.app.database.entity.BlockedByType
+import com.focusblock.app.blocking.BlockingEngine
 import com.focusblock.app.database.repository.FocusBlockRepository
 import com.focusblock.app.ui.MainActivity
 import com.focusblock.app.ui.overlay.BlockedAppActivity
@@ -35,6 +36,9 @@ class AppBlockingService : Service() {
 
     @Inject
     lateinit var repository: FocusBlockRepository
+
+    @Inject
+    lateinit var blockingEngine: BlockingEngine
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var wakeLock: PowerManager.WakeLock? = null
@@ -105,6 +109,16 @@ class AppBlockingService : Service() {
     }
 
     private suspend fun checkCurrentApp() {
+        // The accessibility service is the better enforcer: it reacts to a
+        // window change immediately instead of up to a poll interval later.
+        // When it is running this service is a foreground-service host only,
+        // so it must not also burn CPU and battery polling usage stats.
+        if (FocusBlockAccessibilityService.isServiceRunning) {
+            releaseWakeLock()
+            return
+        }
+        acquireWakeLock()
+
         val currentPackage = getCurrentForegroundApp() ?: return
 
         // Don't block our own app or system UI
@@ -154,41 +168,17 @@ class AppBlockingService : Service() {
         return lastPackage
     }
 
-    private suspend fun shouldBlockApp(packageName: String): Boolean {
-        // Check if in allowlist
-        val blockedApp = repository.getBlockedApp(packageName)
-        if (blockedApp?.isInAllowlist == true) {
-            return false
-        }
-
-        // Check Quick Block
-        val quickBlockSession = repository.getActiveQuickBlockSessionSync()
-        if (quickBlockSession != null) {
-            val blockedPackages = quickBlockSession.blockedPackages.split(",")
-            if (blockedPackages.contains(packageName)) {
-                return true
-            }
-        }
-
-        // Check schedules
-        val currentMinute = TimeUtils.getCurrentMinuteOfDay()
-        val dayOfWeek = TimeUtils.getCurrentDayOfWeek().toString()
-        val activeSchedules = repository.getActiveSchedules(currentMinute, dayOfWeek)
-
-        for (schedule in activeSchedules) {
-            val blockedPackages = schedule.blockedPackages.split(",")
-            if (blockedPackages.contains(packageName)) {
-                return true
-            }
-        }
-
-        // Check if individually blocked
-        if (blockedApp?.isBlocked == true) {
-            return true
-        }
-
-        return false
-    }
+    /**
+     * Delegates to the one rule engine.
+     *
+     * This service previously implemented its OWN rule set -- no Strict Mode,
+     * no daily budget, no Focus Cycle, no Bedtime, and it honoured the
+     * vestigial BlockedApp.isBlocked flag that the accessibility path
+     * deliberately ignored. Whichever service happened to be alive therefore
+     * changed what was blocked. It now holds no policy of its own.
+     */
+    private suspend fun shouldBlockApp(packageName: String): Boolean =
+        blockingEngine.evaluate(packageName).isBlocked
 
     private suspend fun blockApp(packageName: String) {
         // If accessibility service is running, let it handle blocking
@@ -383,7 +373,14 @@ class AppBlockingService : Service() {
         }
     }
 
+    /**
+     * Idempotent: a held wake lock is reused rather than replaced.
+     *
+     * This is now called from the polling loop, so allocating a fresh lock on
+     * every call would leak locks and defeat the timeout.
+     */
     private fun acquireWakeLock() {
+        wakeLock?.let { if (it.isHeld) return }
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
@@ -407,7 +404,10 @@ class AppBlockingService : Service() {
         const val ACTION_STOP = "com.focusblock.app.action.STOP"
         const val ACTION_UPDATE = "com.focusblock.app.action.UPDATE"
         private const val NOTIFICATION_ID = 1001
-        private const val CHECK_INTERVAL = 500L // Check every 500ms
+        // 500ms was far more aggressive than necessary for a fallback path
+        // and measurably drained battery. A second is still well inside the
+        // window in which a user could open a blocked app and see content.
+        private const val CHECK_INTERVAL = 1000L
         private const val BLOCK_COOLDOWN = 2000L // Don't block same app within 2 seconds
 
         fun start(context: Context) {

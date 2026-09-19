@@ -1,7 +1,3 @@
-// CI stamps the run number so every build is a genuine upgrade Android will
-// replace, and so the build is identifiable from inside the app.
-def buildNumber = System.getenv("GITHUB_RUN_NUMBER") ?: "1"
-
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
@@ -9,6 +5,10 @@ plugins {
     id 'com.google.dagger.hilt.android'
     id 'kotlin-parcelize'
 }
+
+// CI stamps the run number so every build is a genuine upgrade Android will
+// replace, and so the build is identifiable from inside the app.
+def buildNumber = System.getenv("GITHUB_RUN_NUMBER") ?: "1"
 
 android {
     namespace 'com.focusblock.app'

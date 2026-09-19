@@ -221,16 +221,19 @@ object Migrations {
                 """.trimIndent()
             )
 
+            // Matched with LIKE against the comma-delimited list rather than
+            // IN (...), because whitelistedPackages is a single string: an
+            // IN comparison would only ever match a list of exactly one app,
+            // silently leaving the rest blockable.
             db.execSQL(
                 """
                 UPDATE blocked_apps
                 SET isInAllowlist = 1
-                WHERE packageName IN (
-                    SELECT TRIM(value) FROM (
-                        SELECT whitelistedPackages AS value
-                        FROM global_daily_limit_settings
-                        WHERE whitelistedPackages <> ''
-                    )
+                WHERE EXISTS (
+                    SELECT 1 FROM global_daily_limit_settings g
+                    WHERE g.whitelistedPackages <> ''
+                      AND ',' || REPLACE(g.whitelistedPackages, ' ', '') || ','
+                          LIKE '%,' || blocked_apps.packageName || ',%'
                 )
                 """.trimIndent()
             )
@@ -316,14 +319,14 @@ object Migrations {
                 VALUES (
                     1,
                     CASE
-                        WHEN (SELECT value FROM settings WHERE key = 'strict_mode_enabled') = 'true'
-                          OR (SELECT value FROM settings WHERE key = 'hard_mode_enabled') = 'true'
+                        WHEN (SELECT `value` FROM settings WHERE `key` = 'strict_mode_enabled') = 'true'
+                          OR (SELECT `value` FROM settings WHERE `key` = 'hard_mode_enabled') = 'true'
                           OR (SELECT isHardModeEnabled FROM global_daily_limit_settings WHERE id = 1) = 1
                         THEN 'LOCKED'
                         ELSE 'OFF'
                     END,
                     COALESCE(
-                        CAST((SELECT value FROM settings WHERE key = 'strict_mode_end_time') AS INTEGER),
+                        CAST((SELECT `value` FROM settings WHERE `key` = 'strict_mode_end_time') AS INTEGER),
                         0
                     ),
                     5, 0, '', '', '', 0, 1, 15, $now

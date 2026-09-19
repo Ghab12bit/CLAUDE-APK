@@ -47,6 +47,12 @@ interface BlockedAppDao {
 
     @Query("SELECT packageName FROM blocked_apps WHERE isBlocked = 1")
     suspend fun getBlockedPackageNames(): List<String>
+
+    @Query("SELECT packageName FROM blocked_apps WHERE isInAllowlist = 1")
+    suspend fun getAllowlistPackages(): List<String>
+
+    @Query("UPDATE blocked_apps SET isInAllowlist = :allowed WHERE packageName = :packageName")
+    suspend fun setAllowlisted(packageName: String, allowed: Boolean)
 }
 
 @Dao

@@ -92,6 +92,51 @@ class BlockingEngine @Inject constructor(
     }
 
     // ------------------------------------------------------------------
+    // Caching
+    //
+    // evaluate() runs on the blocking path: every time an app comes to the
+    // foreground, before the user can see its content. A database round trip
+    // per window change adds latency exactly where it is most visible, so the
+    // rule set and allowlist are cached for a short interval.
+    //
+    // The TTL is short enough that an edit takes effect within a couple of
+    // seconds, and [invalidate] makes it immediate when the app changes a rule
+    // itself. Usage counters are never cached -- a spent budget must block on
+    // the very next app open.
+    // ------------------------------------------------------------------
+
+    @Volatile private var cachedRules: List<BlockRule>? = null
+    @Volatile private var cachedAllowlist: Set<String>? = null
+    @Volatile private var cacheLoadedAt: Long = 0L
+
+    /** Drop the cache so the next evaluation reflects a change immediately. */
+    fun invalidate() {
+        cachedRules = null
+        cachedAllowlist = null
+        cacheLoadedAt = 0L
+    }
+
+    private suspend fun enabledRules(now: Long): List<BlockRule> {
+        refreshCacheIfStale(now)
+        return cachedRules ?: ruleDao.getEnabledRulesSync().also { cachedRules = it }
+    }
+
+    private suspend fun allowlist(now: Long): Set<String> {
+        refreshCacheIfStale(now)
+        return cachedAllowlist ?: blockedAppDao.getAllowlistPackages().toSet()
+            .also { cachedAllowlist = it }
+    }
+
+    private suspend fun refreshCacheIfStale(now: Long) {
+        if (cachedRules != null && cachedAllowlist != null &&
+            now - cacheLoadedAt < CACHE_TTL_MS
+        ) return
+        cachedRules = ruleDao.getEnabledRulesSync()
+        cachedAllowlist = blockedAppDao.getAllowlistPackages().toSet()
+        cacheLoadedAt = now
+    }
+
+    // ------------------------------------------------------------------
     // Evaluation
     // ------------------------------------------------------------------
 
@@ -108,7 +153,7 @@ class BlockingEngine @Inject constructor(
     ): Decision {
         // INVARIANT 1: the allowlist wins over everything, including a
         // PIN-locked rule. The phone stays usable and the user stays reachable.
-        if (isAllowlisted(packageName)) {
+        if (allowlist(now).contains(packageName)) {
             return Decision(packageName, isBlocked = false, reasons = emptyList(), allowlisted = true)
         }
 
@@ -120,7 +165,7 @@ class BlockingEngine @Inject constructor(
         val reasons = mutableListOf<ActiveReason>()
         val calendar = Calendar.getInstance().apply { timeInMillis = now }
 
-        for (rule in ruleDao.getEnabledRulesSync()) {
+        for (rule in enabledRules(now)) {
             if (!rule.covers(packageName)) continue
 
             // An active override temporarily suspends this ONE rule. It cannot
@@ -214,9 +259,9 @@ class BlockingEngine @Inject constructor(
         now: Long = System.currentTimeMillis()
     ) {
         if (seconds <= 0) return
-        if (isAllowlisted(packageName)) return
+        if (allowlist(now).contains(packageName)) return
 
-        for (rule in ruleDao.getEnabledRulesSync()) {
+        for (rule in enabledRules(now)) {
             if (!rule.hasUsageCondition) continue
             if (!rule.covers(packageName)) continue
             ruleDao.addUsage(rule.id, bucketFor(UsageWindow.DAILY, now), seconds)
@@ -226,8 +271,8 @@ class BlockingEngine @Inject constructor(
 
     /** Credit one app launch, for rules that count launches rather than time. */
     suspend fun recordLaunch(packageName: String, now: Long = System.currentTimeMillis()) {
-        if (isAllowlisted(packageName)) return
-        for (rule in ruleDao.getEnabledRulesSync()) {
+        if (allowlist(now).contains(packageName)) return
+        for (rule in enabledRules(now)) {
             if (!rule.covers(packageName)) continue
             ruleDao.addLaunch(rule.id, bucketFor(UsageWindow.DAILY, now))
             ruleDao.addLaunch(rule.id, bucketFor(UsageWindow.HOURLY, now))
@@ -292,6 +337,7 @@ class BlockingEngine @Inject constructor(
                         reason = "emergency"
                     )
                 )
+                invalidate()
                 return EndAttempt.Ended(stillBlockedNames(ruleId, rule, now))
             }
 
@@ -311,6 +357,7 @@ class BlockingEngine @Inject constructor(
         }
 
         // Actually end this one rule.
+        invalidate()
         if (rule.kind == RuleKind.MANUAL) {
             ruleDao.update(rule.copy(isManualActive = false, activeUntil = null, updatedAt = now))
         } else {
@@ -347,9 +394,6 @@ class BlockingEngine @Inject constructor(
     // Helpers
     // ------------------------------------------------------------------
 
-    private suspend fun isAllowlisted(packageName: String): Boolean =
-        blockedAppDao.getBlockedApp(packageName)?.isInAllowlist == true
-
     private fun bucketFor(window: UsageWindow, now: Long): String {
         val pattern = if (window == UsageWindow.DAILY) "yyyy-MM-dd" else "yyyy-MM-dd'T'HH"
         return SimpleDateFormat(pattern, Locale.US).format(Date(now))
@@ -377,5 +421,9 @@ class BlockingEngine @Inject constructor(
     private fun formatTime(epoch: Long?): String {
         if (epoch == null) return "you turn it off"
         return SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(epoch))
+    }
+
+    companion object {
+        private const val CACHE_TTL_MS = 2_000L
     }
 }

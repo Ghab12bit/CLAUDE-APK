@@ -25,7 +25,7 @@ import androidx.navigation.compose.rememberNavController
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.OnboardingState
 import com.focusblock.app.service.AppBlockingService
-import com.focusblock.app.ui.home.HomeScreen
+import com.focusblock.app.ui.now.NowScreen
 import com.focusblock.app.ui.onboarding.OnboardingScreen
 import com.focusblock.app.ui.schedules.SchedulesScreen
 import com.focusblock.app.ui.settings.SettingsScreen
@@ -223,7 +223,14 @@ fun MainApp() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Home.route) {
-                HomeScreen()
+                // The new home screen. The 6,000-line legacy HomeScreen is
+                // left in the tree for one release so its remaining dialogs
+                // can be ported, but it is no longer reachable.
+                NowScreen(
+                    onOpenRoutines = { navController.navigate(Screen.Schedules.route) },
+                    onFixPermissions = { navController.navigate(Screen.Settings.route) },
+                    onEditApps = { navController.navigate(Screen.Settings.route) }
+                )
             }
             composable(Screen.Schedules.route) {
                 SchedulesScreen()

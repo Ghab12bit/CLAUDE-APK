@@ -347,39 +347,46 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         instance = this
         Log.i(TAG, "FocusBlock Accessibility Service is now running")
 
-        // Initialize cache immediately
-        refreshFocusCycleCache()
+        // ==================================================================
+        // The legacy per-mode monitors are deliberately NOT started.
+        //
+        // Each of these drove one of the nine old blocking sources, kept its
+        // own cache of the rules, and posted its own notifications (gentle and
+        // firm session reminders, app-timer warnings, global-limit warnings,
+        // 3-hour excessive-usage nags, today-vs-yesterday comparisons,
+        // auto-block-on-excess-social). They are all superseded by
+        // BlockingEngine, which reads the rules directly.
+        //
+        // Leaving them running would mean two systems enforcing overlapping
+        // policy and a stream of notifications the user did not ask for, so
+        // they stay off. The code is kept for one release rather than deleted
+        // so the migration can be checked against it if anything looks wrong.
+        //
+        //   refreshFocusCycleCache()        startQuickBlockTimerCheck()
+        //   refreshAppTimerCache()          startSessionDurationCheck()
+        //   startAppTimerCheck()            startScheduleCheck()
+        //   refreshGlobalLimitCache()       startGlobalLimitCheck()
+        //   refreshStrictModeCache()        startStrictModeCheck()
+        //   refreshBedtimeCache()           startUsageComparisonCheck()
+        //   backfillHistoricalUsageData()
+        // ==================================================================
+
+        // Still needed: the set of apps whose sessions we measure for usage
+        // budgets and for the insights screen.
         refreshDistractingAppsCache()
-        refreshAppTimerCache()
 
-        // Start Quick Block timer enforcement
-        startQuickBlockTimerCheck()
-
-        // Start session duration monitoring for mindful reminders
-        startSessionDurationCheck()
-
-        // Start App Timer usage monitoring
-        startAppTimerCheck()
-
-        // Start schedule enforcement check
-        startScheduleCheck()
-
-        // Start Global Daily Limit monitoring
-        refreshGlobalLimitCache()
-        startGlobalLimitCheck()
-
-        // Start Strict Mode monitoring (for auto-expiration)
-        refreshStrictModeCache()
-        startStrictModeCheck()
-
-        // Start Bedtime Mode monitoring
-        refreshBedtimeCache()
-
-        // Start Daily Usage Comparison check
-        startUsageComparisonCheck()
-
-        // Backfill historical usage data for comparison feature (runs once)
-        backfillHistoricalUsageData()
+        // Arm the next boundary for every rule, in case an alarm was lost to a
+        // force-stop or a battery-manager kill.
+        serviceScope.launch {
+            try {
+                com.focusblock.app.blocking.RuleAlarmScheduler.rescheduleAll(
+                    applicationContext,
+                    database.blockRuleDao().getAllRulesSync()
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to arm rule boundaries on connect", e)
+            }
+        }
 
         // Register broadcast receiver for settings changes
         val filter = IntentFilter().apply {

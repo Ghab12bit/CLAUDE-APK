@@ -23,6 +23,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.focusblock.app.database.entity.CommitmentLevel
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.focusblock.app.ui.components.AppIconGrid
+import com.focusblock.app.ui.components.AppIconRow
+import com.focusblock.app.ui.components.GridApp
 import com.focusblock.app.ui.components.HeroState
 import com.focusblock.app.ui.components.ScreenTitle
 import com.focusblock.app.ui.components.SectionHeading
@@ -195,17 +200,25 @@ fun NowScreen(
 private fun BlockedGroupCard(group: BlockedGroup, onEnd: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = CardDark),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text(
-                text = group.apps.joinToString(", ") { it.label },
-                color = TextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium
+            // The apps, as a grid of real launcher icons. This was a
+            // comma-separated sentence before, which the eye has to read word
+            // by word instead of recognising at a glance.
+            AppIconGrid(
+                apps = group.apps.map {
+                    GridApp(packageName = it.packageName, label = it.label, selected = false)
+                },
+                onToggle = {},
+                columns = 5
             )
-            Spacer(Modifier.height(6.dp))
+
+            Spacer(Modifier.height(14.dp))
+            Divider(color = SurfaceElevated, thickness = 1.dp)
+            Spacer(Modifier.height(12.dp))
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (group.commitment != CommitmentLevel.OFF) {
                     Icon(
@@ -216,34 +229,31 @@ private fun BlockedGroupCard(group: BlockedGroup, onEnd: () -> Unit) {
                     )
                     Spacer(Modifier.width(6.dp))
                 }
-                Text(group.reasonLine, color = TextSecondary, fontSize = 13.sp)
+                Text(
+                    group.reasonLine,
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                if (group.canEndNow) {
+                    TextButton(onClick = onEnd, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text("Stop", color = Signal, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
             }
 
-            Spacer(Modifier.height(12.dp))
-
-            if (group.canEndNow) {
-                OutlinedButton(
-                    onClick = onEnd,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary)
-                ) {
-                    Text("Stop this", fontSize = 13.sp)
-                }
-            } else {
-                // The terms were shown before this armed; restate them here
-                // rather than presenting a button that will simply refuse.
+            if (!group.canEndNow) {
+                Spacer(Modifier.height(6.dp))
                 Text(
                     text = when (group.commitment) {
                         CommitmentLevel.LOCKED ->
-                            "Locked until it ends. One emergency unlock a day if you need it."
-                        CommitmentLevel.PIN_LOCKED ->
-                            "Needs your PIN, after a short wait."
+                            "Locked until it ends. One emergency unlock a day."
+                        CommitmentLevel.PIN_LOCKED -> "Needs your PIN, after a short wait."
                         CommitmentLevel.OFF -> ""
                     },
                     color = TextTertiary,
                     fontSize = 12.sp
                 )
-                Spacer(Modifier.height(8.dp))
                 TextButton(onClick = onEnd, contentPadding = PaddingValues(0.dp)) {
                     Text("I need to unlock", color = TextSecondary, fontSize = 13.sp)
                 }
@@ -253,15 +263,18 @@ private fun BlockedGroupCard(group: BlockedGroup, onEnd: () -> Unit) {
 }
 
 /**
- * Shown so the user can see at a glance that the apps they need for work are
- * reachable. The allowlist beats every rule, including a locked one.
+ * The apps that stay reachable under every rule, shown as icons.
+ *
+ * This was the line "Calendar, Clock, Gmail, Maps, Telegram, WhatsApp, WhatsApp
+ * Business" wrapping across three lines -- the clearest example in the app of a
+ * list pretending to be an interface.
  */
 @Composable
 private fun AlwaysAllowedRow(apps: List<AppLabel>) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(SurfaceDark)
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -270,16 +283,13 @@ private fun AlwaysAllowedRow(apps: List<AppLabel>) {
             Icons.Filled.CheckCircle,
             contentDescription = null,
             tint = Signal,
-            modifier = Modifier.size(15.dp)
+            modifier = Modifier.size(16.dp)
         )
-        Spacer(Modifier.width(10.dp))
-        Column {
-            Text(
-                apps.joinToString(", ") { it.label },
-                color = TextPrimary,
-                fontSize = 13.sp
-            )
-            Text("Always allowed", color = TextTertiary, fontSize = 12.sp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            AppIconRow(apps.map { it.packageName }, max = 7, size = 26.dp)
+            Spacer(Modifier.height(6.dp))
+            Text("Always reachable", color = TextTertiary, fontSize = 11.sp)
         }
     }
 }
@@ -405,33 +415,19 @@ private fun AppPickerSheet(
                     CircularProgressIndicator(color = Signal, modifier = Modifier.size(24.dp))
                 }
             } else {
-                LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                    items(apps, key = { it.packageName }) { app ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { onToggle(app.packageName) }
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = app.selected,
-                                onCheckedChange = { onToggle(app.packageName) },
-                                colors = CheckboxDefaults.colors(checkedColor = Signal)
+                Box(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    AppIconGrid(
+                        apps = apps.map {
+                            GridApp(
+                                packageName = it.packageName,
+                                label = it.label,
+                                selected = it.selected,
+                                essential = it.essential
                             )
-                            Spacer(Modifier.width(6.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(app.label, color = TextPrimary, fontSize = 14.sp)
-                                if (app.essential) {
-                                    Text(
-                                        "You may need this for calls or clients",
-                                        color = AccentOrange,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
+                        },
+                        onToggle = onToggle,
+                        columns = 4
+                    )
                 }
                 Spacer(Modifier.height(12.dp))
                 Button(

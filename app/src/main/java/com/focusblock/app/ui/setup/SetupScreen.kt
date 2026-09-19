@@ -24,6 +24,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.focusblock.app.database.entity.CommitmentLevel
+import com.focusblock.app.ui.components.AppIconGrid
+import com.focusblock.app.ui.components.GridApp
 import com.focusblock.app.ui.theme.*
 
 /**
@@ -250,41 +252,22 @@ private fun ChooseApps(state: SetupUiState, viewModel: SetupViewModel) {
                 CircularProgressIndicator(color = Signal, modifier = Modifier.size(26.dp))
             }
         } else {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                state.apps.forEach { app ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { viewModel.toggleApp(app.packageName) }
-                            .padding(vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = app.selected,
-                            onCheckedChange = { viewModel.toggleApp(app.packageName) },
-                            colors = CheckboxDefaults.colors(checkedColor = Signal)
+            // A grid of real icons, not a column of checkboxes. The user
+            // recognises their own apps instantly; a list makes them read.
+            Box(Modifier.verticalScroll(rememberScrollState())) {
+                AppIconGrid(
+                    apps = state.apps.map {
+                        GridApp(
+                            packageName = it.packageName,
+                            label = it.label,
+                            selected = it.selected,
+                            essential = it.essential,
+                            caption = if (it.minutesPerDay > 0) "${it.minutesPerDay}m/day" else ""
                         )
-                        Spacer(Modifier.width(6.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(app.label, color = TextPrimary, fontSize = 14.sp)
-                            when {
-                                // Named, never silently excluded. The user decides
-                                // whether a messaging app is a distraction; the app
-                                // does not decide for them.
-                                app.essential -> Text(
-                                    "You may need this for calls or clients",
-                                    color = AccentOrange,
-                                    fontSize = 11.sp
-                                )
-                                app.minutesPerDay > 0 -> Text(
-                                    "${app.minutesPerDay}m a day",
-                                    color = TextTertiary,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-                    }
-                }
+                    },
+                    onToggle = viewModel::toggleApp,
+                    columns = 4
+                )
             }
         }
     }

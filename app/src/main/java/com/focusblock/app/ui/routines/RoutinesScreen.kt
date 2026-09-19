@@ -25,6 +25,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.focusblock.app.blocking.RuleTemplates
 import com.focusblock.app.database.entity.BlockRule
 import com.focusblock.app.database.entity.CommitmentLevel
+import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Spa
+import androidx.compose.material.icons.filled.Work
+import com.focusblock.app.ui.components.AppIconGrid
+import com.focusblock.app.ui.components.GridApp
+import com.focusblock.app.ui.components.AppIconRow
+import com.focusblock.app.ui.components.TimeWindowBar
 import com.focusblock.app.ui.components.HeroState
 import com.focusblock.app.ui.components.ScreenTitle
 import com.focusblock.app.ui.components.StatusHero
@@ -168,24 +177,42 @@ private fun RoutineCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val nowMinute = remember {
+        val c = java.util.Calendar.getInstance()
+        c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE)
+    }
+
     Card(
         colors = CardDefaults.cardColors(containerColor = CardDark),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         modifier = Modifier
             .fillMaxWidth()
             .then(
                 if (row.isActiveNow)
-                    Modifier.border(1.dp, SignalBorder, RoundedCornerShape(18.dp))
+                    Modifier.border(1.dp, SignalBorder, RoundedCornerShape(20.dp))
                 else Modifier
             )
             .clickable(onClick = onEdit)
     ) {
         Column(Modifier.padding(16.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            // Header: a coloured mark, the name, and the switch. Everything
+            // else in the card is a picture rather than a sentence.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (row.isActiveNow) SignalGlow else SurfaceElevated),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = iconFor(row.rule.iconType),
+                        contentDescription = null,
+                        tint = if (row.isActiveNow) Signal else TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -200,42 +227,80 @@ private fun RoutineCard(
                                 Icons.Filled.Lock,
                                 contentDescription = "Locked",
                                 tint = AccentOrange,
-                                modifier = Modifier.size(13.dp)
+                                modifier = Modifier.size(12.dp)
                             )
                         }
                     }
-                    Spacer(Modifier.height(3.dp))
-                    Text(row.summary, color = TextSecondary, fontSize = 13.sp)
+                    Text(
+                        if (row.isActiveNow) "Running now" else row.summary,
+                        color = if (row.isActiveNow) Signal else TextTertiary,
+                        fontSize = 12.sp
+                    )
                 }
                 Switch(
                     checked = row.rule.isEnabled,
-                    onCheckedChange = onToggle,
-                    colors = SwitchDefaults.colors(checkedTrackColor = Signal)
+                    onCheckedChange = onToggle
                 )
             }
 
-            Spacer(Modifier.height(10.dp))
+            if (row.rule.hasTimeCondition) {
+                Spacer(Modifier.height(16.dp))
+                // The window as a shape on a 24-hour track, with a marker for
+                // where the day currently is. Faster to read than the sentence
+                // "8:45pm - 10:30pm".
+                TimeWindowBar(
+                    startMinute = row.rule.startMinute,
+                    endMinute = row.rule.endMinute,
+                    nowMinute = nowMinute,
+                    active = row.isActiveNow
+                )
+            }
+
+            if (row.appCount > 0) {
+                Spacer(Modifier.height(14.dp))
+                AppIconRow(
+                    packages = row.rule.packageList(),
+                    max = 7,
+                    size = 26.dp,
+                    dimmed = !row.rule.isEnabled
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    if (row.isActiveNow) "Active now · ${row.appCount} apps"
-                    else "${row.appCount} apps",
-                    color = if (row.isActiveNow) Signal else TextTertiary,
-                    fontSize = 12.sp
-                )
+                Text(dayLabel(row.rule.daysOfWeek), color = TextTertiary, fontSize = 11.sp)
                 IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
                     Icon(
                         Icons.Filled.Delete,
                         contentDescription = "Delete routine",
                         tint = TextTertiary,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                 }
             }
         }
+    }
+}
+
+private fun iconFor(type: com.focusblock.app.database.entity.ScheduleIconType) = when (type) {
+    com.focusblock.app.database.entity.ScheduleIconType.SLEEP -> Icons.Filled.Bedtime
+    com.focusblock.app.database.entity.ScheduleIconType.WORK -> Icons.Filled.Work
+    com.focusblock.app.database.entity.ScheduleIconType.STUDY -> Icons.Filled.School
+    com.focusblock.app.database.entity.ScheduleIconType.DETOX -> Icons.Filled.Spa
+    else -> Icons.Filled.Shield
+}
+
+private fun dayLabel(csv: String): String {
+    val days = csv.split(",").mapNotNull { it.trim().toIntOrNull() }.sorted()
+    return when {
+        days.size == 7 -> "Every day"
+        days == listOf(1, 2, 3, 4, 5) -> "Weekdays"
+        days == listOf(6, 7) -> "Weekends"
+        else -> days.joinToString(" ") { listOf("M", "T", "W", "T", "F", "S", "S")[it - 1] }
     }
 }
 
@@ -341,8 +406,19 @@ private fun RuleEditorSheet(
                     CircularProgressIndicator(color = Signal, modifier = Modifier.size(22.dp))
                 }
             } else {
-                Column(Modifier.heightIn(max = 230.dp).verticalScroll(rememberScrollState())) {
-                    apps.forEach { app -> AppRow(app) { onToggleApp(app.packageName) } }
+                Box(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
+                    AppIconGrid(
+                        apps = apps.map {
+                            GridApp(
+                                packageName = it.packageName,
+                                label = it.label,
+                                selected = it.selected,
+                                essential = it.essential
+                            )
+                        },
+                        onToggle = onToggleApp,
+                        columns = 4
+                    )
                 }
             }
 
@@ -475,38 +551,6 @@ private fun DayPicker(csv: String, onChange: (String) -> Unit) {
                     color = if (on) Signal else TextTertiary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun AppRow(app: PickableApp, onToggle: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            .padding(vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Checkbox(
-            checked = app.selected,
-            onCheckedChange = { onToggle() },
-            colors = CheckboxDefaults.colors(checkedColor = Signal)
-        )
-        Spacer(Modifier.width(6.dp))
-        Column(Modifier.weight(1f)) {
-            Text(app.label, color = TextPrimary, fontSize = 14.sp)
-            if (app.essential) {
-                // Named rather than hidden: blocking these is the user's call,
-                // but it should be a deliberate one. Keyword-matching messaging
-                // apps as distractions is what made the old Strict Mode cut off
-                // the user's client conversations.
-                Text(
-                    "You may need this for calls or clients",
-                    color = AccentOrange,
-                    fontSize = 11.sp
                 )
             }
         }

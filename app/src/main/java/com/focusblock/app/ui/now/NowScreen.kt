@@ -307,7 +307,7 @@ private fun ActionRow(
             onClick = { expanded = !expanded },
             enabled = !hasManualRunning,
             shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Primary),
+            colors = ButtonDefaults.buttonColors(containerColor = Signal),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp)
@@ -387,7 +387,7 @@ private fun AppPickerSheet(
 
             if (loading) {
                 Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Primary, modifier = Modifier.size(24.dp))
+                    CircularProgressIndicator(color = Signal, modifier = Modifier.size(24.dp))
                 }
             } else {
                 LazyColumn(Modifier.heightIn(max = 420.dp)) {
@@ -402,7 +402,7 @@ private fun AppPickerSheet(
                             Checkbox(
                                 checked = app.selected,
                                 onCheckedChange = { onToggle(app.packageName) },
-                                colors = CheckboxDefaults.colors(checkedColor = Primary)
+                                colors = CheckboxDefaults.colors(checkedColor = Signal)
                             )
                             Spacer(Modifier.width(6.dp))
                             Column(Modifier.weight(1f)) {
@@ -422,7 +422,7 @@ private fun AppPickerSheet(
                 Button(
                     onClick = onDone,
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Primary),
+                    colors = ButtonDefaults.buttonColors(containerColor = Signal),
                     modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) {
                     Text("Done", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)

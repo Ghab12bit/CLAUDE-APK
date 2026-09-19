@@ -43,9 +43,12 @@ fun StatusHero(
     modifier: Modifier = Modifier,
     trailing: @Composable (() -> Unit)? = null
 ) {
+    // IDLE previously fell back to plain grey on the same card colour as
+    // everything else, so the most common state in the app -- set up, waiting
+    // for its window -- rendered exactly like the old design.
     val accent = when (state) {
         HeroState.LIVE -> Signal
-        HeroState.IDLE -> TextSecondary
+        HeroState.IDLE -> SignalDim
         HeroState.BROKEN -> AccentRed
     }
 
@@ -55,11 +58,13 @@ fun StatusHero(
             .clip(RoundedCornerShape(22.dp))
             .background(if (state == HeroState.LIVE) SignalGlow else CardDark)
             .then(
-                if (state == HeroState.LIVE)
-                    Modifier.border(1.dp, SignalBorder, RoundedCornerShape(22.dp))
-                else if (state == HeroState.BROKEN)
-                    Modifier.border(1.dp, AccentRed.copy(alpha = 0.4f), RoundedCornerShape(22.dp))
-                else Modifier
+                when (state) {
+                    HeroState.LIVE -> Modifier.border(1.dp, SignalBorder, RoundedCornerShape(22.dp))
+                    HeroState.BROKEN ->
+                        Modifier.border(1.dp, AccentRed.copy(alpha = 0.45f), RoundedCornerShape(22.dp))
+                    HeroState.IDLE ->
+                        Modifier.border(1.dp, SignalDim.copy(alpha = 0.32f), RoundedCornerShape(22.dp))
+                }
             )
             .padding(20.dp)
     ) {

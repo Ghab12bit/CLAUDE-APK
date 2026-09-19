@@ -227,10 +227,10 @@ fun MainApp() {
                         label = { Text(screen.title) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = TextPrimary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = com.focusblock.app.ui.theme.Signal,
                             unselectedIconColor = TextSecondary,
                             unselectedTextColor = TextSecondary,
-                            indicatorColor = MaterialTheme.colorScheme.primary
+                            indicatorColor = com.focusblock.app.ui.theme.SignalGlow
                         )
                     )
                 }

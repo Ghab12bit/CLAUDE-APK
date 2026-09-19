@@ -57,7 +57,7 @@ fun RoutinesScreen(viewModel: RoutinesViewModel = hiltViewModel()) {
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showTemplates = true },
-                containerColor = Primary
+                containerColor = Signal
             ) {
                 Icon(Icons.Filled.Add, contentDescription = "New routine")
             }
@@ -154,7 +154,7 @@ private fun EmptyRoutines(onStart: () -> Unit) {
         Button(
             onClick = onStart,
             shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Primary)
+            colors = ButtonDefaults.buttonColors(containerColor = Signal)
         ) {
             Text("Set one up")
         }
@@ -210,7 +210,7 @@ private fun RoutineCard(
                 Switch(
                     checked = row.rule.isEnabled,
                     onCheckedChange = onToggle,
-                    colors = SwitchDefaults.colors(checkedTrackColor = Primary)
+                    colors = SwitchDefaults.colors(checkedTrackColor = Signal)
                 )
             }
 
@@ -338,7 +338,7 @@ private fun RuleEditorSheet(
             FieldLabel("Apps to block (${draft.packageList().size})")
             if (appsLoading) {
                 Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Primary, modifier = Modifier.size(22.dp))
+                    CircularProgressIndicator(color = Signal, modifier = Modifier.size(22.dp))
                 }
             } else {
                 Column(Modifier.heightIn(max = 230.dp).verticalScroll(rememberScrollState())) {
@@ -354,7 +354,7 @@ private fun RuleEditorSheet(
             Button(
                 onClick = onSave,
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Primary),
+                colors = ButtonDefaults.buttonColors(containerColor = Signal),
                 modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {
                 Text("Save routine", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
@@ -462,7 +462,7 @@ private fun DayPicker(csv: String, onChange: (String) -> Unit) {
                     .weight(1f)
                     .height(40.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(if (on) Primary.copy(alpha = 0.25f) else SurfaceDark)
+                    .background(if (on) SignalGlow else SurfaceDark)
                     .clickable {
                         val next = selected.toMutableSet()
                         if (!next.add(day)) next.remove(day)
@@ -472,7 +472,7 @@ private fun DayPicker(csv: String, onChange: (String) -> Unit) {
             ) {
                 Text(
                     label,
-                    color = if (on) Primary else TextTertiary,
+                    color = if (on) Signal else TextTertiary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -493,7 +493,7 @@ private fun AppRow(app: PickableApp, onToggle: () -> Unit) {
         Checkbox(
             checked = app.selected,
             onCheckedChange = { onToggle() },
-            colors = CheckboxDefaults.colors(checkedColor = Primary)
+            colors = CheckboxDefaults.colors(checkedColor = Signal)
         )
         Spacer(Modifier.width(6.dp))
         Column(Modifier.weight(1f)) {
@@ -547,9 +547,9 @@ private fun CommitmentPicker(current: CommitmentLevel, onChange: (CommitmentLeve
                     .fillMaxWidth()
                     .padding(bottom = 8.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(if (on) Primary.copy(alpha = 0.12f) else SurfaceDark)
+                    .background(if (on) SignalGlow else SurfaceDark)
                     .then(
-                        if (on) Modifier.border(1.dp, Primary.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                        if (on) Modifier.border(1.dp, SignalBorder, RoundedCornerShape(14.dp))
                         else Modifier
                     )
                     .clickable { onChange(level) }
@@ -557,7 +557,7 @@ private fun CommitmentPicker(current: CommitmentLevel, onChange: (CommitmentLeve
             ) {
                 Text(
                     title,
-                    color = if (on) Primary else TextPrimary,
+                    color = if (on) Signal else TextPrimary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )

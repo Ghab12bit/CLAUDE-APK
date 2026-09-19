@@ -98,7 +98,7 @@ private fun StepDots(step: SetupStep) {
                     .weight(1f)
                     .height(3.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(if (i <= index) Primary else SurfaceElevated)
+                    .background(if (i <= index) Signal else SurfaceElevated)
             )
         }
     }
@@ -202,7 +202,7 @@ private fun PermissionRow(title: String, why: String, granted: Boolean, onGrant:
             Icon(
                 if (granted) Icons.Filled.CheckCircle else Icons.Filled.Warning,
                 contentDescription = null,
-                tint = if (granted) AccentGreen else AccentOrange,
+                tint = if (granted) Signal else AccentOrange,
                 modifier = Modifier.size(16.dp)
             )
             Spacer(Modifier.width(8.dp))
@@ -215,7 +215,7 @@ private fun PermissionRow(title: String, why: String, granted: Boolean, onGrant:
             Button(
                 onClick = onGrant,
                 shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Primary)
+                colors = ButtonDefaults.buttonColors(containerColor = Signal)
             ) {
                 Text("Turn on", fontSize = 13.sp)
             }
@@ -246,7 +246,7 @@ private fun ChooseApps(state: SetupUiState, viewModel: SetupViewModel) {
 
         if (state.appsLoading) {
             Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Primary, modifier = Modifier.size(26.dp))
+                CircularProgressIndicator(color = Signal, modifier = Modifier.size(26.dp))
             }
         } else {
             Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -261,7 +261,7 @@ private fun ChooseApps(state: SetupUiState, viewModel: SetupViewModel) {
                         Checkbox(
                             checked = app.selected,
                             onCheckedChange = { viewModel.toggleApp(app.packageName) },
-                            colors = CheckboxDefaults.colors(checkedColor = Primary)
+                            colors = CheckboxDefaults.colors(checkedColor = Signal)
                         )
                         Spacer(Modifier.width(6.dp))
                         Column(Modifier.weight(1f)) {
@@ -352,9 +352,9 @@ private fun CommitmentChoice(current: CommitmentLevel, onChange: (CommitmentLeve
                     .fillMaxWidth()
                     .padding(bottom = 8.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(if (on) Primary.copy(alpha = 0.12f) else SurfaceDark)
+                    .background(if (on) SignalGlow else SurfaceDark)
                     .then(
-                        if (on) Modifier.border(1.dp, Primary.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                        if (on) Modifier.border(1.dp, SignalBorder, RoundedCornerShape(14.dp))
                         else Modifier
                     )
                     .clickable { onChange(level) }
@@ -362,7 +362,7 @@ private fun CommitmentChoice(current: CommitmentLevel, onChange: (CommitmentLeve
             ) {
                 Text(
                     title,
-                    color = if (on) Primary else TextPrimary,
+                    color = if (on) Signal else TextPrimary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -383,7 +383,7 @@ private fun Done(state: SetupUiState) {
         Icon(
             Icons.Filled.CheckCircle,
             contentDescription = null,
-            tint = AccentGreen,
+            tint = Signal,
             modifier = Modifier.size(52.dp)
         )
         Spacer(Modifier.height(18.dp))
@@ -436,7 +436,7 @@ private fun NavRow(state: SetupUiState, viewModel: SetupViewModel, onComplete: (
             },
             enabled = !state.saving,
             shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Primary),
+            colors = ButtonDefaults.buttonColors(containerColor = Signal),
             modifier = Modifier.weight(1f).height(50.dp)
         ) {
             Text(
@@ -513,7 +513,7 @@ private fun DayRow(csv: String, onChange: (String) -> Unit) {
                     .weight(1f)
                     .height(42.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(if (on) Primary.copy(alpha = 0.25f) else SurfaceDark)
+                    .background(if (on) SignalGlow else SurfaceDark)
                     .clickable {
                         val next = selected.toMutableSet()
                         if (!next.add(day)) next.remove(day)
@@ -523,7 +523,7 @@ private fun DayRow(csv: String, onChange: (String) -> Unit) {
             ) {
                 Text(
                     label,
-                    color = if (on) Primary else TextTertiary,
+                    color = if (on) Signal else TextTertiary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )

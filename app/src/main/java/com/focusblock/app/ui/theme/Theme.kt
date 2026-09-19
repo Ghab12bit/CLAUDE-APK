@@ -10,14 +10,21 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
+// The signal colour has to live IN the scheme, not beside it.
+//
+// Adding Signal to the palette while leaving primary as the old blue meant
+// every Button, FAB, Switch, Checkbox, progress spinner and the bottom-nav
+// pill still rendered blue -- i.e. every component the eye actually lands on.
+// The redesign was real but invisible, because it only reached a handful of
+// conditionally-coloured views.
 private val DarkColorScheme = darkColorScheme(
-    primary = Primary,
-    onPrimary = Color.White,
-    primaryContainer = PrimaryVariant,
-    onPrimaryContainer = Color.White,
-    secondary = AccentPurple,
+    primary = Signal,
+    onPrimary = Color(0xFF07090D),
+    primaryContainer = SignalGlow,
+    onPrimaryContainer = Signal,
+    secondary = Primary,
     onSecondary = Color.White,
-    secondaryContainer = AccentPurple.copy(alpha = 0.3f),
+    secondaryContainer = Primary.copy(alpha = 0.25f),
     onSecondaryContainer = Color.White,
     tertiary = AccentCyan,
     onTertiary = Color.Black,

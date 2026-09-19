@@ -326,7 +326,7 @@ private fun ProtectionCard(
                 TextButton(onClick = onSetPin, contentPadding = PaddingValues(0.dp)) {
                     Text(
                         if (state.lock.pinHash.isEmpty()) "Set a PIN" else "Change PIN",
-                        color = Primary,
+                        color = Signal,
                         fontSize = 13.sp
                     )
                 }
@@ -400,7 +400,7 @@ private fun PermRow(
                 Text(why, color = TextTertiary, fontSize = 12.sp)
             }
             if (!granted) {
-                Text("Fix", color = Primary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Text("Fix", color = Signal, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             }
         }
         if (!last) Divider(color = Divider, modifier = Modifier.padding(horizontal = 16.dp))
@@ -444,7 +444,7 @@ private fun AllowlistSheet(
 
             if (state.appsLoading) {
                 Box(Modifier.fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Primary, modifier = Modifier.size(24.dp))
+                    CircularProgressIndicator(color = Signal, modifier = Modifier.size(24.dp))
                 }
             } else {
                 LazyColumn(Modifier.heightIn(max = 460.dp)) {
@@ -507,7 +507,7 @@ private fun PinDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(pin) }) { Text("Save", color = Primary) }
+            TextButton(onClick = { onConfirm(pin) }) { Text("Save", color = Signal) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel", color = TextSecondary) }

@@ -1106,31 +1106,6 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     // ========== SCHEDULE ENFORCEMENT METHODS ==========
 
     /**
-     * Start periodic schedule enforcement check.
-     * This ensures schedules are enforced even if the user is already in an app
-     * when the schedule becomes active.
-     */
-    private fun startScheduleCheck() {
-        stopScheduleCheck()
-
-        scheduleCheckRunnable = object : Runnable {
-            override fun run() {
-                checkScheduleEnforcement()
-                scheduleCheckHandler.postDelayed(this, SCHEDULE_CHECK_INTERVAL_MS)
-            }
-        }
-        scheduleCheckHandler.post(scheduleCheckRunnable!!)
-        Log.d(TAG, "Schedule enforcement check started")
-    }
-
-    private fun stopScheduleCheck() {
-        scheduleCheckRunnable?.let {
-            scheduleCheckHandler.removeCallbacks(it)
-        }
-        scheduleCheckRunnable = null
-    }
-
-    /**
      * Re-check the app that is ALREADY on screen.
      *
      * This is the difference between a routine that works and one that does
@@ -1351,7 +1326,6 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         isServiceRunning = false
         stopQuickBlockTimerCheck() // Clean up Quick Block timer
         stopSessionDurationCheck() // Clean up session duration timer
-        stopScheduleCheck() // Clean up schedule enforcement check
         stopForegroundRecheck()
         stopGlobalLimitCheck() // Clean up Global Limit check
         stopUsageComparisonCheck() // Clean up Usage Comparison check

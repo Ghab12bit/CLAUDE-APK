@@ -30,7 +30,7 @@ import com.focusblock.app.database.entity.OnboardingState
 import com.focusblock.app.service.AppBlockingService
 import com.focusblock.app.ui.now.NowScreen
 import com.focusblock.app.ui.onboarding.OnboardingScreen
-import com.focusblock.app.ui.schedules.SchedulesScreen
+import com.focusblock.app.ui.routines.RoutinesScreen
 import com.focusblock.app.ui.settings.SettingsScreen
 import com.focusblock.app.ui.statistics.StatisticsScreen
 import com.focusblock.app.ui.theme.BackgroundDark
@@ -166,7 +166,7 @@ sealed class Screen(
     )
     data object Schedules : Screen(
         route = "schedules",
-        title = "Schedules",
+        title = "Routines",
         selectedIcon = Icons.Filled.Schedule,
         unselectedIcon = Icons.Outlined.Schedule
     )
@@ -253,7 +253,7 @@ fun MainApp() {
                 )
             }
             composable(Screen.Schedules.route) {
-                SchedulesScreen()
+                RoutinesScreen()
             }
             composable(Screen.Statistics.route) {
                 StatisticsScreen()

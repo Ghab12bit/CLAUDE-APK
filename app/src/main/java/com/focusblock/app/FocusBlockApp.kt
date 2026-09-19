@@ -4,7 +4,7 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import com.focusblock.app.worker.DailyInsightsWorker
+import androidx.work.WorkManager
 import dagger.hilt.android.HiltAndroidApp
 
 @HiltAndroidApp
@@ -13,11 +13,35 @@ class FocusBlockApp : Application() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
-        scheduleDailyInsights()
+        cancelLegacyNotificationWork()
     }
 
-    private fun scheduleDailyInsights() {
-        DailyInsightsWorker.schedule(this)
+    /**
+     * Cancels the background workers that existed only to send unprompted
+     * notifications about screen time.
+     *
+     * Not scheduling them is not enough. Both were enqueued with
+     * enqueueUniquePeriodicWork(..., KEEP), so WorkManager has them persisted
+     * on any device that ran an earlier build and will keep running them
+     * across app updates no matter what this class stops calling. They have to
+     * be cancelled by name.
+     *
+     *  - daily_insights_notification fired a screen-time summary at 9pm every
+     *    day, which lands in the middle of the evening work block.
+     *  - PeakTimeReminder woke every 15 minutes to look for a reason to send a
+     *    high-usage warning.
+     *
+     * Neither is needed for the Insights screen, which reads UsageStatsManager
+     * directly when it is opened. A blocker earns attention by blocking, not by
+     * notifying, and the user asked specifically not to be given a motivational
+     * dashboard.
+     */
+    private fun cancelLegacyNotificationWork() {
+        runCatching {
+            val workManager = WorkManager.getInstance(this)
+            workManager.cancelUniqueWork("daily_insights_notification")
+            workManager.cancelUniqueWork("PeakTimeReminder")
+        }
     }
 
     private fun createNotificationChannels() {

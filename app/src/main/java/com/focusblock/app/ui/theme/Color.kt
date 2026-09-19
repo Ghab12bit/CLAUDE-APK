@@ -3,35 +3,37 @@ package com.focusblock.app.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // ============================================================================
-// Signal colour
+// Identity colour
 //
-// The app has exactly one job, so it gets exactly one loud colour. Lime on
-// near-black reads as "live" at a glance, which is the single thing the old
-// interface failed to communicate: five small grey ticks did not tell the user
-// their phone was actually protected.
+// AppBlock -- the reference app -- is vivid blue on deep navy. An earlier pass
+// here went lime on near-black, which followed a prototype rather than the
+// reference and drifted further from it than the app's own original blue had
+// been. Corrected: blue is the identity.
 //
-// Lime = protection is real and on. Blue = something you can tap. Everything
-// else stays quiet so those two mean something.
+// Blue carries both identity and action, so "live" and "tappable" are
+// distinguished by fill and weight rather than by a second hue: a live state is
+// a tinted surface with a blue border, an action is a solid blue pill.
 // ============================================================================
-val Signal = Color(0xFFC8F169)
-val SignalDim = Color(0xFF8FAE4A)
-val SignalGlow = Color(0x1FC8F169)
-val SignalBorder = Color(0x4DC8F169)
+val Signal = Color(0xFF2E6FF2)
+val SignalDim = Color(0xFF2A5BBF)
+val SignalGlow = Color(0x1F2E6FF2)
+val SignalBorder = Color(0x732E6FF2)
+val SignalSoft = Color(0xFF1E2F5C)
 
 // Primary Brand Colors
-val Primary = Color(0xFF0A84FF)
+val Primary = Color(0xFF2E6FF2)
 val PrimaryVariant = Color(0xFF0066CC)
 val PrimaryLight = Color(0xFF4DA3FF)
 val PrimaryDark = Color(0xFF0055AA)
 
 // Background Colors - Refined depth system
 // Deeper than before: the accent needs somewhere dark to sit.
-val BackgroundDark = Color(0xFF07090D)
+val BackgroundDark = Color(0xFF0B0F1A)
 val BackgroundDarkSecondary = Color(0xFF0F141A)
 val BackgroundDarkTertiary = Color(0xFF151B23)
-val SurfaceDark = Color(0xFF11161E)
-val SurfaceElevated = Color(0xFF1A222D)
-val CardDark = Color(0xFF141A23)
+val SurfaceDark = Color(0xFF131A2B)
+val SurfaceElevated = Color(0xFF1E283D)
+val CardDark = Color(0xFF172033)
 val CardDarkElevated = Color(0xFF212A38)
 
 // Text Colors - Better contrast hierarchy

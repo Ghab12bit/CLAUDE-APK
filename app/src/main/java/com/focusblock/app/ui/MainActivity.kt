@@ -1,6 +1,9 @@
 package com.focusblock.app.ui
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -44,9 +47,26 @@ import kotlinx.coroutines.withContext
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
+    /**
+     * On Android 13+ POST_NOTIFICATIONS must be requested at runtime. Without
+     * it the foreground-service notification is suppressed: blocking still
+     * runs, but the user loses the only persistent signal that it is running,
+     * which for this app is most of the reassurance. It was declared in the
+     * manifest and checked in PermissionUtils but never actually requested.
+     */
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* status is re-read by the UI */ }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (PermissionUtils.hasNotificationPermission(this)) return
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        requestNotificationPermissionIfNeeded()
 
         setContent {
             FocusBlockTheme {

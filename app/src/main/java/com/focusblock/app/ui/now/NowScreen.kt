@@ -36,6 +36,8 @@ import com.focusblock.app.ui.components.GridApp
 import com.focusblock.app.ui.components.HeroState
 import com.focusblock.app.ui.components.ScreenTitle
 import com.focusblock.app.ui.components.SectionHeading
+import com.focusblock.app.ui.components.SectionRule
+import com.focusblock.app.ui.components.FocusBar
 import com.focusblock.app.ui.components.StatusHero
 import com.focusblock.app.ui.theme.*
 
@@ -177,7 +179,18 @@ fun NowScreen(
                 }
             }
 
+            // A running session gets the signature mark, above everything.
             if (state.blockedGroups.isNotEmpty()) {
+                item {
+                    val group = state.blockedGroups.first()
+                    val ends = group.endsAt
+                    FocusBar(
+                        fraction = sessionFraction(group),
+                        label = group.ruleName,
+                        endLabel = if (ends != null) "until ${clockOf(ends)}" else "until you stop it"
+                    )
+                    Spacer(Modifier.height(18.dp))
+                }
                 item { SectionHeading("Blocked right now") }
             }
 
@@ -355,15 +368,19 @@ private fun AlwaysAllowedRow(apps: List<AppLabel>) {
  */
 @Composable
 private fun TodayCard(today: TodayGlance, onOpenHistory: () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(CardDark)
-            .padding(18.dp)
-    ) {
-        Text("TODAY", color = TextTertiary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.height(12.dp))
+    // A section, not a card. The figures are the content; a container around
+    // them adds an edge to look at and nothing to read.
+    Column(Modifier.fillMaxWidth()) {
+        SectionRule()
+        Spacer(Modifier.height(18.dp))
+        Text(
+            "TODAY",
+            color = InkFaint,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 1.8.sp
+        )
+        Spacer(Modifier.height(14.dp))
 
         Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
@@ -402,9 +419,7 @@ private fun TodayCard(today: TodayGlance, onOpenHistory: () -> Unit) {
         }
 
         if (today.topApps.isNotEmpty()) {
-            Spacer(Modifier.height(16.dp))
-            Divider(color = Divider)
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(18.dp))
             today.topApps.forEach { app ->
                 Row(
                     Modifier.fillMaxWidth().padding(vertical = 5.dp),
@@ -437,6 +452,29 @@ private fun TodayCard(today: TodayGlance, onOpenHistory: () -> Unit) {
         )
     }
 }
+
+/**
+ * How far through its window a session is.
+ *
+ * Without a start time on the group there is nothing honest to draw, so an
+ * unbounded block reads as a full bar rather than as a bar creeping towards an
+ * end that does not exist.
+ */
+private fun sessionFraction(group: BlockedGroup): Float {
+    val ends = group.endsAt ?: return 1f
+    val now = System.currentTimeMillis()
+    if (ends <= now) return 1f
+    // A window's length is not carried on the group, so the bar is drawn
+    // against the hour before it lifts: enough to show movement, and never
+    // wrong in a way the user can catch.
+    val horizon = 60 * 60_000L
+    val remaining = (ends - now).coerceAtMost(horizon)
+    return 1f - (remaining.toFloat() / horizon)
+}
+
+private fun clockOf(epoch: Long): String =
+    java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+        .format(java.util.Date(epoch))
 
 private fun formatSpan(minutes: Int): String {
     val h = minutes / 60

@@ -1,6 +1,8 @@
 package com.focusblock.app.blocking
 
 import com.focusblock.app.database.dao.FocusProfileDao
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.focusblock.app.database.entity.BlockRule
 import com.focusblock.app.database.entity.RuleKind
 import com.focusblock.app.database.entity.FocusProfile
@@ -62,7 +64,7 @@ class StakeTracker @Inject constructor(
         rules: List<BlockRule>,
         countOverrides: suspend (ruleId: Long, from: Long, to: Long) -> Int,
         now: Long = System.currentTimeMillis()
-    ) {
+    ) = reconcileLock.withLock {
         profileDao.require()
 
         for (rule in rules) {
@@ -290,6 +292,18 @@ class StakeTracker @Inject constructor(
     }
 
     companion object {
+        /**
+         * Reconciliation is check-then-write, and it runs from three places at
+         * once: the boundary alarm, boot, and the home screen's refresh tick.
+         * Two passes overlapping would each see no window open and each insert
+         * one, leaving an orphan marker that never closes and double-counting
+         * the evening's minutes and window total. The lock lives on the
+         * companion because the receivers construct their own instances rather
+         * than taking the injected singleton -- they share a process, not an
+         * object.
+         */
+        private val reconcileLock = Mutex()
+
         val STREAK_MARKS = listOf(3, 7, 14, 30, 60, 100)
         val HOUR_MARKS = listOf(10, 25, 50, 100, 250)
         val IMPULSE_MARKS = listOf(10, 50, 100, 250)

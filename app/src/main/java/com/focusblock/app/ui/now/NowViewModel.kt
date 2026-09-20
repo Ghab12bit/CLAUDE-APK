@@ -248,6 +248,20 @@ class NowViewModel @Inject constructor(
                     .toList()
 
                 val manual = rules.firstOrNull { it.manualIsRunning(now) }
+
+                // Settle the books before reading them. Otherwise an evening
+                // that ended at 22:30 shows no streak until the next alarm
+                // fires, which can be the following day -- the user would open
+                // the app right after finishing a window and see nothing
+                // happened.
+                stake.reconcileWindows(
+                    rules = rules,
+                    countOverrides = { ruleId, from, to ->
+                        ruleDao.countOverridesBetween(ruleId, from, to)
+                    },
+                    now = now
+                )
+
                 val profile = profileDao.require()
 
                 // ---- 4. A milestone waiting to be acknowledged -------------

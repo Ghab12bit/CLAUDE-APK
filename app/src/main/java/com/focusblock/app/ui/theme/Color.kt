@@ -2,20 +2,20 @@ package com.focusblock.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Primary Brand Colors
-val Primary = Color(0xFF0A84FF)
-val PrimaryVariant = Color(0xFF0066CC)
-val PrimaryLight = Color(0xFF4DA3FF)
-val PrimaryDark = Color(0xFF0055AA)
+// FocusBlock identity: calm jade instead of the category-standard electric blue.
+val Primary = Color(0xFF72D6B0)
+val PrimaryVariant = Color(0xFF2F8F70)
+val PrimaryLight = Color(0xFFA8E9D0)
+val PrimaryDark = Color(0xFF1D5D49)
 
 // Background Colors - Refined depth system
-val BackgroundDark = Color(0xFF0A0E14)
-val BackgroundDarkSecondary = Color(0xFF0F141A)
-val BackgroundDarkTertiary = Color(0xFF151B23)
-val SurfaceDark = Color(0xFF161D26)
-val SurfaceElevated = Color(0xFF1A222D)
-val CardDark = Color(0xFF1C2532)
-val CardDarkElevated = Color(0xFF212A38)
+val BackgroundDark = Color(0xFF0A100E)
+val BackgroundDarkSecondary = Color(0xFF0E1613)
+val BackgroundDarkTertiary = Color(0xFF131D19)
+val SurfaceDark = Color(0xFF151F1B)
+val SurfaceElevated = Color(0xFF192621)
+val CardDark = Color(0xFF17231F)
+val CardDarkElevated = Color(0xFF1B2A25)
 
 // Text Colors - Better contrast hierarchy
 val TextPrimary = Color(0xFFF0F3F6)
@@ -24,7 +24,7 @@ val TextTertiary = Color(0xFF5C6570)
 val TextMuted = Color(0xFF484F58)
 
 // Accent Colors
-val AccentBlue = Color(0xFF0A84FF)
+val AccentBlue = Color(0xFF65AFFF)
 val AccentGreen = Color(0xFF3FB950)
 val AccentRed = Color(0xFFF85149)
 val AccentOrange = Color(0xFFF0883E)
@@ -59,19 +59,19 @@ val ScheduleSocial = Color(0xFFF85149)
 val ScheduleDetox = Color(0xFF56D4DD)
 
 // Gradient Colors
-val GradientStart = Color(0xFF0A84FF)
-val GradientEnd = Color(0xFFA371F7)
+val GradientStart = Color(0xFF72D6B0)
+val GradientEnd = Color(0xFF65AFFF)
 
 // Surface Borders for subtle separation
-val SurfaceBorder = Color(0xFF252D38)
-val SurfaceBorderLight = Color(0xFF2D3748)
+val SurfaceBorder = Color(0xFF26352F)
+val SurfaceBorderLight = Color(0xFF31463E)
 
 // Divider
-val Divider = Color(0xFF252D38)
+val Divider = Color(0xFF26352F)
 
 // Ripple
 val Ripple = Color(0x33FFFFFF)
 
 // Shimmer/Glow effects
-val GlowPrimary = Color(0x330A84FF)
+val GlowPrimary = Color(0x3372D6B0)
 val GlowSuccess = Color(0x333FB950)

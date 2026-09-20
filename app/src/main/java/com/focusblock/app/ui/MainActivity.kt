@@ -158,7 +158,7 @@ sealed class Screen(
     )
     data object Settings : Screen(
         route = "settings",
-        title = "Profile",
+        title = "Setup",
         selectedIcon = Icons.Filled.Person,
         unselectedIcon = Icons.Outlined.Person
     )
@@ -206,7 +206,7 @@ fun MainApp() {
                         },
                         label = { Text(screen.title) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = TextPrimary,
+                            selectedIconColor = BackgroundDark,
                             selectedTextColor = MaterialTheme.colorScheme.primary,
                             unselectedIconColor = TextSecondary,
                             unselectedTextColor = TextSecondary,

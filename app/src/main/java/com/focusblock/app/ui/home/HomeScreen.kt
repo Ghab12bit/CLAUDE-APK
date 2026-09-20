@@ -90,6 +90,7 @@ fun HomeScreen(
     var focusBreakMinutes by remember { mutableStateOf(5) }
     var quickBlockLaunchMode by remember { mutableStateOf(QuickBlockLaunchMode.STANDARD) }
     var isEditingApps by remember { mutableStateOf(false) }
+    var showMoreControls by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.refreshPermissions()
@@ -155,7 +156,7 @@ fun HomeScreen(
                         color = Primary
                     )
                     Text(
-                        text = "Take control of your digital life",
+                        text = "Block distractions when you need to focus",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary
                     )
@@ -214,48 +215,47 @@ fun HomeScreen(
                     activeSchedulesCount = uiState.activeSchedules.size
                 )
             }
+        } else {
+            item(key = "idle_status") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = CardDark),
+                    border = BorderStroke(1.dp, Primary.copy(alpha = 0.25f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "READY",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Nothing blocked",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Start a block when you need uninterrupted time.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
+                        )
+                    }
+                }
+            }
         }
 
         // ========== PRIMARY CONTROLS SECTION ==========
         // Quick Block + App Timer as equal primary features
         item(key = "primary_controls_header") {
             SectionHeader(
-                title = "Daily Controls",
-                subtitle = "Your core digital wellness tools"
+                title = "Block now",
+                subtitle = "Choose the apps and how long they stay blocked"
             )
-        }
-
-        // App Timer Card - PROMOTED to primary position
-        // This is the foundation of daily discipline
-        item(key = "app_timer_card") {
-            var showAppTimerSetupDialog by remember { mutableStateOf(false) }
-            val isAccessibilityEnabled = PermissionUtils.hasAccessibilityServiceEnabled(context)
-
-            PrimaryAppTimerCard(
-                isEnabled = uiState.isAppTimerEnabled,
-                limitMinutes = uiState.appTimerLimitMinutes,
-                usageMinutes = uiState.appTimerUsageMinutes,
-                appsCount = uiState.appTimerAppsCount,
-                isAccessibilityEnabled = isAccessibilityEnabled,
-                onSetupClick = { showAppTimerSetupDialog = true },
-                onDisableClick = { viewModel.disableAppTimer() },
-                onEnableAccessibility = {
-                    val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                    context.startActivity(intent)
-                }
-            )
-
-            if (showAppTimerSetupDialog) {
-                AppTimerSetupDialog(
-                    apps = viewModel.getInstalledApps(),
-                    currentSettings = uiState.appTimerSettings,
-                    onDismiss = { showAppTimerSetupDialog = false },
-                    onConfirm = { limitMinutes, selectedPackages ->
-                        viewModel.enableAppTimer(limitMinutes, selectedPackages)
-                        showAppTimerSetupDialog = false
-                    }
-                )
-            }
         }
 
         // Quick Block Card - Primary instant control
@@ -364,69 +364,102 @@ fun HomeScreen(
             }
         }
 
-        // ========== DAILY LIMIT CARD ==========
-        item(key = "daily_limit_card") {
-            DailyLimitCard(
-                isEnabled = uiState.isGlobalDailyLimitEnabled,
-                limitMinutes = uiState.globalDailyLimitMinutes,
-                currentUsageMinutes = uiState.currentDailyUsageMinutes,
-                progress = uiState.dailyLimitProgress,
-                suggestedLimitMinutes = uiState.suggestedDailyLimitMinutes,
-                trackedApps = uiState.trackedAppsUsage,
-                // Hard Mode params
-                isHardModeEnabled = uiState.isHardModeEnabled,
-                isHardModeLocked = uiState.isHardModeLocked,
-                hardModeCooldownRemainingMs = uiState.hardModeCooldownRemainingMs,
-                hardModeUnlockPhrase = uiState.hardModeUnlockPhrase,
-                onToggleEnabled = { viewModel.setGlobalDailyLimitEnabled(it) },
-                onSetLimit = { viewModel.setGlobalDailyLimit(it) },
-                onApplySuggested = { viewModel.applySuggestedDailyLimit() },
-                onAnalyzeUsage = { viewModel.analyzeUsageAndGenerateSuggestions() },
-                onEnableHardMode = { hours -> viewModel.enableHardMode(hours) },
-                onRequestUnlock = { viewModel.requestHardModeUnlock() },
-                onCompleteUnlock = { phrase -> viewModel.completeHardModeUnlock(phrase) },
-                // WhatsApp whitelist
-                isWhatsAppWhitelisted = uiState.isWhatsAppWhitelisted,
-                onToggleWhatsAppWhitelist = { viewModel.toggleWhatsAppWhitelist() }
-            )
-        }
-
-        // ========== BEDTIME MODE CARD ==========
-        item(key = "bedtime_mode_card") {
-            BedtimeModeCard(
-                isEnabled = uiState.isBedtimeModeEnabled,
-                startHour = uiState.bedtimeStartHour,
-                startMinute = uiState.bedtimeStartMinute,
-                endHour = uiState.bedtimeEndHour,
-                endMinute = uiState.bedtimeEndMinute,
-                isCurrentlyBedtime = uiState.isCurrentlyBedtime,
-                onToggle = { viewModel.toggleBedtimeMode() },
-                onSetTimes = { sh, sm, eh, em -> viewModel.setBedtimeTimes(sh, sm, eh, em) }
-            )
-        }
-
-        // ========== SMART SUGGESTIONS CARD ==========
-        if (uiState.showSmartSuggestionsCard && uiState.suggestedApps.isNotEmpty()) {
-            item(key = "smart_suggestions_card") {
-                SmartSuggestionsCard(
-                    suggestions = uiState.suggestedApps,
-                    onAccept = { viewModel.acceptSuggestion(it) },
-                    onDismiss = { viewModel.dismissSuggestion(it) },
-                    onAcceptAll = { viewModel.acceptAllSuggestions() }
+        item(key = "more_controls_toggle") {
+            OutlinedButton(
+                onClick = { showMoreControls = !showMoreControls },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, SurfaceBorder),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
+            ) {
+                Icon(
+                    imageVector = if (showMoreControls) Icons.Filled.ExpandLess else Icons.Filled.Tune,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
                 )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (showMoreControls) "Hide extra controls" else "More controls")
             }
         }
 
-        // ========== SECONDARY MODES SECTION ==========
-        item(key = "secondary_modes_header") {
-            SectionHeader(
-                title = "Advanced Modes",
-                subtitle = "Optional structured controls"
-            )
-        }
+        if (showMoreControls) {
+            item(key = "secondary_modes_header") {
+                SectionHeader(
+                    title = "More controls",
+                    subtitle = "Optional limits and stronger protection"
+                )
+            }
 
-        // Focus Cycles Card (Soft-Nudge Mode) - Optional structured mode
-        item(key = "focus_cycle_card") {
+            item(key = "daily_limit_card") {
+                DailyLimitCard(
+                    isEnabled = uiState.isGlobalDailyLimitEnabled,
+                    limitMinutes = uiState.globalDailyLimitMinutes,
+                    currentUsageMinutes = uiState.currentDailyUsageMinutes,
+                    progress = uiState.dailyLimitProgress,
+                    suggestedLimitMinutes = uiState.suggestedDailyLimitMinutes,
+                    trackedApps = uiState.trackedAppsUsage,
+                    isHardModeEnabled = uiState.isHardModeEnabled,
+                    isHardModeLocked = uiState.isHardModeLocked,
+                    hardModeCooldownRemainingMs = uiState.hardModeCooldownRemainingMs,
+                    hardModeUnlockPhrase = uiState.hardModeUnlockPhrase,
+                    onToggleEnabled = { viewModel.setGlobalDailyLimitEnabled(it) },
+                    onSetLimit = { viewModel.setGlobalDailyLimit(it) },
+                    onApplySuggested = { viewModel.applySuggestedDailyLimit() },
+                    onAnalyzeUsage = { viewModel.analyzeUsageAndGenerateSuggestions() },
+                    onEnableHardMode = { hours -> viewModel.enableHardMode(hours) },
+                    onRequestUnlock = { viewModel.requestHardModeUnlock() },
+                    onCompleteUnlock = { phrase -> viewModel.completeHardModeUnlock(phrase) },
+                    isWhatsAppWhitelisted = uiState.isWhatsAppWhitelisted,
+                    onToggleWhatsAppWhitelist = { viewModel.toggleWhatsAppWhitelist() }
+                )
+            }
+
+            item(key = "app_timer_card") {
+                var showAppTimerSetupDialog by remember { mutableStateOf(false) }
+                val isAccessibilityEnabled = PermissionUtils.hasAccessibilityServiceEnabled(context)
+
+                PrimaryAppTimerCard(
+                    isEnabled = uiState.isAppTimerEnabled,
+                    limitMinutes = uiState.appTimerLimitMinutes,
+                    usageMinutes = uiState.appTimerUsageMinutes,
+                    appsCount = uiState.appTimerAppsCount,
+                    isAccessibilityEnabled = isAccessibilityEnabled,
+                    onSetupClick = { showAppTimerSetupDialog = true },
+                    onDisableClick = { viewModel.disableAppTimer() },
+                    onEnableAccessibility = {
+                        val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        context.startActivity(intent)
+                    }
+                )
+
+                if (showAppTimerSetupDialog) {
+                    AppTimerSetupDialog(
+                        apps = viewModel.getInstalledApps(),
+                        currentSettings = uiState.appTimerSettings,
+                        onDismiss = { showAppTimerSetupDialog = false },
+                        onConfirm = { limitMinutes, selectedPackages ->
+                            viewModel.enableAppTimer(limitMinutes, selectedPackages)
+                            showAppTimerSetupDialog = false
+                        }
+                    )
+                }
+            }
+
+            item(key = "bedtime_mode_card") {
+                BedtimeModeCard(
+                    isEnabled = uiState.isBedtimeModeEnabled,
+                    startHour = uiState.bedtimeStartHour,
+                    startMinute = uiState.bedtimeStartMinute,
+                    endHour = uiState.bedtimeEndHour,
+                    endMinute = uiState.bedtimeEndMinute,
+                    isCurrentlyBedtime = uiState.isCurrentlyBedtime,
+                    onToggle = { viewModel.toggleBedtimeMode() },
+                    onSetTimes = { sh, sm, eh, em -> viewModel.setBedtimeTimes(sh, sm, eh, em) }
+                )
+            }
+
+            // Focus Cycles Card (Soft-Nudge Mode) - Optional structured mode
+            item(key = "focus_cycle_card") {
             val trackedAppsCount = uiState.focusCycle?.selectedPackages
                 ?.split(",")
                 ?.filter { it.isNotBlank() }
@@ -450,13 +483,13 @@ fun HomeScreen(
                 onEnableClick = { showFocusCycleSetupDialog = true },
                 onDisableClick = { viewModel.disableFocusCycle() }
             )
-        }
+            }
 
-        // Strict Mode Card - Optional enforcement
-        item(key = "strict_mode_card") {
-            SecondaryModeCard(
+            // Strict Mode Card - Optional enforcement
+            item(key = "strict_mode_card") {
+                SecondaryModeCard(
                 title = "Strict Mode",
-                description = "Lock your blocking choices for a set time",
+                description = "Prevent accidental changes for a set time",
                 icon = Icons.Outlined.Lock,
                 isEnabled = uiState.isStrictModeEnabled,
                 statusText = when {
@@ -483,6 +516,18 @@ fun HomeScreen(
                 } else null,
                 extraActionLabel = if (uiState.isStrictModePaused) "Resume" else "Pause"
             )
+            }
+
+            if (uiState.showSmartSuggestionsCard && uiState.suggestedApps.isNotEmpty()) {
+                item(key = "smart_suggestions_card") {
+                    SmartSuggestionsCard(
+                        suggestions = uiState.suggestedApps,
+                        onAccept = { viewModel.acceptSuggestion(it) },
+                        onDismiss = { viewModel.dismissSuggestion(it) },
+                        onAcceptAll = { viewModel.acceptAllSuggestions() }
+                    )
+                }
+            }
         }
 
         // Active Schedules (if any)
@@ -1088,12 +1133,13 @@ fun QuickBlockCard(
                     stiffness = Spring.StiffnessLow
                 )
             ),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDarkElevated),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark),
+        border = BorderStroke(1.dp, SurfaceBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
-            modifier = Modifier.padding(24.dp)
+            modifier = Modifier.padding(20.dp)
         ) {
             // Header with icon and title
             Row(
@@ -1171,15 +1217,12 @@ fun QuickBlockCard(
                 onClick = { if (isActive) onStopClick() else onStartClick() },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp),
-                shape = RoundedCornerShape(16.dp),
+                    .height(56.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isActive) AccentRed else Primary
                 ),
-                elevation = ButtonDefaults.buttonElevation(
-                    defaultElevation = 4.dp,
-                    pressedElevation = 8.dp
-                )
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
             ) {
                 Row(
                     horizontalArrangement = Arrangement.Center,
@@ -1199,7 +1242,7 @@ fun QuickBlockCard(
                         )
                     } else {
                         Text(
-                            text = if (isActive) "Stop Blocking" else "Start Blocking",
+                            text = if (isActive) "Stop blocking" else "Block now",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold
                         )

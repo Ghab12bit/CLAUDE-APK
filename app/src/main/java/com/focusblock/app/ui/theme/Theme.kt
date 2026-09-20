@@ -12,7 +12,7 @@ import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
     primary = Primary,
-    onPrimary = Color.White,
+    onPrimary = BackgroundDark,
     primaryContainer = PrimaryVariant,
     onPrimaryContainer = Color.White,
     secondary = AccentPurple,
@@ -36,7 +36,7 @@ private val DarkColorScheme = darkColorScheme(
 
 @Composable
 fun FocusBlockTheme(
-    darkTheme: Boolean = true, // Always dark theme for AppBlock-like look
+    darkTheme: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = DarkColorScheme

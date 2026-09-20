@@ -121,7 +121,7 @@ data class HomeUiState(
     val hardModeCooldownMinutes: Int = 15, // Cooldown to disable
     val hardModeCooldownRemainingMs: Long = 0L, // Remaining cooldown time
     val showHardModeUnlockDialog: Boolean = false,
-    val hardModeUnlockPhrase: String = "I choose distraction over my goals",
+    val hardModeUnlockPhrase: String = "Unlock my limits",
     // Guided 20% reduction prompt
     val showDailyLimitSuggestionPrompt: Boolean = false,
     val projectedWeeklySavingsMinutes: Int = 0,

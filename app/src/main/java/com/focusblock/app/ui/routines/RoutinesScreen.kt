@@ -148,8 +148,10 @@ fun RoutinesScreen(viewModel: RoutinesViewModel = hiltViewModel()) {
         )
     }
 
+    // Drawn after the Scaffold, so it covers it: the editor is a place you go,
+    // not a drawer over the place you were.
     state.editing?.let { draft ->
-        RuleEditorSheet(
+        RuleEditorScreen(
             draft = draft,
             apps = state.pickerApps,
             appsLoading = state.pickerLoading,
@@ -413,9 +415,20 @@ private fun TemplateSheet(
  * The old app let you turn on a mode and only discover the restrictions when
  * you hit them.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The routine editor, as a screen.
+ *
+ * It was a bottom sheet capped at 620dp with an app grid scrolling inside its
+ * own 260dp box -- a scroll area inside a scroll area inside a sheet, on the
+ * screen where the user does the most consequential thing in the app. Setting
+ * up a routine is the point of the product; it does not belong in a drawer
+ * that covers two thirds of the display and has to be dismissed to see what
+ * you were editing.
+ *
+ * Full screen, one scroll, and a save bar that never leaves.
+ */
 @Composable
-private fun RuleEditorSheet(
+private fun RuleEditorScreen(
     draft: BlockRule,
     apps: List<PickableApp>,
     appsLoading: Boolean,
@@ -424,17 +437,32 @@ private fun RuleEditorSheet(
     onSave: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = BackgroundDarkTertiary) {
+    Column(Modifier.fillMaxSize().background(Ground)) {
+        // Its own way out, since there is no sheet scrim to tap.
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Cancel",
+                color = InkMuted,
+                fontSize = 15.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onDismiss)
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            )
+        }
+
         Column(
             Modifier
+                .weight(1f)
                 .fillMaxWidth()
-                .heightIn(max = 620.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp)
         ) {
-            Text(draft.name, color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(16.dp))
+            Text(draft.name, color = Ink, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(20.dp))
 
             if (draft.hasTimeCondition) {
                 FieldLabel("Time")
@@ -482,7 +510,8 @@ private fun RuleEditorSheet(
                     CircularProgressIndicator(color = Signal, modifier = Modifier.size(22.dp))
                 }
             } else {
-                Box(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
+                // No nested scroll: the page scrolls, the grid just lays out.
+                Box(Modifier.fillMaxWidth()) {
                     AppIconGrid(
                         apps = apps.map {
                             GridApp(
@@ -498,18 +527,21 @@ private fun RuleEditorSheet(
                 }
             }
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(24.dp))
             FieldLabel("How hard to stop")
             CommitmentPicker(draft.commitment) { level -> onChange { it.copy(commitment = level) } }
+            Spacer(Modifier.height(32.dp))
+        }
 
-            Spacer(Modifier.height(20.dp))
+        // Always visible, so a long app list never hides the way to finish.
+        Column(Modifier.fillMaxWidth().background(Ground).padding(20.dp)) {
             Button(
                 onClick = onSave,
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Signal),
-                modifier = Modifier.fillMaxWidth().height(50.dp)
+                colors = ButtonDefaults.buttonColors(containerColor = Ember),
+                modifier = Modifier.fillMaxWidth().height(52.dp)
             ) {
-                Text("Save routine", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text("Save routine", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }

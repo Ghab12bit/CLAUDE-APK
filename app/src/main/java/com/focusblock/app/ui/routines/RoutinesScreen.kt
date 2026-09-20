@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,6 +38,7 @@ import com.focusblock.app.ui.components.TimeWindowBar
 import com.focusblock.app.ui.components.HeroState
 import com.focusblock.app.ui.components.ScreenTitle
 import com.focusblock.app.ui.components.SectionHeading
+import com.focusblock.app.ui.components.SectionRule
 import com.focusblock.app.ui.components.StatusHero
 import com.focusblock.app.ui.theme.*
 
@@ -175,10 +177,8 @@ private fun TemplateCard(template: RuleTemplates.Template, onPick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(SurfaceDark)
             .clickable(onClick = onPick)
-            .padding(16.dp),
+            .padding(vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
@@ -244,37 +244,28 @@ private fun RoutineCard(
         c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE)
     }
 
-    Card(
-        colors = CardDefaults.cardColors(containerColor = CardDark),
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier
+    // A row on the page, not a card. Every routine having its own container
+    // is what produced the stack of tiles; a hairline and space separate them
+    // just as clearly and leave the routine itself as the only thing drawn.
+    //
+    // A running routine is marked by an Ember rail down its left edge -- a
+    // position and a shape, not only a colour, so the state survives being
+    // read without colour vision.
+    Column(
+        Modifier
             .fillMaxWidth()
-            .then(
-                if (row.isActiveNow)
-                    Modifier.border(1.dp, SignalBorder, RoundedCornerShape(20.dp))
-                else Modifier
-            )
             .clickable(onClick = onEdit)
     ) {
-        Column(Modifier.padding(16.dp)) {
-            // Header: a coloured mark, the name, and the switch. Everything
-            // else in the card is a picture rather than a sentence.
+        SectionRule()
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+            Box(
+                Modifier
+                    .width(2.dp)
+                    .fillMaxHeight()
+                    .background(if (row.isActiveNow) Ember else Color.Transparent)
+            )
+            Column(Modifier.padding(start = 16.dp, end = 4.dp, top = 18.dp, bottom = 18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (row.isActiveNow) SignalGlow else SurfaceElevated),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = iconFor(row.rule.iconType),
-                        contentDescription = null,
-                        tint = if (row.isActiveNow) Signal else TextSecondary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -293,9 +284,10 @@ private fun RoutineCard(
                             )
                         }
                     }
+                    Spacer(Modifier.height(3.dp))
                     Text(
                         if (row.isActiveNow) "Running now" else row.summary,
-                        color = if (row.isActiveNow) Signal else TextTertiary,
+                        color = if (row.isActiveNow) Ember else InkFaint,
                         fontSize = 12.sp
                     )
                 }
@@ -334,15 +326,16 @@ private fun RoutineCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(dayLabel(row.rule.daysOfWeek), color = TextTertiary, fontSize = 11.sp)
+                Text(dayLabel(row.rule.daysOfWeek), color = InkFaint, fontSize = 11.sp)
                 IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
                     Icon(
                         Icons.Filled.Delete,
                         contentDescription = "Delete routine",
-                        tint = TextTertiary,
+                        tint = InkFaint,
                         modifier = Modifier.size(15.dp)
                     )
                 }
+            }
             }
         }
     }

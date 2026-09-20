@@ -30,6 +30,7 @@ import com.focusblock.app.database.entity.CommitmentLevel
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import com.focusblock.app.ui.components.AppIconGrid
+import com.focusblock.app.ui.components.AppIcon
 import com.focusblock.app.ui.components.AppIconRow
 import com.focusblock.app.ui.components.GridApp
 import com.focusblock.app.ui.components.HeroState
@@ -129,6 +130,9 @@ fun NowScreen(
                     } else null
                 )
             }
+
+            // Today, filling what used to be four hundred empty pixels.
+            state.today?.let { today -> item { TodayCard(today) } }
 
             // The stake. Framed as what there is to lose, never as a score.
             if (state.streakDays > 0 || state.impulsesPassed > 0 || state.protectedHours > 0) {
@@ -307,6 +311,100 @@ private fun AlwaysAllowedRow(apps: List<AppLabel>) {
             Spacer(Modifier.height(6.dp))
             Text("Always reachable", color = TextTertiary, fontSize = 11.sp)
         }
+    }
+}
+
+/**
+ * Today, on the home screen.
+ *
+ * Pickups are given the same weight as screen time, because they are the
+ * number a blocker can actually move and the one that describes the habit:
+ * two hours spread over thirty-four reaches is a different problem from two
+ * hours in one sitting, and only one of them is what this app is for.
+ *
+ * The comparison is against yesterday rather than a target. A target the user
+ * did not set is a grade, and this screen does not grade anyone.
+ */
+@Composable
+private fun TodayCard(today: TodayGlance) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(CardDark)
+            .padding(18.dp)
+    ) {
+        Text("TODAY", color = TextTertiary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(12.dp))
+
+        Row(verticalAlignment = Alignment.Bottom) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    formatSpan(today.screenMinutes),
+                    color = TextPrimary,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text("screen time", color = TextTertiary, fontSize = 12.sp)
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "${today.pickups}",
+                    color = TextPrimary,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text("pickups", color = TextTertiary, fontSize = 12.sp)
+            }
+        }
+
+        if (today.yesterdayMinutes > 0) {
+            Spacer(Modifier.height(10.dp))
+            val delta = today.changeVsYesterday
+            Text(
+                when {
+                    delta < 0 -> "${formatSpan(-delta)} less than yesterday"
+                    delta > 0 -> "${formatSpan(delta)} more than yesterday"
+                    else -> "Level with yesterday"
+                },
+                color = if (delta <= 0) Signal else AccentOrange,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+
+        if (today.topApps.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Divider(color = Divider)
+            Spacer(Modifier.height(14.dp))
+            today.topApps.forEach { app ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AppIcon(app.packageName, size = 26.dp, fallbackLabel = app.label)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        app.label,
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(formatSpan(app.minutes), color = TextPrimary, fontSize = 13.sp)
+                }
+            }
+        }
+    }
+}
+
+private fun formatSpan(minutes: Int): String {
+    val h = minutes / 60
+    val m = minutes % 60
+    return when {
+        h > 0 && m > 0 -> "${h}h ${m}m"
+        h > 0 -> "${h}h"
+        else -> "${m}m"
     }
 }
 

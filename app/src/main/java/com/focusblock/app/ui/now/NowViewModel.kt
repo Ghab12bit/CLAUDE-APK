@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.focusblock.app.blocking.BlockingEngine
 import com.focusblock.app.blocking.RuleAlarmScheduler
+import android.app.usage.UsageStatsManager
+import android.content.Context
 import com.focusblock.app.blocking.RuleTemplates
 import com.focusblock.app.blocking.StakeTracker
 import com.focusblock.app.database.dao.BlockRuleDao
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -53,6 +56,8 @@ data class NowUiState(
     val impulsesPassed: Int = 0,
     val protectedHours: Int = 0,
     val reason: String = "",
+    /** Today so far, from the usage data the phone already keeps. */
+    val today: TodayGlance? = null,
     /**
      * A milestone reached and not yet acknowledged.
      *
@@ -63,6 +68,30 @@ data class NowUiState(
     val milestone: MilestoneCard? = null,
     val message: String? = null
 )
+
+/**
+ * Today, at a glance.
+ *
+ * The home screen had a hero, a row of allowed apps, one upcoming card and a
+ * button -- and then four hundred empty pixels. Emptiness reads as an app that
+ * has not been finished, and a blocker that shows you nothing about today has
+ * no claim on your attention when nothing happens to be blocked.
+ *
+ * Everything here comes from usage access, which is already granted, and none
+ * of it is a score or a grade. Pickups lead because that is the number this
+ * app can actually move.
+ */
+data class TodayGlance(
+    val screenMinutes: Int,
+    val pickups: Int,
+    val topApps: List<AppMinutes>,
+    /** Yesterday's total, for the only comparison worth making. */
+    val yesterdayMinutes: Int
+) {
+    val changeVsYesterday: Int get() = screenMinutes - yesterdayMinutes
+}
+
+data class AppMinutes(val packageName: String, val label: String, val minutes: Int)
 
 /** A milestone ready to show, with its copy already resolved. */
 data class MilestoneCard(
@@ -264,7 +293,10 @@ class NowViewModel @Inject constructor(
 
                 val profile = profileDao.require()
 
-                // ---- 4. A milestone waiting to be acknowledged -------------
+                // ---- 4. Today, from the phone's own usage data -------------
+                val today = readToday(context)
+
+                // ---- 5. A milestone waiting to be acknowledged -------------
                 val pendingCard = stake.pendingMilestone()?.let { m ->
                     val (title, body) = StakeTracker.headline(m.kind, m.value)
                     MilestoneCard(
@@ -296,6 +328,7 @@ class NowViewModel @Inject constructor(
                         impulsesPassed = profile.impulsesPassed,
                         protectedHours = (profile.totalProtectedMinutes / 60).toInt(),
                         reason = profile.reason,
+                        today = today,
                         milestone = it.milestone ?: pendingCard
                     )
                 }
@@ -304,6 +337,72 @@ class NowViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * Today's screen time, pickups and biggest apps.
+     *
+     * Pickups are counted from ACTIVITY_RESUMED with a five-second floor
+     * between them: without that, a single unlock that bounces through a
+     * launcher and two activities reads as three pickups, and the number
+     * inflates to the point of being useless.
+     */
+    private fun readToday(context: Context): TodayGlance? {
+        if (!PermissionUtils.hasUsageStatsPermission(context)) return null
+        return try {
+            val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            val now = System.currentTimeMillis()
+            val startOfToday = startOfDay(now)
+            val startOfYesterday = startOfToday - TimeUnit.DAYS.toMillis(1)
+
+            val todayTotals = foregroundMinutes(usm, startOfToday, now)
+            val yesterdayTotals = foregroundMinutes(usm, startOfYesterday, startOfToday)
+
+            var pickups = 0
+            var lastResume = 0L
+            val events = usm.queryEvents(startOfToday, now)
+            val event = android.app.usage.UsageEvents.Event()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                if (event.eventType != android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED) continue
+                if (event.packageName == context.packageName) continue
+                if (event.timeStamp - lastResume < 5_000L) continue
+                lastResume = event.timeStamp
+                pickups++
+            }
+
+            TodayGlance(
+                screenMinutes = todayTotals.values.sum(),
+                pickups = pickups,
+                topApps = todayTotals.entries
+                    .sortedByDescending { it.value }
+                    .take(4)
+                    .map { AppMinutes(it.key, AppUtils.getAppName(context, it.key), it.value) },
+                yesterdayMinutes = yesterdayTotals.values.sum()
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Minutes in the foreground per package over a span, ignoring trivia. */
+    private fun foregroundMinutes(
+        usm: UsageStatsManager,
+        from: Long,
+        to: Long
+    ): Map<String, Int> =
+        usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, from, to)
+            .filter { it.totalTimeInForeground > 60_000L && it.lastTimeUsed in from..to }
+            .groupBy { it.packageName }
+            .mapValues { (_, rows) -> (rows.sumOf { it.totalTimeInForeground } / 60_000L).toInt() }
+            .filterValues { it > 0 }
+
+    private fun startOfDay(epoch: Long): Long = Calendar.getInstance().apply {
+        timeInMillis = epoch
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
 
     /**
      * Acknowledge a milestone. Marked seen whether or not it was shared, so it

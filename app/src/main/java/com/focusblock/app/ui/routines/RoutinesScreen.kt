@@ -36,6 +36,7 @@ import com.focusblock.app.ui.components.AppIconRow
 import com.focusblock.app.ui.components.TimeWindowBar
 import com.focusblock.app.ui.components.HeroState
 import com.focusblock.app.ui.components.ScreenTitle
+import com.focusblock.app.ui.components.SectionHeading
 import com.focusblock.app.ui.components.StatusHero
 import com.focusblock.app.ui.theme.*
 
@@ -116,6 +117,23 @@ fun RoutinesScreen(viewModel: RoutinesViewModel = hiltViewModel()) {
                 )
             }
 
+            // Templates, on the screen rather than behind the button.
+            //
+            // They were rendered only when the user had NO routines, so anyone
+            // who made one never saw them again -- and the four kinds of
+            // routine this app can build stayed invisible behind a "+" that
+            // gives no clue what is on the other side. A blocker whose main
+            // screen is two cards and empty space looks like it has nothing
+            // left to offer.
+            val existing = state.routines.map { it.rule.name }.toSet()
+            val unused = RuleTemplates.ALL.filter { it.title !in existing && it.key != "block_now" }
+            if (unused.isNotEmpty() && !state.loading) {
+                item { SectionHeading("Add another") }
+                items(unused, key = { "tpl_${it.key}" }) { template ->
+                    TemplateCard(template) { viewModel.beginFromTemplate(template) }
+                }
+            }
+
             item { Spacer(Modifier.height(72.dp)) }
         }
     }
@@ -140,6 +158,47 @@ fun RoutinesScreen(viewModel: RoutinesViewModel = hiltViewModel()) {
             onSave = viewModel::saveDraft,
             onDismiss = viewModel::cancelEditing
         )
+    }
+}
+
+/**
+ * One template, as a card on the screen.
+ *
+ * Carries the same coloured mark as a real routine card, so the list reads as
+ * "routines you have" followed by "routines you could have" rather than as two
+ * unrelated things.
+ */
+@Composable
+private fun TemplateCard(template: RuleTemplates.Template, onPick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(SurfaceDark)
+            .clickable(onClick = onPick)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                template.title,
+                color = TextPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(template.summary, color = TextSecondary, fontSize = 12.sp, lineHeight = 17.sp)
+        }
+        Spacer(Modifier.width(12.dp))
+        Box(
+            Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(SignalGlow),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("+", color = Signal, fontSize = 19.sp, fontWeight = FontWeight.Medium)
+        }
     }
 }
 

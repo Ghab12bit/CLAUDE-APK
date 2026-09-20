@@ -276,7 +276,12 @@ class Migration12to13Test {
      */
     @Test
     fun migratedTablesMatchWhatRoomWouldCreate() {
-        Migrations.MIGRATION_12_13.migrate(db)
+        // The WHOLE chain, not just the first step. The comparison is against a
+        // Room database at the current version, so a later migration that
+        // alters one of these tables -- 14 to 15 adds the launch-count columns
+        // to block_rules -- must be applied here too or this test fails for a
+        // reason that has nothing to do with a real defect.
+        for (migration in Migrations.ALL) migration.migrate(db)
         val migrated = listOf("block_rules", "rule_usage", "rule_overrides", "protection_lock")
             .associateWith { columnsOf(db, it) }
 

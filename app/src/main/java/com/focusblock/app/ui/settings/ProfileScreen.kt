@@ -134,7 +134,8 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
                         !state.hasUsageAccess ->
                             "Usage access is off, so time budgets can't be measured."
                         ok == granted.size ->
-                            "All $ok permissions granted. ${state.ruleCount} routines enabled."
+                            "All $ok permissions granted. ${state.ruleCount} " +
+                                (if (state.ruleCount == 1) "routine" else "routines") + " enabled."
                         else -> "$ok of ${granted.size} permissions granted."
                     }
                 )
@@ -280,7 +281,12 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
                         fontWeight = FontWeight.Medium
                     )
                     Spacer(Modifier.height(4.dp))
-                    Text("${state.ruleCount} routines enabled", color = TextTertiary, fontSize = 12.sp)
+                    Text(
+                        "${state.ruleCount} " +
+                            (if (state.ruleCount == 1) "routine" else "routines") + " enabled",
+                        color = TextTertiary,
+                        fontSize = 12.sp
+                    )
                 }
             }
 

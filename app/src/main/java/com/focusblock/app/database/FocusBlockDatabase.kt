@@ -48,7 +48,7 @@ import com.focusblock.app.database.entity.*
         WindowOutcome::class,
         Milestone::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = false
 )
 abstract class FocusBlockDatabase : RoomDatabase() {

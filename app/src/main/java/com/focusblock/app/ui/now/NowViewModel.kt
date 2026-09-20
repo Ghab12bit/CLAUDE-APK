@@ -329,6 +329,9 @@ class NowViewModel @Inject constructor(
             "Daily budget spent (${reason.usedMinutes}/${reason.limitMinutes}m) · until midnight"
         BlockingEngine.Trigger.HOURLY_BUDGET ->
             "This hour's ${reason.limitMinutes}m used · until ${reason.endsAt?.let { clock(it) } ?: "next hour"}"
+        BlockingEngine.Trigger.LAUNCH_LIMIT ->
+            "Opened ${reason.usedMinutes} times (limit ${reason.limitMinutes}) · until " +
+                (reason.endsAt?.let { clock(it) } ?: "the window resets")
     }
 
     private fun clock(epoch: Long): String =

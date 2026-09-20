@@ -162,7 +162,39 @@ object RuleTemplates {
         }
     )
 
-    val ALL = listOf(EVENING_WORK, WIND_DOWN, DAILY_BUDGET, HOURLY_SIP)
+    /**
+     * A cap on opens rather than on minutes.
+     *
+     * The case for it is in the usage data a phone already collects: thirty-odd
+     * pickups against a couple of hours of screen time is not a binge, it is a
+     * four-minute check repeated all day. A sixty-minute budget never trips on
+     * that pattern, and a schedule only covers the hours it names. Capping
+     * opens interrupts the reach itself, which is the actual habit.
+     *
+     * Ten is deliberately generous. A cap that bites at lunchtime gets turned
+     * off; one that bites in the evening gets kept.
+     */
+    val OPEN_LIMIT = Template(
+        key = "open_limit",
+        title = "A limited number of opens",
+        summary = "Blocks after you've opened these apps a set number of times " +
+            "today. Catches compulsive checking, which a time limit misses.",
+        build = { packages ->
+            BlockRule(
+                name = "Open limit",
+                kind = RuleKind.AUTOMATIC,
+                packages = packages.joinToString(","),
+                iconType = ScheduleIconType.FOCUS,
+                colorHex = "#BF5AF2",
+                hasLaunchCondition = true,
+                launchLimit = 10,
+                launchWindow = UsageWindow.DAILY,
+                commitment = CommitmentLevel.OFF
+            )
+        }
+    )
+
+    val ALL = listOf(EVENING_WORK, WIND_DOWN, DAILY_BUDGET, HOURLY_SIP, OPEN_LIMIT)
 
     /**
      * A one-off manual block, started from the home screen.

@@ -118,6 +118,23 @@ data class BlockRule(
     val usageLimitMinutes: Int = 0,
     val usageWindow: UsageWindow = UsageWindow.DAILY,
 
+    // ---------------- Launch condition ----------------
+
+    /**
+     * A cap on how many times the rule's apps may be OPENED, rather than on
+     * how long they are used.
+     *
+     * These measure different pathologies and a time budget does not catch the
+     * one this app exists for. Thirty-four pickups against two hours of screen
+     * time is not a binge -- it is a four-minute check, repeated all day, and
+     * a sixty-minute budget never trips on it. Capping opens hits the reach
+     * itself, which is the behaviour worth interrupting.
+     */
+    val hasLaunchCondition: Boolean = false,
+    /** Combined opens across all of this rule's apps before it starts blocking. */
+    val launchLimit: Int = 0,
+    val launchWindow: UsageWindow = UsageWindow.DAILY,
+
     // ---------------- Manual session state ----------------
     val isManualActive: Boolean = false,
     /** Epoch millis when a manual session ends; null = until turned off. */

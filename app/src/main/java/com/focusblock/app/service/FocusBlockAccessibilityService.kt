@@ -1497,6 +1497,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             BlockingEngine.Trigger.SCHEDULE -> BlockedByType.SCHEDULE
             BlockingEngine.Trigger.DAILY_BUDGET -> BlockedByType.APP_TIMER
             BlockingEngine.Trigger.HOURLY_BUDGET -> BlockedByType.FOCUS_CYCLE
+            BlockingEngine.Trigger.LAUNCH_LIMIT -> BlockedByType.APP_TIMER
             null -> BlockedByType.QUICK_BLOCK
         }
     }

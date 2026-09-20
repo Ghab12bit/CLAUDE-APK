@@ -433,5 +433,26 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(MIGRATION_12_13, MIGRATION_13_14)
+    /**
+     * Adds the launch-count condition.
+     *
+     * Plain column additions with defaults, so every existing rule keeps
+     * behaving exactly as it did: hasLaunchCondition defaults to 0 and nothing
+     * reads the other two until it is set.
+     */
+    val MIGRATION_14_15 = object : Migration(14, 15) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE block_rules ADD COLUMN `hasLaunchCondition` INTEGER NOT NULL DEFAULT 0"
+            )
+            db.execSQL(
+                "ALTER TABLE block_rules ADD COLUMN `launchLimit` INTEGER NOT NULL DEFAULT 0"
+            )
+            db.execSQL(
+                "ALTER TABLE block_rules ADD COLUMN `launchWindow` TEXT NOT NULL DEFAULT 'DAILY'"
+            )
+        }
+    }
+
+    val ALL = arrayOf(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
 }

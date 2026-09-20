@@ -63,7 +63,16 @@ class BlockingEngine @Inject constructor(
         DAILY_BUDGET,
 
         /** The rule's hourly budget is spent. */
-        HOURLY_BUDGET
+        HOURLY_BUDGET,
+
+        /**
+         * The rule's apps have been opened too many times.
+         *
+         * Distinct from a time budget because it catches a different habit:
+         * repeated short checks that never add up to enough minutes to trip a
+         * duration limit.
+         */
+        LAUNCH_LIMIT
     }
 
     /**
@@ -212,6 +221,27 @@ class BlockingEngine @Inject constructor(
         // AUTOMATIC: every attached condition must hold.
         if (!rule.timeConditionMatches(calendar)) return null
 
+        // Launch condition: has the rule's apps been opened too many times?
+        if (rule.hasLaunchCondition) {
+            val launchBucket = bucketFor(rule.launchWindow, now)
+            val opens = ruleDao.getUsage(rule.id, launchBucket)?.launchCount ?: 0
+            if (opens < rule.launchLimit) {
+                // Under the cap. If nothing else is attached, the rule is not
+                // active; otherwise fall through and let the others decide.
+                if (!rule.hasUsageCondition) return null
+            } else {
+                return ActiveReason(
+                    ruleId = rule.id,
+                    ruleName = rule.name,
+                    trigger = Trigger.LAUNCH_LIMIT,
+                    endsAt = bucketEndsAt(rule.launchWindow, now),
+                    commitment = rule.commitment,
+                    usedMinutes = opens,
+                    limitMinutes = rule.launchLimit
+                )
+            }
+        }
+
         if (!rule.hasUsageCondition) {
             // Pure schedule.
             if (!rule.hasTimeCondition) return null // no conditions at all -> inert
@@ -269,11 +299,20 @@ class BlockingEngine @Inject constructor(
         }
     }
 
-    /** Credit one app launch, for rules that count launches rather than time. */
+    /**
+     * Credit one app launch, for rules that count opens rather than time.
+     *
+     * An attempt that is already being blocked does not count. The user never
+     * got in, so counting it would push "opened 10 times" up to fifteen while
+     * they stared at the block screen -- a number that punishes them for being
+     * stopped, and that makes the limit look broken.
+     */
     suspend fun recordLaunch(packageName: String, now: Long = System.currentTimeMillis()) {
         if (allowlist(now).contains(packageName)) return
+        val blockedRuleIds = evaluate(packageName, now).reasons.map { it.ruleId }.toSet()
         for (rule in enabledRules(now)) {
             if (!rule.covers(packageName)) continue
+            if (rule.id in blockedRuleIds) continue
             ruleDao.addLaunch(rule.id, bucketFor(UsageWindow.DAILY, now))
             ruleDao.addLaunch(rule.id, bucketFor(UsageWindow.HOURLY, now))
         }

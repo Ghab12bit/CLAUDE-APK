@@ -99,6 +99,12 @@ class RoutinesViewModel @Inject constructor(
                 UsageWindow.HOURLY -> "${rule.usageLimitMinutes}m an hour"
             }
         }
+        if (rule.hasLaunchCondition) {
+            parts += when (rule.launchWindow) {
+                UsageWindow.DAILY -> "${rule.launchLimit} opens a day"
+                UsageWindow.HOURLY -> "${rule.launchLimit} opens an hour"
+            }
+        }
         if (rule.kind == RuleKind.MANUAL) {
             parts += if (rule.isManualActive) "running now" else "not running"
         }

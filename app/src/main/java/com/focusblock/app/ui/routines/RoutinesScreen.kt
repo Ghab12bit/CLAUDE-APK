@@ -96,7 +96,8 @@ fun RoutinesScreen(viewModel: RoutinesViewModel = hiltViewModel()) {
                     },
                     detail = when {
                         active > 0 -> state.routines.firstOrNull { it.isActiveNow }?.summary.orEmpty()
-                        enabled > 0 -> "$enabled set up and waiting for their window."
+                        enabled == 1 -> "One routine set up, waiting for its window."
+                        enabled > 0 -> "$enabled set up, waiting for their windows."
                         else -> "Add one so blocking happens without you deciding."
                     }
                 )

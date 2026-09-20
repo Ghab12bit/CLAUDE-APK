@@ -7,7 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
 import com.focusblock.app.R
+import com.focusblock.app.blocking.RuleAlarmScheduler
+import com.focusblock.app.blocking.RuleTemplates
 import com.focusblock.app.database.FocusBlockDatabase
+import com.focusblock.app.database.entity.RuleKind
+import com.focusblock.app.service.FocusBlockAccessibilityService
 import com.focusblock.app.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,30 +45,47 @@ class FocusBlockWidget : AppWidgetProvider() {
         }
     }
 
+    /**
+     * Start or stop a real block.
+     *
+     * This used to write a QuickBlockSession row. Nothing has enforced that
+     * table since blocking was unified behind BlockRule -- BlockingEngine reads
+     * block_rules and the allowlist, and nothing else -- so the widget toggled
+     * a value no part of the app consulted. It reported "Blocking Active" and
+     * blocked nothing at all.
+     *
+     * It now creates and retires the same MANUAL rule the home screen's "Block
+     * now" uses, which is the thing that actually blocks.
+     */
     private fun toggleBlocking(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val db = FocusBlockDatabase.getInstance(context)
-                val dao = db.focusBlockDao()
-                val activeSession = dao.getActiveQuickBlockSessionDirect()
+                val ruleDao = db.blockRuleDao()
+                val now = System.currentTimeMillis()
+                val running = ruleDao.getAllRulesSync().firstOrNull { it.manualIsRunning(now) }
 
-                if (activeSession != null) {
-                    // Stop blocking
-                    dao.endQuickBlockSession(activeSession.id)
+                if (running != null) {
+                    ruleDao.update(
+                        running.copy(isManualActive = false, activeUntil = null, updatedAt = now)
+                    )
                 } else {
-                    // Start blocking with default apps
-                    val blockedApps = dao.getActiveBlockedAppsDirect()
-                    if (blockedApps.isNotEmpty()) {
-                        val packages = blockedApps.map { it.packageName }.joinToString(",")
-                        val session = com.focusblock.app.database.entity.QuickBlockSession(
-                            startTime = System.currentTimeMillis(),
-                            endTime = null,
-                            blockedPackages = packages,
-                            isActive = true
-                        )
-                        dao.insertQuickBlockSession(session)
+                    // Same apps the user's routines already cover, so the
+                    // widget never has to ask a question it has no screen for.
+                    val packages = ruleDao.getAllRulesSync()
+                        .filter { it.isEnabled }
+                        .flatMap { it.packageList() }
+                        .distinct()
+                    if (packages.isNotEmpty()) {
+                        ruleDao.insert(RuleTemplates.blockNow(packages, null))
                     }
                 }
+
+                // The engine caches the rule set for a couple of seconds and
+                // the alarm for a timed end has to exist, so both are refreshed
+                // exactly as the in-app path does it.
+                RuleAlarmScheduler.rescheduleAll(context, ruleDao.getAllRulesSync())
+                FocusBlockAccessibilityService.recheckNow()
 
                 // Refresh widget
                 val appWidgetManager = AppWidgetManager.getInstance(context)
@@ -91,11 +112,19 @@ class FocusBlockWidget : AppWidgetProvider() {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val db = FocusBlockDatabase.getInstance(context)
-                    val dao = db.focusBlockDao()
-                    val activeSession = dao.getActiveQuickBlockSessionDirect()
-                    val isBlocking = activeSession != null
-                    val blockedCount = activeSession?.blockedPackages?.split(",")
-                        ?.filter { it.isNotBlank() }?.size ?: 0
+                    val now = System.currentTimeMillis()
+                    val rules = db.blockRuleDao().getAllRulesSync()
+
+                    // What the widget reports must be what the engine would
+                    // actually enforce: a manual session running now, or a
+                    // scheduled routine inside its window.
+                    val active = rules.filter {
+                        it.isEnabled && (it.manualIsRunning(now) ||
+                            (it.kind == RuleKind.AUTOMATIC && it.hasTimeCondition &&
+                                it.timeConditionMatches()))
+                    }
+                    val isBlocking = active.isNotEmpty()
+                    val blockedCount = active.flatMap { it.packageList() }.distinct().size
 
                     val views = RemoteViews(context.packageName, R.layout.widget_focus_block)
 

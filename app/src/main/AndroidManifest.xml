@@ -14,6 +14,11 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Rule boundaries must fire at the minute they are set for: a block
+         that starts late or lingers past its end time is the thing that makes
+         a blocker untrustworthy. The scheduler degrades to an inexact window
+         if the OS withholds this. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
@@ -52,26 +57,6 @@
             android:turnScreenOn="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
 
-        <!-- Hard Mode Unlock Activity -->
-        <activity
-            android:name=".ui.overlay.HardModeUnlockActivity"
-            android:exported="false"
-            android:theme="@style/Theme.FocusBlock.Overlay"
-            android:launchMode="singleInstance"
-            android:excludeFromRecents="true" />
-
-        <!-- App Timer Reflection Activity -->
-        <activity
-            android:name=".ui.overlay.AppTimerReflectionActivity"
-            android:exported="false"
-            android:theme="@style/Theme.FocusBlock.Overlay"
-            android:launchMode="singleTask"
-            android:excludeFromRecents="true"
-            android:taskAffinity="com.focusblock.apptimer"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
-
         <!-- App Blocking Service -->
         <service
             android:name=".service.AppBlockingService"
@@ -95,11 +80,6 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- Focus Cycle Overlay Service -->
-        <service
-            android:name=".service.FocusCycleOverlayService"
-            android:exported="false" />
-
         <!-- Boot Receiver -->
         <receiver
             android:name=".receiver.BootReceiver"
@@ -108,37 +88,18 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <!-- An app update also clears pending alarms, so rule
+                     boundaries must be re-armed after one. -->
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 
-        <!-- Schedule Alarm Receiver -->
+        <!-- Wakes the app when a blocking rule's window opens or closes, so
+             the notification and UI stay correct even if no service is alive.
+             Enforcement does not depend on it. -->
         <receiver
-            android:name=".receiver.ScheduleAlarmReceiver"
+            android:name=".receiver.RuleAlarmReceiver"
             android:exported="false" />
-
-        <!-- Pomodoro Timer Receiver -->
-        <receiver
-            android:name=".receiver.PomodoroReceiver"
-            android:exported="false" />
-
-        <!-- App Timer Extend Receiver -->
-        <receiver
-            android:name=".receiver.AppTimerExtendReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.focusblock.app.ACTION_EXTEND_APP_TIMER" />
-            </intent-filter>
-        </receiver>
-
-        <!-- Charging State Receiver - tracks phone usage while charging for adaptive insights -->
-        <receiver
-            android:name=".receiver.ChargingStateReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
-                <action android:name="android.intent.action.ACTION_POWER_DISCONNECTED" />
-            </intent-filter>
-        </receiver>
 
         <!-- Home Screen Widget -->
         <receiver

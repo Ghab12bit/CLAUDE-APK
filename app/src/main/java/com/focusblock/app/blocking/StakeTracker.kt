@@ -1,0 +1,331 @@
+package com.focusblock.app.blocking
+
+import com.focusblock.app.database.dao.FocusProfileDao
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import com.focusblock.app.database.entity.BlockRule
+import com.focusblock.app.database.entity.RuleKind
+import com.focusblock.app.database.entity.FocusProfile
+import com.focusblock.app.database.entity.Milestone
+import com.focusblock.app.database.entity.MilestoneKind
+import com.focusblock.app.database.entity.WindowOutcome
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Keeps what the user has at stake.
+ *
+ * Deliberately NOT a scoring system. Points and levels lose their pull once the
+ * reward becomes predictable, which is the documented shelf life of gamified
+ * behaviour-change apps. What does not decay is loss aversion: something you
+ * built and could lose. So everything here is framed as a stake -- a streak on
+ * the line, evenings already protected -- and nothing is framed as a score, a
+ * grade or a rank.
+ *
+ * Two design rules follow from the research and are enforced here:
+ *
+ *   - **One forgiven day a month.** A streak that shatters on the first miss
+ *     gets abandoned rather than repaired; all-or-nothing framing is what makes
+ *     streak mechanics brittle. Grace keeps the stake real without making one
+ *     bad evening terminal.
+ *
+ *   - **The headline number is impulses passed, not hours blocked.** Hours
+ *     blocked measures the software. Impulses passed measures the person, and
+ *     it is the only number here that reflects something the user did.
+ */
+@Singleton
+class StakeTracker @Inject constructor(
+    private val profileDao: FocusProfileDao
+) {
+
+    // ------------------------------------------------------------------
+    // Windows
+    // ------------------------------------------------------------------
+
+    /**
+     * Bring the record of protected windows up to date with reality.
+     *
+     * This is state reconciliation rather than event handling, and deliberately
+     * so. An approach that opened a window on one alarm and closed it on
+     * another loses the whole evening whenever a single alarm is delayed,
+     * dropped by a doze, or missed because the phone was off -- which on
+     * Android is not an edge case. Comparing "is this rule inside its window
+     * right now" against "do we have a window open for it" is self-correcting:
+     * whatever ran last, the next call puts the books right.
+     *
+     * Call it from anywhere that already wakes up: rule boundaries, boot, the
+     * service's periodic re-check.
+     */
+    suspend fun reconcileWindows(
+        rules: List<BlockRule>,
+        countOverrides: suspend (ruleId: Long, from: Long, to: Long) -> Int,
+        now: Long = System.currentTimeMillis()
+    ) = reconcileLock.withLock {
+        profileDao.require()
+
+        for (rule in rules) {
+            if (!rule.isEnabled || rule.kind != RuleKind.AUTOMATIC) continue
+            if (!rule.hasTimeCondition) continue
+
+            val calendar = Calendar.getInstance().apply { timeInMillis = now }
+            val inside = rule.timeConditionMatches(calendar)
+            val open = profileDao.inFlightOutcome(rule.id)
+
+            when {
+                inside && open == null -> openWindow(rule, now)
+                !inside && open != null -> closeWindow(rule, open, countOverrides, now)
+            }
+        }
+    }
+
+    /**
+     * Mark a window as started, baselining the counters it will be measured
+     * against.
+     *
+     * The impulse fields carry the profile's totals at the moment of opening;
+     * closing turns them into the window's own numbers. Storing the baseline
+     * in the row is what lets a window survive the process being killed
+     * mid-evening, which an in-memory snapshot would not.
+     */
+    private suspend fun openWindow(rule: BlockRule, now: Long) {
+        // Read fresh rather than reusing a snapshot: closing an earlier rule in
+        // the same pass can have moved these counters.
+        val profile = profileDao.require()
+        profileDao.insertOutcome(
+            WindowOutcome(
+                ruleId = rule.id,
+                ruleName = rule.name,
+                date = dayKey(now),
+                startedAt = now,
+                endedAt = now,
+                minutesProtected = 0,
+                impulsesPassed = profile.impulsesPassed,
+                impulsesFollowed = profile.impulsesFollowed,
+                clean = true
+            )
+        )
+    }
+
+    /**
+     * Finish an open window: turn the baselines into deltas, decide whether it
+     * was clean, and let [windowFinished] do the streak and milestone work.
+     */
+    private suspend fun closeWindow(
+        rule: BlockRule,
+        open: WindowOutcome,
+        countOverrides: suspend (ruleId: Long, from: Long, to: Long) -> Int,
+        now: Long
+    ) {
+        val profile = profileDao.require()
+        val passed = (profile.impulsesPassed - open.impulsesPassed).coerceAtLeast(0)
+        val followed = (profile.impulsesFollowed - open.impulsesFollowed).coerceAtLeast(0)
+        val overrides = countOverrides(rule.id, open.startedAt, now)
+
+        // Clean means the user never got past the pause: no override taken on
+        // this rule, and no impulse followed through. Backing out, however many
+        // times, is the opposite of a broken evening.
+        val clean = followed == 0 && overrides == 0
+
+        // The in-flight marker is replaced by the finished row rather than
+        // left beside it.
+        profileDao.deleteOutcome(open.id)
+
+        // If the phone was off or asleep past the window's end, "now" can be
+        // hours later than the evening actually was. Bank the window's real
+        // length, never the gap until something next ran.
+        val endedAt = minOf(now, open.startedAt + windowLengthMs(rule))
+
+        windowFinished(
+            ruleId = rule.id,
+            ruleName = rule.name,
+            startedAt = open.startedAt,
+            endedAt = endedAt,
+            impulsesPassed = passed,
+            impulsesFollowed = followed,
+            clean = clean,
+            now = now
+        )
+    }
+
+    /** The user reached for a blocked app, sat through the pause, and backed out. */
+    suspend fun impulsePassed() {
+        profileDao.require()
+        profileDao.recordImpulsePassed()
+        checkImpulseMilestones()
+    }
+
+    /** The user pushed through the pause. Recorded without comment or penalty. */
+    suspend fun impulseFollowed() {
+        profileDao.require()
+        profileDao.recordImpulseFollowed()
+    }
+
+    /**
+     * A protected window finished. Updates the streak, banks the minutes and
+     * raises any milestone crossed.
+     *
+     * [clean] is false when the user pushed through the pause or used an
+     * override during the window.
+     */
+    suspend fun windowFinished(
+        ruleId: Long,
+        ruleName: String,
+        startedAt: Long,
+        endedAt: Long,
+        impulsesPassed: Int,
+        impulsesFollowed: Int,
+        clean: Boolean,
+        now: Long = System.currentTimeMillis()
+    ) {
+        val profile = profileDao.require()
+        val date = dayKey(startedAt)
+        val minutes = ((endedAt - startedAt) / 60_000L).toInt().coerceAtLeast(0)
+
+        profileDao.insertOutcome(
+            WindowOutcome(
+                ruleId = ruleId,
+                ruleName = ruleName,
+                date = date,
+                startedAt = startedAt,
+                endedAt = endedAt,
+                minutesProtected = minutes,
+                impulsesPassed = impulsesPassed,
+                impulsesFollowed = impulsesFollowed,
+                clean = clean
+            )
+        )
+
+        if (clean) {
+            val streak = nextStreak(profile, date)
+            profileDao.recordWindowCompleted(streak, date, minutes, now)
+            checkStreakMilestones(streak)
+            checkVolumeMilestones(profile.totalProtectedMinutes + minutes)
+            if (profile.windowsCompleted == 0) {
+                raise(MilestoneKind.FIRST_WINDOW, 1)
+            }
+        } else {
+            applyMissedDay(profile, date, now)
+        }
+    }
+
+    /**
+     * Continue the streak if yesterday was clean, otherwise start again at one.
+     * Same-day repeats do not double-count.
+     */
+    private fun nextStreak(profile: FocusProfile, date: String): Int {
+        if (profile.lastCleanDate == date) return profile.currentStreakDays.coerceAtLeast(1)
+        return if (profile.lastCleanDate == previousDay(date)) {
+            profile.currentStreakDays + 1
+        } else {
+            1
+        }
+    }
+
+    /**
+     * A missed evening. Spends the month's grace day if it is still available,
+     * so the streak survives; otherwise the streak ends.
+     */
+    private suspend fun applyMissedDay(profile: FocusProfile, date: String, now: Long) {
+        val month = date.substring(0, 7)
+        if (profile.graceUsedMonth != month && profile.currentStreakDays >= 2) {
+            profileDao.useGrace(month, now)
+        } else {
+            profileDao.breakStreak(now)
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Milestones
+    // ------------------------------------------------------------------
+
+    private suspend fun checkStreakMilestones(streak: Int) {
+        if (streak in STREAK_MARKS) raise(MilestoneKind.STREAK, streak)
+    }
+
+    private suspend fun checkVolumeMilestones(totalMinutes: Long) {
+        val hours = (totalMinutes / 60).toInt()
+        HOUR_MARKS.lastOrNull { hours >= it }?.let { raise(MilestoneKind.PROTECTED_HOURS, it) }
+    }
+
+    private suspend fun checkImpulseMilestones() {
+        val profile = profileDao.require()
+        IMPULSE_MARKS.lastOrNull { profile.impulsesPassed >= it }
+            ?.let { raise(MilestoneKind.IMPULSES_PASSED, it) }
+    }
+
+    /** Raised at most once per (kind, value), so a milestone never repeats. */
+    private suspend fun raise(kind: MilestoneKind, value: Int) {
+        if (profileDao.milestoneCount(kind.name, value) > 0) return
+        profileDao.insertMilestone(Milestone(kind = kind, value = value))
+    }
+
+    suspend fun pendingMilestone(): Milestone? = profileDao.nextUnseenMilestone()
+
+    suspend fun markSeen(id: Long) = profileDao.markMilestoneSeen(id)
+
+    suspend fun markShared(id: Long) = profileDao.markMilestoneShared(id)
+
+    // ------------------------------------------------------------------
+
+    /** A window's length in millis, handling one that crosses midnight. */
+    private fun windowLengthMs(rule: BlockRule): Long {
+        val minutes = if (rule.endMinute > rule.startMinute) {
+            rule.endMinute - rule.startMinute
+        } else {
+            (24 * 60) - rule.startMinute + rule.endMinute
+        }
+        return minutes * 60_000L
+    }
+
+    private fun dayKey(epoch: Long): String =
+        SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(epoch))
+
+    private fun previousDay(date: String): String {
+        val cal = Calendar.getInstance()
+        cal.time = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(date) ?: return ""
+        cal.add(Calendar.DAY_OF_YEAR, -1)
+        return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
+    }
+
+    companion object {
+        /**
+         * Reconciliation is check-then-write, and it runs from three places at
+         * once: the boundary alarm, boot, and the home screen's refresh tick.
+         * Two passes overlapping would each see no window open and each insert
+         * one, leaving an orphan marker that never closes and double-counting
+         * the evening's minutes and window total. The lock lives on the
+         * companion because the receivers construct their own instances rather
+         * than taking the injected singleton -- they share a process, not an
+         * object.
+         */
+        private val reconcileLock = Mutex()
+
+        val STREAK_MARKS = listOf(3, 7, 14, 30, 60, 100)
+        val HOUR_MARKS = listOf(10, 25, 50, 100, 250)
+        val IMPULSE_MARKS = listOf(10, 50, 100, 250)
+
+        /**
+         * Copy for a milestone. Written to be worth showing someone, because
+         * telling another person is the external accountability the research
+         * identifies as the strongest predictor of sticking with a blocker --
+         * and it is the only growth mechanic here that serves the user rather
+         * than the app.
+         */
+        fun headline(kind: MilestoneKind, value: Int): Pair<String, String> = when (kind) {
+            MilestoneKind.FIRST_WINDOW ->
+                "First evening protected" to "You finished a full window without reaching for a blocked app."
+            MilestoneKind.STREAK ->
+                "$value evenings in a row" to "Your streak is the thing you now have to lose."
+            MilestoneKind.PROTECTED_HOURS ->
+                "$value hours protected" to "Time that went to your own work instead of a feed."
+            MilestoneKind.IMPULSES_PASSED ->
+                "$value urges passed" to "Each one was a reach for an app that you didn't follow."
+            MilestoneKind.SCREEN_TIME_DOWN ->
+                "Screen time down $value%" to "Measured against your first week."
+        }
+    }
+}

@@ -47,6 +47,12 @@ interface BlockedAppDao {
 
     @Query("SELECT packageName FROM blocked_apps WHERE isBlocked = 1")
     suspend fun getBlockedPackageNames(): List<String>
+
+    @Query("SELECT packageName FROM blocked_apps WHERE isInAllowlist = 1")
+    suspend fun getAllowlistPackages(): List<String>
+
+    @Query("UPDATE blocked_apps SET isInAllowlist = :allowed WHERE packageName = :packageName")
+    suspend fun setAllowlisted(packageName: String, allowed: Boolean)
 }
 
 @Dao
@@ -142,6 +148,25 @@ interface BlockLogDao {
 
     @Query("SELECT COUNT(*) FROM block_logs WHERE timestamp >= :startTime")
     fun getBlockCountSince(startTime: Long): Flow<Int>
+
+    /**
+     * How many times the user was stopped since [startTime], as a plain value.
+     *
+     * block_logs has been written on every block since long before the rule
+     * engine existed and read by nothing at all -- the table collected the
+     * single most interesting fact about a day's use and showed the user none
+     * of it. The narrative review on the home screen is its first reader, and
+     * it needs a number rather than a Flow.
+     */
+    @Query("SELECT COUNT(*) FROM block_logs WHERE timestamp >= :startTime")
+    suspend fun countBlocksSince(startTime: Long): Int
+
+    /** Which app the user reached for most, and how often. */
+    @Query(
+        "SELECT appName FROM block_logs WHERE timestamp >= :startTime " +
+            "GROUP BY packageName ORDER BY COUNT(*) DESC LIMIT 1"
+    )
+    suspend fun mostReachedForSince(startTime: Long): String?
 }
 
 data class AppBlockCount(

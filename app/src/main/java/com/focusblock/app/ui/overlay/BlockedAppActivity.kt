@@ -31,8 +31,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
+import com.focusblock.app.blocking.BlockingEngine
+import com.focusblock.app.blocking.StakeTracker
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.BlockedByType
+import com.focusblock.app.database.entity.CommitmentLevel
+import com.focusblock.app.database.entity.FocusProfile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import com.focusblock.app.ui.theme.*
 import com.focusblock.app.utils.AppUtils
 import kotlinx.coroutines.launch
@@ -45,6 +52,20 @@ class BlockedAppActivity : ComponentActivity() {
         const val EXTRA_PACKAGE_NAME = "package_name"
         const val EXTRA_APP_NAME = "app_name"
         const val EXTRA_BLOCKED_BY = "blocked_by"
+
+        /**
+         * The real reason, from BlockingEngine. The BlockedByType above is a
+         * coarse category kept for the block log; these carry what the user
+         * actually needs at this moment: which rule, until when, and what else
+         * would still be blocking if this one ended.
+         */
+        const val EXTRA_RULE_NAME = "rule_name"
+        const val EXTRA_ENDS_AT = "ends_at"
+        const val EXTRA_ALSO_BLOCKING = "also_blocking"
+
+        /** Which rule to ask the engine to lift, and how hard it is to stop. */
+        const val EXTRA_RULE_ID = "rule_id"
+        const val EXTRA_COMMITMENT = "commitment"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,7 +90,15 @@ class BlockedAppActivity : ComponentActivity() {
             BlockedByType.QUICK_BLOCK
         }
 
-        Log.i(TAG, "Blocking: $appName ($packageName) by $blockedBy")
+        val ruleName = intent.getStringExtra(EXTRA_RULE_NAME).orEmpty()
+        val endsAt = intent.getLongExtra(EXTRA_ENDS_AT, 0L)
+        val alsoBlocking = intent.getStringExtra(EXTRA_ALSO_BLOCKING).orEmpty()
+        val ruleId = intent.getLongExtra(EXTRA_RULE_ID, -1L)
+        val commitment = runCatching {
+            CommitmentLevel.valueOf(intent.getStringExtra(EXTRA_COMMITMENT).orEmpty())
+        }.getOrDefault(CommitmentLevel.OFF)
+
+        Log.i(TAG, "Blocking: $appName ($packageName) by $blockedBy / $ruleName")
 
         setContent {
             FocusBlockTheme {
@@ -77,6 +106,11 @@ class BlockedAppActivity : ComponentActivity() {
                     packageName = packageName,
                     appName = appName,
                     blockedBy = blockedBy,
+                    ruleName = ruleName,
+                    endsAt = endsAt,
+                    alsoBlocking = alsoBlocking,
+                    ruleId = ruleId,
+                    commitment = commitment,
                     onClose = {
                         Log.d(TAG, "Close button pressed, going to home")
                         AppUtils.goToHome(this)
@@ -109,720 +143,352 @@ class BlockedAppActivity : ComponentActivity() {
         super.onBackPressed()
     }
 }
+/**
+ * The block screen.
+ *
+ * Modelled directly on the reference app, which does this screen best: fully
+ * centred, one large glowing mark as the anchor, a short statement, and a
+ * single action -- with far more empty space than feels comfortable. The point
+ * is calm. This is not a punishment screen and must never read as one.
+ *
+ * Where it goes beyond the reference: it names the routine the user created and
+ * the time it lifts, and states overlap, so ending one rule never looks like it
+ * will free the app while another still covers it.
+ */
+/**
+ * How long a granted override lasts.
+ *
+ * Long enough to do the thing that was genuinely needed, short enough that it
+ * cannot become the way the evening is spent.
+ */
+private const val OVERRIDE_MINUTES = 5
 
-@OptIn(ExperimentalAnimationApi::class)
+/** What came of asking to be let in. */
+private sealed interface Grant {
+    data class Granted(val minutes: Int) : Grant
+    data class Refused(val message: String) : Grant
+}
+
+/**
+ * Write a bounded override for one rule, honouring its commitment.
+ *
+ * Goes through BlockingEngine.requestEndRule so the block screen obeys exactly
+ * the same rules as the home screen: a LOCKED rule spends the day's emergency
+ * unlock, a PIN_LOCKED rule refuses here and says where to go, and an unlocked
+ * rule simply opens. The engine already knew how to do all of this; nothing on
+ * this screen had ever asked it.
+ */
+private suspend fun grantOverride(
+    context: android.content.Context,
+    ruleId: Long,
+    minutes: Int
+): Grant {
+    if (ruleId <= 0L) return Grant.Refused("Couldn't tell which routine is blocking this.")
+    return try {
+        val db = FocusBlockDatabase.getDatabase(context)
+        // A fresh instance is fine: overrides are read live on every
+        // evaluation (BlockingEngine reads hasActiveOverride per rule, outside
+        // the rule cache), so the running service sees this immediately
+        // without sharing the object.
+        val engine = BlockingEngine(db.blockRuleDao(), db.blockedAppDao(), db.protectionLockDao())
+        when (val result = engine.requestEndRule(ruleId, null)) {
+            is BlockingEngine.EndAttempt.Ended ->
+                // Lifting one rule does not free the app if another still
+                // covers it. Saying so beats bouncing the user straight back
+                // into this screen and letting them think the unlock failed.
+                if (result.stillBlocked.isEmpty()) {
+                    Grant.Granted(minutes)
+                } else {
+                    Grant.Refused(
+                        "That one's lifted, but ${result.stillBlocked.joinToString(" and ")} " +
+                            "still covers this app."
+                    )
+                }
+            is BlockingEngine.EndAttempt.Refused -> Grant.Refused(result.message)
+            is BlockingEngine.EndAttempt.NeedsPin -> Grant.Refused(
+                "This routine is PIN locked. Open FocusBlock to unlock it — " +
+                    "there's a wait before the PIN is accepted."
+            )
+        }
+    } catch (e: Exception) {
+        Grant.Refused("Couldn't unlock that just now.")
+    }
+}
+
+/** Send the user back to the app they were reaching for. */
+private fun reopen(context: android.content.Context, packageName: String) {
+    if (packageName.isBlank()) return
+    try {
+        context.packageManager.getLaunchIntentForPackage(packageName)?.let {
+            it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(it)
+        }
+    } catch (e: Exception) {
+        // Falling through just closes the block screen, which is survivable.
+    }
+}
+
 @Composable
 fun BlockedAppScreen(
     packageName: String,
     appName: String,
     blockedBy: BlockedByType,
+    ruleName: String = "",
+    endsAt: Long = 0L,
+    alsoBlocking: String = "",
+    ruleId: Long = -1L,
+    commitment: CommitmentLevel = CommitmentLevel.OFF,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
-    val appIcon = remember(packageName) { AppUtils.getAppIcon(context, packageName) }
-    val database = remember { FocusBlockDatabase.getDatabase(context) }
-    val coroutineScope = rememberCoroutineScope()
+    val db = remember { FocusBlockDatabase.getDatabase(context) }
+    val scope = rememberCoroutineScope()
 
-    var todayCount by remember { mutableStateOf(0) }
-    var totalCount by remember { mutableStateOf(0) }
-    var showFocusCycleOverride by remember { mutableStateOf(false) }
-    var focusCycleRemainingBreak by remember { mutableStateOf(0L) }
-    var canContinueAnyway by remember { mutableStateOf(false) }
+    var profile by remember { mutableStateOf<FocusProfile?>(null) }
+    var secondsLeft by remember { mutableStateOf(-1) }
+    var recorded by remember { mutableStateOf(false) }
+    var working by remember { mutableStateOf(false) }
+    var refusal by remember { mutableStateOf<String?>(null) }
 
-    // App Timer override state
-    var showAppTimerOverride by remember { mutableStateOf(false) }
-    var appTimerUsageMinutes by remember { mutableStateOf(0) }
-    var appTimerLimitMinutes by remember { mutableStateOf(0) }
-    var appTimerOverrideAvailable by remember { mutableStateOf(false) }
-    var canUseAppTimerOverride by remember { mutableStateOf(false) }
-    var appTimerOverrideCountdown by remember { mutableStateOf(5) }
+    LaunchedEffect(Unit) {
+        val p = withContext(Dispatchers.IO) { db.focusProfileDao().require() }
+        profile = p
+        secondsLeft = p.pauseSeconds
+        // The pause. Long enough for an impulse to crest and fall, short
+        // enough not to read as punishment.
+        while (secondsLeft > 0) {
+            delay(1000)
+            secondsLeft -= 1
+        }
+    }
 
-    // Global Limit override state
-    var showGlobalLimitOverride by remember { mutableStateOf(false) }
-    var globalLimitUsageMinutes by remember { mutableStateOf(0) }
-    var globalLimitMinutes by remember { mutableStateOf(0) }
-    var globalLimitOverrideAvailable by remember { mutableStateOf(false) }
-    var canUseGlobalLimitOverride by remember { mutableStateOf(false) }
-    var globalLimitOverrideCountdown by remember { mutableStateOf(5) }
-    var globalLimitOverrideCooldown by remember { mutableStateOf(0L) }
+    // Backing out during or after the pause is the win condition, and the only
+    // number in the app that reflects something the user did rather than
+    // something the software did.
+    fun leave(followed: Boolean) {
+        if (!recorded) {
+            recorded = true
+            scope.launch(Dispatchers.IO) {
+                // Through the tracker, not the DAO: writing the counter alone
+                // skipped the milestone check, so no milestone could ever be
+                // raised however many urges were passed.
+                val tracker = StakeTracker(db.focusProfileDao())
+                if (followed) tracker.impulseFollowed() else tracker.impulsePassed()
+            }
+        }
+        onClose()
+    }
 
-    // Load block counts and Focus Cycle/App Timer/Global Limit state
-    LaunchedEffect(packageName) {
-        val app = database.blockedAppDao().getBlockedApp(packageName)
-        todayCount = app?.blockedCount ?: 0
-        totalCount = app?.totalBlockedCount ?: 0
-
-        // For Focus Cycle, show override option automatically
-        if (blockedBy == BlockedByType.FOCUS_CYCLE) {
-            val activeCycle = database.focusCycleDao().getActiveFocusCycleSync()
-            if (activeCycle != null) {
-                val now = System.currentTimeMillis()
-                val breakStart = activeCycle.breakStartTime
-                if (breakStart != null) {
-                    val breakEnd = breakStart + (activeCycle.breakDurationMinutes * 60 * 1000L)
-                    focusCycleRemainingBreak = maxOf(0, breakEnd - now)
+    /**
+     * Actually let the user in.
+     *
+     * This is the repair of the screen's worst behaviour. "I still need to open
+     * it" used to record the user as having given in and then simply close --
+     * no override was written, so reopening the app was blocked again at once.
+     * The button did not do the one thing its label promised, and it charged
+     * them for pressing it.
+     *
+     * It now writes a real, bounded override against this one rule, exactly as
+     * the home screen's "end" does, and reports honestly when the rule's
+     * commitment will not allow it.
+     */
+    fun letMeIn(minutes: Int) {
+        if (working) return
+        working = true
+        scope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                val tracker = StakeTracker(db.focusProfileDao())
+                tracker.impulseFollowed()
+                grantOverride(context, ruleId, minutes)
+            }
+            working = false
+            when (outcome) {
+                is Grant.Granted -> {
+                    recorded = true
+                    // Straight back to the app they asked for. Sending them to
+                    // the launcher after granting entry would make the grant
+                    // feel like another refusal.
+                    reopen(context, packageName)
+                    onClose()
                 }
+                is Grant.Refused -> refusal = outcome.message
             }
-            showFocusCycleOverride = true
-        }
-
-        // For App Timer, show override option with daily limit
-        if (blockedBy == BlockedByType.APP_TIMER) {
-            val timerSettings = database.appTimerSettingsDao().getSettingsSync()
-            if (timerSettings != null) {
-                appTimerLimitMinutes = timerSettings.dailyLimitMinutes
-                // Get today's usage
-                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                    .format(java.util.Date())
-                val dailyUsage = database.appTimerDailyUsageDao().getUsageForDateSync(today)
-                appTimerUsageMinutes = dailyUsage?.totalUsageMinutes ?: 0
-                // Check if daily override is still available
-                appTimerOverrideAvailable = dailyUsage?.dailyOverrideUsed != true
-            }
-            showAppTimerOverride = true
-        }
-
-        // For Global Limit, show override option with emergency override
-        if (blockedBy == BlockedByType.GLOBAL_LIMIT) {
-            val globalSettings = database.globalDailyLimitSettingsDao().getSettingsSync()
-            if (globalSettings != null) {
-                globalLimitMinutes = globalSettings.dailyLimitMinutes
-                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                    .format(java.util.Date())
-                val globalUsage = database.globalDailyUsageDao().getUsageForDateSync(today)
-                globalLimitUsageMinutes = globalUsage?.totalUsageMinutes ?: 0
-                // Check if override is available (cooldown expired)
-                val now = System.currentTimeMillis()
-                val cooldownUntil = globalUsage?.overrideCooldownUntil ?: 0L
-                globalLimitOverrideAvailable = now >= cooldownUntil
-                globalLimitOverrideCooldown = maxOf(0L, cooldownUntil - now)
-            }
-            showGlobalLimitOverride = true
         }
     }
 
-    // Enable "Continue Anyway" after 2.5 second delay for Focus Cycle
-    LaunchedEffect(showFocusCycleOverride) {
-        if (showFocusCycleOverride) {
-            kotlinx.coroutines.delay(2500)
-            canContinueAnyway = true
-        }
-    }
-
-    // Countdown for App Timer override (5 seconds with friction)
-    LaunchedEffect(showAppTimerOverride, appTimerOverrideAvailable) {
-        if (showAppTimerOverride && appTimerOverrideAvailable) {
-            // 5 second countdown before override is available
-            for (i in 5 downTo 1) {
-                appTimerOverrideCountdown = i
-                kotlinx.coroutines.delay(1000)
-            }
-            appTimerOverrideCountdown = 0
-            canUseAppTimerOverride = true
-        }
-    }
-
-    // Countdown for Global Limit override (5 seconds with friction)
-    LaunchedEffect(showGlobalLimitOverride, globalLimitOverrideAvailable) {
-        if (showGlobalLimitOverride && globalLimitOverrideAvailable) {
-            // 5 second countdown before override is available
-            for (i in 5 downTo 1) {
-                globalLimitOverrideCountdown = i
-                kotlinx.coroutines.delay(1000)
-            }
-            globalLimitOverrideCountdown = 0
-            canUseGlobalLimitOverride = true
-        }
-    }
-
-    // Animations
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseScale"
-    )
-
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.6f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glowAlpha"
-    )
+    val p = profile
+    val paused = secondsLeft > 0
+    val reason = if (ruleName.isNotBlank()) ruleName else "one of your routines"
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF0D1117),
-                        Color(0xFF161B22),
-                        Color(0xFF0D1117)
-                    )
-                )
-            ),
+            .background(BackgroundDark),
         contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(32.dp),
+                .padding(horizontal = 36.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Logo and app icon with glow
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.scale(pulseScale)
-            ) {
-                // Glow effect
+            // The anchor. During the pause it counts down, so the wait is
+            // visible and finite rather than an unexplained freeze.
+            Box(contentAlignment = Alignment.Center) {
                 Box(
-                    modifier = Modifier
-                        .size(160.dp)
+                    Modifier
+                        .size(136.dp)
                         .clip(CircleShape)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    AccentRed.copy(alpha = glowAlpha),
-                                    Color.Transparent
-                                )
-                            )
-                        )
+                        .background(SignalGlow)
                 )
-
-                // Main circle
                 Box(
-                    modifier = Modifier
-                        .size(120.dp)
+                    Modifier
+                        .size(100.dp)
                         .clip(CircleShape)
-                        .background(CardDark)
-                        .border(3.dp, AccentRed.copy(alpha = 0.5f), CircleShape),
+                        .background(SignalSoft),
                     contentAlignment = Alignment.Center
                 ) {
-                    // FocusBlock icon on top of app icon
-                    Box(contentAlignment = Alignment.Center) {
-                        appIcon?.let { drawable ->
-                            Image(
-                                bitmap = drawable.toBitmap(80, 80).asImageBitmap(),
-                                contentDescription = appName,
-                                modifier = Modifier
-                                    .size(60.dp)
-                                    .clip(CircleShape)
-                            )
-                        } ?: Icon(
-                            imageVector = Icons.Filled.Android,
+                    if (paused) {
+                        Text(
+                            text = "$secondsLeft",
+                            color = Signal,
+                            fontSize = 38.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.Shield,
                             contentDescription = null,
-                            tint = TextSecondary,
-                            modifier = Modifier.size(60.dp)
+                            tint = Signal,
+                            modifier = Modifier.size(46.dp)
                         )
-
-                        // FocusBlock overlay badge
-                        Box(
-                            modifier = Modifier
-                                .size(80.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.5f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Shield,
-                                contentDescription = null,
-                                tint = Primary,
-                                modifier = Modifier.size(40.dp)
-                            )
-                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(36.dp))
 
-            // App name is blocked
-            Text(
-                text = appName,
-                style = MaterialTheme.typography.headlineSmall,
-                color = AccentRed,
-                fontWeight = FontWeight.Bold
-            )
-
-            Text(
-                text = "is blocked",
-                style = MaterialTheme.typography.titleLarge,
-                color = TextPrimary
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Blocked by
-            Text(
-                text = when (blockedBy) {
-                    BlockedByType.QUICK_BLOCK -> "by Quick Block"
-                    BlockedByType.SCHEDULE -> "by Schedule"
-                    BlockedByType.STRICT_MODE -> "by Strict Mode"
-                    BlockedByType.HARD_MODE -> "by Hard Mode"
-                    BlockedByType.FOCUS_CYCLE -> "by Focus Cycle (Break Time)"
-                    BlockedByType.APP_TIMER -> "by App Timer (Limit Reached)"
-                    BlockedByType.GLOBAL_LIMIT -> "by Daily Usage Limit"
-                    BlockedByType.BEDTIME -> "by Bedtime Mode"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // Block counts
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = CardDark)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+            if (paused) {
+                Text(
+                    text = "Hold on",
+                    color = TextPrimary,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                // The user's own words, at the exact moment the urge is
+                // concrete and the goal would otherwise be abstract. Written
+                // once at setup, never asked for again.
+                Text(
+                    text = if (p?.hasReason() == true) p.reason else "This time is yours.",
+                    color = Signal,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 25.sp,
+                    textAlign = TextAlign.Center
+                )
+                if (p?.reasonDetail?.isNotBlank() == true) {
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "You tried to open it",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
+                        text = p.reasonDetail,
+                        color = TextSecondary,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center
                     )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "${todayCount}×",
-                                style = MaterialTheme.typography.headlineMedium,
-                                color = Primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "today",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .width(1.dp)
-                                .height(48.dp)
-                                .background(Divider)
-                        )
-
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "${totalCount}×",
-                                style = MaterialTheme.typography.headlineMedium,
-                                color = AccentPurple,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "total",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                        }
-                    }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // Motivational message
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Primary.copy(alpha = 0.1f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Lightbulb,
-                        contentDescription = null,
-                        tint = Primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
+                p?.stakeLine()?.let {
+                    Spacer(modifier = Modifier.height(18.dp))
+                    Text(it, color = TextSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
+                }
+            } else {
+                Text(
+                    text = "$appName is blocked",
+                    color = TextPrimary,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = if (endsAt > 0L) {
+                        "$reason · until " +
+                            java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                                .format(java.util.Date(endsAt))
+                    } else reason,
+                    color = Signal,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center
+                )
+                if (alsoBlocking.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = getMotivationalMessage(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextPrimary
+                        text = "Also blocked by $alsoBlocking",
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(48.dp))
 
-            // Focus Cycle override section
-            if (blockedBy == BlockedByType.FOCUS_CYCLE && showFocusCycleOverride) {
-                // Soft-nudge info
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF9C27B0).copy(alpha = 0.1f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.SelfImprovement,
-                                contentDescription = null,
-                                tint = Color(0xFF9C27B0),
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Break Time",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Color(0xFF9C27B0),
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "${(focusCycleRemainingBreak / 60000).toInt()} min remaining",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "A short break now means better focus later.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
+            Button(
+                onClick = { leave(followed = false) },
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Signal),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
+            ) {
+                Text(
+                    text = if (paused) "Put it down" else "Close",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    // Ground, not white: white on Ember reads at 2.6:1.
+                    color = Ground
+                )
+            }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Take Break button (primary)
-                Button(
-                    onClick = onClose,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentGreen)
-                ) {
-                    Icon(Icons.Filled.SelfImprovement, null, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
+            // The escape hatch only appears once the pause has run. Offering it
+            // immediately would defeat the pause; withholding it entirely would
+            // provoke the reactance that gets blockers uninstalled.
+            //
+            // Its label now states what it costs, because the cost differs by
+            // rule: an unlocked routine simply opens, a locked one spends the
+            // day's single emergency unlock. Charging someone their emergency
+            // unlock behind a button that said only "I still need to open it"
+            // was the screen's least honest moment.
+            if (!paused && p?.allowBreathThrough == true) {
+                Spacer(modifier = Modifier.height(14.dp))
+                TextButton(onClick = { letMeIn(OVERRIDE_MINUTES) }, enabled = !working) {
                     Text(
-                        text = "Take a Break",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Continue Anyway button (secondary, with delay)
-                TextButton(
-                    onClick = {
-                        if (canContinueAnyway) {
-                            // Record the override
-                            coroutineScope.launch {
-                                val activeCycle = database.focusCycleDao().getActiveFocusCycleSync()
-                                if (activeCycle != null) {
-                                    database.focusCycleOverrideDao().insert(
-                                        com.focusblock.app.database.entity.FocusCycleOverride(
-                                            focusCycleId = activeCycle.id,
-                                            packageName = packageName,
-                                            appName = appName
-                                        )
-                                    )
-                                }
-                            }
-                            // Go back (allow the app)
-                            (context as? ComponentActivity)?.finish()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = canContinueAnyway
-                ) {
-                    Text(
-                        text = if (canContinueAnyway) "Continue Anyway" else "Wait...",
-                        color = if (canContinueAnyway) TextSecondary else TextSecondary.copy(alpha = 0.4f),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            } else if (blockedBy == BlockedByType.APP_TIMER && showAppTimerOverride) {
-                // App Timer enforcement - show usage info and override option
-                val timerColor = Color(0xFF00BCD4) // Cyan
-                val warningColor = Color(0xFFFF5722) // Deep Orange
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = timerColor.copy(alpha = 0.1f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Timer,
-                                contentDescription = null,
-                                tint = warningColor,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Daily Limit Reached",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = warningColor,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Used ${appTimerUsageMinutes}m of ${appTimerLimitMinutes}m today",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "You've used all your screen time for these apps.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // "I'm Done" button (primary - return to home)
-                Button(
-                    onClick = onClose,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentGreen)
-                ) {
-                    Icon(Icons.Filled.Check, null, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "I'm Done for Today",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Override button - with friction (5s countdown + once daily)
-                if (appTimerOverrideAvailable) {
-                    TextButton(
-                        onClick = {
-                            if (canUseAppTimerOverride) {
-                                // Activate 15-minute override window
-                                coroutineScope.launch {
-                                    val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                                        .format(java.util.Date())
-                                    val expiresAt = System.currentTimeMillis() + (15 * 60 * 1000L) // 15 min
-                                    database.appTimerDailyUsageDao().activateOverride(today, expiresAt)
-                                }
-                                // Allow through
-                                (context as? ComponentActivity)?.finish()
-                            }
+                        when {
+                            working -> "Opening..."
+                            commitment == CommitmentLevel.LOCKED ->
+                                "Let me in for $OVERRIDE_MINUTES minutes — uses today's unlock"
+                            commitment == CommitmentLevel.PIN_LOCKED ->
+                                "This one needs your PIN"
+                            else -> "Let me in for $OVERRIDE_MINUTES minutes"
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = canUseAppTimerOverride
-                    ) {
-                        Text(
-                            text = when {
-                                canUseAppTimerOverride -> "Use 15-min Override (1× daily)"
-                                else -> "Wait ${appTimerOverrideCountdown}s..."
-                            },
-                            color = if (canUseAppTimerOverride) warningColor else TextSecondary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (!canUseAppTimerOverride) FontWeight.Bold else null
-                        )
-                    }
-                } else {
-                    // Override already used today
-                    Text(
-                        text = "Daily override already used",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary.copy(alpha = 0.6f),
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            } else if (blockedBy == BlockedByType.GLOBAL_LIMIT && showGlobalLimitOverride) {
-                // Global Daily Limit enforcement - show usage info and emergency override option
-                val limitColor = Color(0xFFE91E63) // Pink
-                val warningColor = Color(0xFFFF5722) // Deep Orange
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = limitColor.copy(alpha = 0.1f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PhoneAndroid,
-                                contentDescription = null,
-                                tint = warningColor,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Daily Screen Time Limit",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = warningColor,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Used ${globalLimitUsageMinutes}m of ${globalLimitMinutes}m today",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "You've reached your daily phone usage goal. Great job being mindful!",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // "I'm Done" button (primary - return to home)
-                Button(
-                    onClick = onClose,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentGreen)
-                ) {
-                    Icon(Icons.Filled.Check, null, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "I'm Done for Today",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Emergency override button - with friction (5s countdown + cooldown)
-                if (globalLimitOverrideAvailable) {
-                    TextButton(
-                        onClick = {
-                            if (canUseGlobalLimitOverride) {
-                                // Activate 5-minute emergency override window with 15-min cooldown
-                                coroutineScope.launch {
-                                    val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                                        .format(java.util.Date())
-                                    val now = System.currentTimeMillis()
-                                    val expiresAt = now + (5 * 60 * 1000L) // 5 min window
-                                    val cooldownUntil = now + (15 * 60 * 1000L) // 15 min cooldown
-                                    database.globalDailyUsageDao().activateOverride(
-                                        date = today,
-                                        overrideTime = now,
-                                        expiresAt = expiresAt,
-                                        cooldownUntil = cooldownUntil
-                                    )
-                                }
-                                // Allow through
-                                (context as? ComponentActivity)?.finish()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = canUseGlobalLimitOverride
-                    ) {
-                        Text(
-                            text = when {
-                                canUseGlobalLimitOverride -> "Emergency 5-min Access"
-                                else -> "Wait ${globalLimitOverrideCountdown}s..."
-                            },
-                            color = if (canUseGlobalLimitOverride) warningColor else TextSecondary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (!canUseGlobalLimitOverride) FontWeight.Bold else null
-                        )
-                    }
-                } else {
-                    // Cooldown active
-                    val cooldownMinutes = (globalLimitOverrideCooldown / 60000).toInt()
-                    Text(
-                        text = "Next override available in ${cooldownMinutes}m",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary.copy(alpha = 0.6f),
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            } else {
-                // Regular close button for other block types
-                Button(
-                    onClick = onClose,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Primary
-                    )
-                ) {
-                    Text(
-                        text = "Close",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
+                        color = TextTertiary,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
+
+            refusal?.let { message ->
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    message,
+                    color = AccentOrange,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 19.sp
+                )
+            }
         }
     }
-}
-
-@Composable
-private fun getMotivationalMessage(): String {
-    val messages = listOf(
-        "Stay focused! You're doing great.",
-        "Your future self will thank you.",
-        "Every distraction avoided is a win.",
-        "Focus is your superpower.",
-        "You're stronger than your urges.",
-        "Deep work leads to deep results.",
-        "Protect your attention.",
-        "Small wins build big victories.",
-        "You've got this!"
-    )
-    return remember { messages.random() }
 }

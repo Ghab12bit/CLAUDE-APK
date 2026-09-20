@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -71,8 +72,28 @@ data class InsightsUiState(
     val hasRepeatOffenders: Boolean = false,
     // User-excluded apps from total usage calculation
     val userExcludedPackages: Set<String> = emptySet(),
-    val showExcludedAppsDialog: Boolean = false
+    val showExcludedAppsDialog: Boolean = false,
+    // How the day went inside each protected window
+    val protectedWindows: List<ProtectedWindowStat> = emptyList()
 )
+
+/**
+ * How a single routine's protected window actually went.
+ *
+ * This is the honest version of "did it work?": real minutes of the blocked
+ * apps used inside the window, and how many times the block screen appeared.
+ * There is deliberately no score, grade or streak derived from it -- the
+ * numbers are the whole answer.
+ */
+data class ProtectedWindowStat(
+    val ruleName: String,
+    val windowLabel: String,
+    val minutesInsideWindow: Int,
+    val blockedAttempts: Int
+) {
+    /** No usage of the blocked apps got through. */
+    val heldClean: Boolean get() = minutesInsideWindow == 0
+}
 
 // Data class for repeat offender apps
 data class RepeatOffenderApp(
@@ -133,7 +154,8 @@ private data class AppSession(
 @HiltViewModel
 class InsightsViewModel @Inject constructor(
     private val application: Application,
-    private val repository: FocusBlockRepository
+    private val repository: FocusBlockRepository,
+    private val ruleDao: com.focusblock.app.database.dao.BlockRuleDao
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(InsightsUiState())
@@ -452,8 +474,14 @@ class InsightsViewModel @Inject constructor(
                         getRepeatOffenders()
                     } else emptyList()
 
+                    // How each protected window actually went (Day tab only)
+                    val protectedWindows = if (tab == InsightsTab.DAY) {
+                        getProtectedWindowStats(selectedDate)
+                    } else emptyList()
+
                     withContext(Dispatchers.Main) {
                         processUsageData(usageData, previousData, dateLabel, canGoForward, weeklyTrend, repeatOffenders)
+                        _uiState.update { it.copy(protectedWindows = protectedWindows) }
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
@@ -468,6 +496,85 @@ class InsightsViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Measure what actually happened inside each protected window.
+     *
+     * For every enabled routine with a time condition, this reports the real
+     * minutes its blocked apps were used inside its own window, and how many
+     * times the block screen appeared. It answers "did my protection hold?"
+     * with measurements rather than a score.
+     *
+     * Usage inside a window is not necessarily a failure: an app may have been
+     * allowlisted, or the routine may have been created after the window began.
+     * The number is shown as-is rather than interpreted.
+     */
+    private suspend fun getProtectedWindowStats(selectedDate: Long): List<ProtectedWindowStat> {
+        return try {
+            val rules = ruleDao.getEnabledRulesSync().filter { it.hasTimeCondition }
+            if (rules.isEmpty()) return emptyList()
+
+            val dayStart = Calendar.getInstance().apply {
+                timeInMillis = selectedDate
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            val now = System.currentTimeMillis()
+
+            rules.mapNotNull { rule ->
+                // The part of this rule's window that has actually elapsed today.
+                val windowStart = dayStart + rule.startMinute * 60_000L
+                val rawEnd = if (rule.endMinute > rule.startMinute) {
+                    dayStart + rule.endMinute * 60_000L
+                } else {
+                    // Crosses midnight: measure only today's evening portion.
+                    dayStart + 24 * 60 * 60_000L
+                }
+                val windowEnd = minOf(rawEnd, now)
+                if (windowEnd <= windowStart) return@mapNotNull null
+
+                val packages = rule.packageList().toSet()
+                if (packages.isEmpty()) return@mapNotNull null
+
+                val usage = getAccurateUsageFromEvents(windowStart, windowEnd)
+                val insideMillis = usage
+                    .filterKeys { it in packages }
+                    .values
+                    .sumOf { it.totalTime }
+
+                val attempts = repository
+                    .getBlockLogsForPeriod(windowStart, windowEnd)
+                    .first()
+                    .count { it.packageName in packages }
+
+                ProtectedWindowStat(
+                    ruleName = rule.name,
+                    windowLabel = formatWindow(rule.startMinute, rule.endMinute),
+                    minutesInsideWindow = (insideMillis / 60_000L).toInt(),
+                    blockedAttempts = attempts
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun formatWindow(startMinute: Int, endMinute: Int): String =
+        "${formatMinuteOfDay(startMinute)} - ${formatMinuteOfDay(endMinute)}"
+
+    private fun formatMinuteOfDay(minuteOfDay: Int): String {
+        val h24 = minuteOfDay / 60
+        val m = minuteOfDay % 60
+        val suffix = if (h24 < 12) "am" else "pm"
+        val h = when {
+            h24 == 0 -> 12
+            h24 > 12 -> h24 - 12
+            else -> h24
+        }
+        return if (m == 0) "$h$suffix" else String.format("%d:%02d%s", h, m, suffix)
     }
 
     /**

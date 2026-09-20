@@ -167,4 +167,23 @@ object AppModule {
     fun provideOnboardingDao(database: FocusBlockDatabase): OnboardingDao {
         return database.onboardingDao()
     }
+
+    // Unified blocking model
+    @Provides
+    @Singleton
+    fun provideBlockRuleDao(database: FocusBlockDatabase): BlockRuleDao {
+        return database.blockRuleDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideProtectionLockDao(database: FocusBlockDatabase): ProtectionLockDao {
+        return database.protectionLockDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideFocusProfileDao(database: FocusBlockDatabase): FocusProfileDao {
+        return database.focusProfileDao()
+    }
 }

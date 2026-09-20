@@ -10,33 +10,41 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
+// The identity colour lives IN the scheme, so every Button, FAB, Switch,
+// Checkbox, spinner and the bottom-nav pill inherit it rather than each
+// hard-coding a constant.
+//
+// onPrimary is Ground rather than white: Ember is a light-ish warm accent, and
+// white text on it reads at 2.6:1. Near-black on Ember reads at 5.1:1, which is
+// the difference between a button label you can read outdoors and one you
+// cannot.
 private val DarkColorScheme = darkColorScheme(
-    primary = Primary,
-    onPrimary = Color.White,
-    primaryContainer = PrimaryVariant,
-    onPrimaryContainer = Color.White,
-    secondary = AccentPurple,
-    onSecondary = Color.White,
-    secondaryContainer = AccentPurple.copy(alpha = 0.3f),
-    onSecondaryContainer = Color.White,
-    tertiary = AccentCyan,
-    onTertiary = Color.Black,
-    background = BackgroundDark,
-    onBackground = TextPrimary,
-    surface = SurfaceDark,
-    onSurface = TextPrimary,
-    surfaceVariant = CardDark,
-    onSurfaceVariant = TextSecondary,
-    outline = Divider,
-    error = AccentRed,
-    onError = Color.White,
-    errorContainer = AccentRed.copy(alpha = 0.3f),
-    onErrorContainer = Color.White
+    primary = Ember,
+    onPrimary = Ground,
+    primaryContainer = EmberQuiet,
+    onPrimaryContainer = Ember,
+    secondary = InkMuted,
+    onSecondary = Ground,
+    secondaryContainer = GroundRaised,
+    onSecondaryContainer = Ink,
+    tertiary = Affirm,
+    onTertiary = Ground,
+    background = Ground,
+    onBackground = Ink,
+    surface = Ground,
+    onSurface = Ink,
+    surfaceVariant = GroundRaised,
+    onSurfaceVariant = InkMuted,
+    outline = Rule,
+    error = Alarm,
+    onError = Ink,
+    errorContainer = Color(0xFF3A1D18),
+    onErrorContainer = Ink
 )
 
 @Composable
 fun FocusBlockTheme(
-    darkTheme: Boolean = true, // Always dark theme for AppBlock-like look
+    darkTheme: Boolean = true, // One theme: a focus tool has no reason to be white
     content: @Composable () -> Unit
 ) {
     val colorScheme = DarkColorScheme
@@ -45,8 +53,8 @@ fun FocusBlockTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = BackgroundDark.toArgb()
-            window.navigationBarColor = BackgroundDark.toArgb()
+            window.statusBarColor = Ground.toArgb()
+            window.navigationBarColor = Ground.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
             WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = false
         }

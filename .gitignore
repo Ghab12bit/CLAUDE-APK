@@ -50,6 +50,10 @@ assetWizardSettings.xml
 # Uncomment the following lines if you do not want to check your keystore files in.
 *.jks
 *.keystore
+# ...except the debug key, which must be the same on every machine
+# so a new build installs over the last one instead of demanding an
+# uninstall. See signingConfigs.debug in app/build.gradle.
+!app/debug.keystore
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild

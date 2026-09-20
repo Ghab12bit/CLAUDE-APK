@@ -280,7 +280,7 @@ data class AppTimerDailyUsage(
 data class GlobalDailyLimitSettings(
     @PrimaryKey
     val id: Int = 1, // Singleton - only one settings record
-    val isEnabled: Boolean = true, // Enabled by default
+    val isEnabled: Boolean = false, // Opt-in: never block unexpectedly on first launch
     val dailyLimitMinutes: Int = 180, // Default 3 hours
     val warningMinutesBefore: Int = 15, // Show warning 15 min before limit
     // NEW: Apps to track (comma-separated package names)

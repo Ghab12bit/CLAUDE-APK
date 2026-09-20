@@ -1412,13 +1412,13 @@ fun PomodoroSetupDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "Pomodoro Timer",
+                    text = "Focus Session",
                     style = MaterialTheme.typography.titleLarge,
                     color = TextPrimary
                 )
 
                 Text(
-                    text = "Focus with timed work sessions",
+                    text = "Selected distractions stay blocked while you work",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )

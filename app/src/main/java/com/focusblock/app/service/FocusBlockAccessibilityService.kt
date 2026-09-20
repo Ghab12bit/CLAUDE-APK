@@ -406,12 +406,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Check if Quick Focus/Block session timer has expired and enforce blocking
-     * This runs every second to ensure immediate blocking when timer ends
-     *
-     * Quick Focus model:
-     * - During focus/work period: apps are ALLOWED (user is using the app)
-     * - When timer ends: BREAK period starts, apps should be BLOCKED immediately
+     * Expire timed blocking sessions. A focus session blocks distracting apps
+     * during its work period, then releases them when the timer finishes.
      */
     private fun checkQuickBlockTimerExpiration() {
         immediateScope.launch {
@@ -428,56 +424,23 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                         .filter { it.isNotBlank() }
                         .toSet()
 
-                    // Check if timer has just expired (work period ended, break should start)
+                    // A timed block ends when its timer expires.
                     if (now >= session.endTime) {
-                        Log.i(TAG, "Quick Focus timer EXPIRED at $now (endTime: ${session.endTime})")
-                        Log.i(TAG, "Focus period ended - BREAK period starting, apps should be blocked")
+                        database.quickBlockSessionDao().deactivate(session.id)
+                        Log.i(TAG, "Timed block ended and session was deactivated")
 
-                        // Check if user is currently on a tracked app
-                        val currentPackage = lastForegroundPackage
-                        if (currentPackage != null && cachedQuickBlockPackages.contains(currentPackage)) {
-                            Log.i(TAG, "User is on tracked app $currentPackage when focus timer expired - showing block screen IMMEDIATELY")
-
-                            // Show blocking screen immediately - user must take a break now
-                            val appName = AppUtils.getAppName(applicationContext, currentPackage)
-                            mainHandler.post {
-                                showBlockingScreen(currentPackage, appName, BlockedByType.QUICK_BLOCK)
-                            }
-
-                            // Vibrate to alert user (longer vibration for timer expiration)
-                            vibrateForTimerExpiration()
-                        }
-
-                        // For Pomodoro sessions, transition to break period instead of deactivating
-                        if (session.isPomodoroSession && session.pomodoroBreakMinutes > 0) {
-                            // Update session to represent break period
-                            // The break period uses the same blocked packages but enforces blocking
-                            val breakEndTime = now + session.pomodoroBreakMinutes * 60 * 1000L
-                            val updatedSession = session.copy(
-                                startTime = now,
-                                endTime = breakEndTime,
-                                isPomodoroSession = false // Mark as break period (blocking mode)
-                            )
-                            database.quickBlockSessionDao().update(updatedSession)
-                            Log.i(TAG, "Pomodoro: Transitioned to break period. Break ends at $breakEndTime")
-
-                            // Show toast notification
+                        if (session.isPomodoroSession) {
                             mainHandler.post {
                                 android.widget.Toast.makeText(
                                     applicationContext,
-                                    "Focus time complete! Take a ${session.pomodoroBreakMinutes} minute break.",
+                                    "Focus session complete. Take a ${session.pomodoroBreakMinutes} minute break.",
                                     android.widget.Toast.LENGTH_LONG
                                 ).show()
                             }
-                        } else {
-                            // Non-Pomodoro session or break period ended - deactivate
-                            database.quickBlockSessionDao().deactivate(session.id)
-                            Log.i(TAG, "Quick Block session deactivated after timer expiration")
-
-                            // Clear cached data
-                            cachedQuickBlockEndTime = null
-                            cachedQuickBlockPackages = emptySet()
                         }
+
+                        cachedQuickBlockEndTime = null
+                        cachedQuickBlockPackages = emptySet()
                     }
                 } else {
                     // No active timed session
@@ -1899,21 +1862,12 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             if (blockedPackages.contains(packageName)) {
                 val now = System.currentTimeMillis()
 
-                // For Pomodoro/Focus sessions with a timer:
-                // - During focus period (before endTime): apps are ALLOWED
-                // - After focus period ends (timer expired): apps are BLOCKED (break time)
-                if (quickBlockSession.isPomodoroSession && quickBlockSession.endTime != null) {
-                    // Focus/work period - apps are allowed until timer ends
-                    if (now < quickBlockSession.endTime) {
-                        Log.d(TAG, "Focus period active - allowing $packageName (${(quickBlockSession.endTime - now)/1000}s remaining)")
-                        return false // Allow during focus period
-                    }
-                    // Timer expired - should block (break period)
-                    Log.d(TAG, "Focus period ended - blocking $packageName for break")
-                    return true
+                if (quickBlockSession.endTime != null && now >= quickBlockSession.endTime) {
+                    Log.d(TAG, "Ignoring expired timed block for $packageName")
+                    return false
                 }
 
-                // Non-Pomodoro Quick Block or break period - block normally
+                // Standard, timed and focus sessions all block selected apps while active.
                 Log.i(TAG, "Quick Block blocking: $packageName (session active)")
                 return true
             }

@@ -164,6 +164,11 @@ class AppBlockingService : Service() {
         // Check Quick Block
         val quickBlockSession = repository.getActiveQuickBlockSessionSync()
         if (quickBlockSession != null) {
+            val now = System.currentTimeMillis()
+            if (quickBlockSession.endTime != null && now >= quickBlockSession.endTime) {
+                repository.deactivateQuickBlockSession(quickBlockSession.id)
+                return false
+            }
             val blockedPackages = quickBlockSession.blockedPackages.split(",")
             if (blockedPackages.contains(packageName)) {
                 return true

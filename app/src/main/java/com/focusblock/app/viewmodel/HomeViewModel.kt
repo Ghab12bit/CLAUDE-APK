@@ -982,9 +982,8 @@ class HomeViewModel @Inject constructor(
         // Use cached PIN to avoid blocking UI thread (prevents ANR)
         val savedPin = _uiState.value.hardModePin
 
-        // If no PIN was set, allow any PIN to work (or empty PIN)
-        // This handles the case where Hard Mode was enabled without a PIN being set
-        val pinMatches = savedPin == null || savedPin.isEmpty() || pin == savedPin
+        // Never turn a missing/corrupt PIN into a universal bypass.
+        val pinMatches = !savedPin.isNullOrBlank() && pin == savedPin
 
         return if (pinMatches) {
             stopQuickBlock(forceStop = true)
@@ -1286,6 +1285,14 @@ class HomeViewModel @Inject constructor(
 
     fun setHardMode(enabled: Boolean, pin: String? = null, unlockTimeMinutes: Int? = null) {
         viewModelScope.launch {
+            if (enabled && (pin == null || pin.length !in 4..6 || !pin.all(Char::isDigit))) {
+                showToast("Set a valid 4-6 digit PIN first")
+                return@launch
+            }
+            if (enabled && (unlockTimeMinutes == null || unlockTimeMinutes <= 0)) {
+                showToast("Choose how long Hard Mode should stay locked")
+                return@launch
+            }
             repository.setLegacyHardModeEnabled(enabled)
             if (enabled && pin != null) {
                 repository.setHardModePin(pin)

@@ -58,6 +58,12 @@ import com.focusblock.app.viewmodel.ActionSuggestion
 import com.focusblock.app.viewmodel.ActionType
 import com.focusblock.app.viewmodel.TrackedAppUsage
 
+private enum class QuickBlockLaunchMode {
+    STANDARD,
+    TIMED,
+    FOCUS_SESSION
+}
+
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
@@ -80,6 +86,9 @@ fun HomeScreen(
     var showStrictModePauseDialog by remember { mutableStateOf(false) }
     var selectedApps by remember { mutableStateOf<List<String>>(emptyList()) }
     var timerDurationMinutes by remember { mutableStateOf<Int?>(null) }
+    var focusWorkMinutes by remember { mutableStateOf(25) }
+    var focusBreakMinutes by remember { mutableStateOf(5) }
+    var quickBlockLaunchMode by remember { mutableStateOf(QuickBlockLaunchMode.STANDARD) }
     var isEditingApps by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -282,7 +291,10 @@ fun HomeScreen(
                 endTime = uiState.quickBlockSession?.endTime,
                 blockedAppNames = blockedAppNames,
                 isPomodoroMode = uiState.isPomodoroMode,
-                onStartClick = { showAppSelectionDialog = true },
+                onStartClick = {
+                    quickBlockLaunchMode = QuickBlockLaunchMode.STANDARD
+                    showAppSelectionDialog = true
+                },
                 onStopClick = {
                     // Check Strict Mode LOCK first - if time-locked, PIN won't help
                     if (uiState.isStrictModeLocked) {
@@ -303,10 +315,17 @@ fun HomeScreen(
                         viewModel.stopQuickBlock()
                     }
                 },
-                onTimerClick = { showTimerDialog = true },
-                onPomodoroClick = { showPomodoroDialog = true },
+                onTimerClick = {
+                    quickBlockLaunchMode = QuickBlockLaunchMode.TIMED
+                    showTimerDialog = true
+                },
+                onPomodoroClick = {
+                    quickBlockLaunchMode = QuickBlockLaunchMode.FOCUS_SESSION
+                    showPomodoroDialog = true
+                },
                 onSelectAppsClick = {
                     isEditingApps = true
+                    quickBlockLaunchMode = QuickBlockLaunchMode.STANDARD
                     showAppSelectionDialog = true
                 },
                 isStrictMode = uiState.isStrictModeEnabled,
@@ -516,7 +535,22 @@ fun HomeScreen(
             onDismiss = { showAppSelectionDialog = false },
             onConfirm = { selected ->
                 selectedApps = selected
-                viewModel.startQuickBlock(selected)
+                when (quickBlockLaunchMode) {
+                    QuickBlockLaunchMode.STANDARD -> viewModel.startQuickBlock(selected)
+                    QuickBlockLaunchMode.TIMED -> {
+                        viewModel.startQuickBlock(selected, timerDurationMinutes)
+                    }
+                    QuickBlockLaunchMode.FOCUS_SESSION -> {
+                        viewModel.startPomodoroSession(
+                            selectedPackages = selected,
+                            workMinutes = focusWorkMinutes,
+                            breakMinutes = focusBreakMinutes
+                        )
+                    }
+                }
+                quickBlockLaunchMode = QuickBlockLaunchMode.STANDARD
+                timerDurationMinutes = null
+                isEditingApps = false
                 showAppSelectionDialog = false
             }
         )
@@ -527,6 +561,7 @@ fun HomeScreen(
             onDismiss = { showTimerDialog = false },
             onConfirm = { minutes ->
                 timerDurationMinutes = minutes
+                quickBlockLaunchMode = QuickBlockLaunchMode.TIMED
                 showTimerDialog = false
                 showAppSelectionDialog = true
             }
@@ -537,6 +572,9 @@ fun HomeScreen(
         PomodoroSetupDialog(
             onDismiss = { showPomodoroDialog = false },
             onConfirm = { workMinutes, breakMinutes ->
+                focusWorkMinutes = workMinutes
+                focusBreakMinutes = breakMinutes
+                quickBlockLaunchMode = QuickBlockLaunchMode.FOCUS_SESSION
                 showPomodoroDialog = false
                 showAppSelectionDialog = true
             }
@@ -1207,7 +1245,7 @@ fun QuickBlockCard(
                                     color = AccentOrange.copy(alpha = 0.15f)
                                 ) {
                                     Text(
-                                        text = "Pomodoro",
+                                        text = "Focus session",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = AccentOrange,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -1228,7 +1266,7 @@ fun QuickBlockCard(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Timer and Pomodoro buttons
+            // Timed block and guided focus-session buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1286,7 +1324,7 @@ fun QuickBlockCard(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Pomodoro",
+                            text = "Focus session",
                             style = MaterialTheme.typography.labelLarge,
                             color = TextPrimary
                         )

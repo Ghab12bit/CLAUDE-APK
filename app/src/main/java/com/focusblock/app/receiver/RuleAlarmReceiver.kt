@@ -54,6 +54,7 @@ class RuleAlarmReceiver : BroadcastReceiver() {
                 }
 
                 ruleDao.pruneOverridesBefore(now)
+                ruleDao.pruneUsage(now)
                 RuleAlarmScheduler.rescheduleAll(appContext, ruleDao.getAllRulesSync())
 
                 // The boundary itself must enforce, not just tidy up.

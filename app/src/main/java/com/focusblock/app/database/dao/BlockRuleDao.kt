@@ -12,6 +12,10 @@ import com.focusblock.app.database.entity.RuleOverride
 import com.focusblock.app.database.entity.RuleUsage
 import kotlinx.coroutines.flow.Flow
 
+/** Five weeks of daily history, two days of hourly. See [BlockRuleDao.pruneUsage]. */
+private const val DAILY_RETENTION_MS = 35L * 24 * 60 * 60 * 1000
+private const val HOURLY_RETENTION_MS = 48L * 60 * 60 * 1000
+
 @Dao
 interface BlockRuleDao {
 
@@ -101,6 +105,26 @@ interface BlockRuleDao {
     @Query("DELETE FROM rule_usage WHERE lastUpdated < :cutoff AND bucket LIKE '%T%'")
     suspend fun pruneHourlyUsageBefore(cutoff: Long)
 
+    /**
+     * Drop usage rows nothing will read again.
+     *
+     * Enforcement only ever asks for the current bucket, so older rows are
+     * history and nothing else. Both prune queries existed and neither was
+     * ever called: the table gained a row per rule per day and per rule per
+     * hour, forever, in a database that sits on a phone for years. An hourly
+     * sip rule alone is 8,760 rows a year.
+     *
+     * Daily buckets are kept for five weeks so a month of history stays
+     * available to any screen that later wants it; hourly buckets for two
+     * days, which is more than an hourly budget can ever consult.
+     */
+    suspend fun pruneUsage(now: Long = System.currentTimeMillis()) {
+        val oldestDailyToKeep = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            .format(java.util.Date(now - DAILY_RETENTION_MS))
+        pruneDailyUsageBefore(oldestDailyToKeep)
+        pruneHourlyUsageBefore(now - HOURLY_RETENTION_MS)
+    }
+
     // ---------------- Overrides ----------------
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -138,4 +162,5 @@ interface ProtectionLockDao {
 
     @Query("DELETE FROM protection_lock")
     suspend fun clear()
+
 }

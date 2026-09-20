@@ -42,6 +42,7 @@ class BootReceiver : BroadcastReceiver() {
                 // Tidy anything that expired while the device was off.
                 val now = System.currentTimeMillis()
                 ruleDao.pruneOverridesBefore(now)
+                ruleDao.pruneUsage(now)
                 for (rule in ruleDao.getAllRulesSync()) {
                     val until = rule.activeUntil
                     if (rule.isManualActive && until != null && now >= until) {

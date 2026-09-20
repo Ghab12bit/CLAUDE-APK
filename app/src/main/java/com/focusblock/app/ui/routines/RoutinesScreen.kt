@@ -401,6 +401,22 @@ private fun RuleEditorSheet(
                 Spacer(Modifier.height(16.dp))
             }
 
+            if (draft.hasLaunchCondition) {
+                FieldLabel(
+                    if (draft.launchWindow == com.focusblock.app.database.entity.UsageWindow.DAILY)
+                        "Opens a day" else "Opens an hour"
+                )
+                OpenLimitRow(draft.launchLimit) { n -> onChange { it.copy(launchLimit = n) } }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Counts every time you open one of these apps. Attempts that " +
+                        "get blocked don't count.",
+                    color = TextTertiary,
+                    fontSize = 12.sp
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+
             FieldLabel("Apps to block (${draft.packageList().size})")
             if (appsLoading) {
                 Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
@@ -510,6 +526,34 @@ private fun BudgetRow(minutes: Int, onChange: (Int) -> Unit) {
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
         StepButton("+") { onChange((minutes + 5).coerceAtMost(720)) }
+    }
+}
+
+/**
+ * Opens step one at a time, not five: the useful range is small. Going from
+ * ten opens a day to five is a real change; from sixty minutes to fifty-five
+ * is not, which is why the minutes row steps in fives and this one does not.
+ */
+@Composable
+private fun OpenLimitRow(opens: Int, onChange: (Int) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(SurfaceDark)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        StepButton("-") { onChange((opens - 1).coerceAtLeast(1)) }
+        Text(
+            if (opens == 1) "1 open" else "$opens opens",
+            color = TextPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        StepButton("+") { onChange((opens + 1).coerceAtMost(100)) }
     }
 }
 

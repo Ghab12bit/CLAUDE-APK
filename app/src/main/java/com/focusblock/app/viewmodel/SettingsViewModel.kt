@@ -42,6 +42,7 @@ data class SettingsUiState(
     val isGlobalDailyLimitEnabled: Boolean = false,
     val globalDailyLimitMinutes: Int = 120, // Default 2 hours
     val globalDailyLimitWarningMinutes: Int = 15,
+    val globalDailyLimitPackages: List<String> = emptyList(),
 
     // 20% Usage Reduction Notification
     val isUsageReductionNotificationEnabled: Boolean = false
@@ -364,15 +365,15 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun disableHardMode(pin: String): Boolean {
-        // Verify PIN first
+    fun disableHardMode(pin: String, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
             val storedPin = repository.getHardModePin()
-            if (storedPin == pin) {
+            val valid = !storedPin.isNullOrBlank() && pin == storedPin
+            if (valid) {
                 repository.setLegacyHardModeEnabled(false)
             }
+            onResult(valid)
         }
-        return true // Simplified
     }
 
     fun setPomodoroSettings(workMinutes: Int, shortBreak: Int, longBreak: Int) {
@@ -419,7 +420,9 @@ class SettingsViewModel @Inject constructor(
                     _uiState.update { it.copy(
                         isGlobalDailyLimitEnabled = settings.isEnabled,
                         globalDailyLimitMinutes = settings.dailyLimitMinutes,
-                        globalDailyLimitWarningMinutes = settings.warningMinutesBefore
+                        globalDailyLimitWarningMinutes = settings.warningMinutesBefore,
+                        globalDailyLimitPackages = settings.trackedPackages
+                            .split(",").filter { it.isNotBlank() }
                     )}
                 }
             }
@@ -489,6 +492,22 @@ class SettingsViewModel @Inject constructor(
             }
             _uiState.update { it.copy(globalDailyLimitWarningMinutes = minutes) }
             // Notify service to refresh cache immediately
+            notifyServiceToRefreshGlobalLimitCache()
+        }
+    }
+
+    fun setGlobalDailyLimitPackages(packageNames: List<String>) {
+        viewModelScope.launch {
+            val packages = packageNames.distinct().filter { it.isNotBlank() }
+            val currentSettings = repository.getGlobalDailyLimitSettingsSync()
+                ?: com.focusblock.app.database.entity.GlobalDailyLimitSettings()
+            repository.saveGlobalDailyLimitSettings(
+                currentSettings.copy(
+                    trackedPackages = packages.joinToString(","),
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+            _uiState.update { it.copy(globalDailyLimitPackages = packages) }
             notifyServiceToRefreshGlobalLimitCache()
         }
     }

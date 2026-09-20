@@ -57,6 +57,9 @@ interface ScheduleDao {
     @Query("SELECT * FROM schedules WHERE isEnabled = 1 ORDER BY startTimeMinutes ASC")
     fun getEnabledSchedules(): Flow<List<Schedule>>
 
+    @Query("SELECT * FROM schedules WHERE isEnabled = 1 ORDER BY startTimeMinutes ASC")
+    suspend fun getEnabledSchedulesSync(): List<Schedule>
+
     @Query("SELECT * FROM schedules WHERE id = :id")
     suspend fun getSchedule(id: Long): Schedule?
 

@@ -1,5 +1,6 @@
 package com.focusblock.app.database.repository
 
+import com.focusblock.app.blocking.SchedulePolicy
 import com.focusblock.app.database.dao.*
 import com.focusblock.app.database.entity.*
 import kotlinx.coroutines.flow.Flow
@@ -57,7 +58,9 @@ class FocusBlockRepository @Inject constructor(
     suspend fun deleteSchedule(schedule: Schedule) = scheduleDao.delete(schedule)
     suspend fun setScheduleEnabled(id: Long, enabled: Boolean) = scheduleDao.setEnabled(id, enabled)
     suspend fun getActiveSchedules(currentMinute: Int, dayOfWeek: String): List<Schedule> =
-        scheduleDao.getActiveSchedules(currentMinute, dayOfWeek)
+        scheduleDao.getEnabledSchedulesSync().filter {
+            SchedulePolicy.isActive(it, currentMinute, dayOfWeek.toIntOrNull() ?: return@filter false)
+        }
 
     // Quick Block Sessions
     fun getActiveQuickBlockSession(): Flow<QuickBlockSession?> = quickBlockSessionDao.getActiveSession()

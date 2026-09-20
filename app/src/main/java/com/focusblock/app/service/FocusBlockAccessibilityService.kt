@@ -21,6 +21,8 @@ import android.view.accessibility.AccessibilityEvent
 import androidx.core.app.NotificationCompat
 import com.focusblock.app.FocusBlockApp
 import com.focusblock.app.R
+import com.focusblock.app.blocking.QuickBlockPolicy
+import com.focusblock.app.blocking.SchedulePolicy
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.AppSettings
 import com.focusblock.app.database.entity.BlockLog
@@ -425,7 +427,14 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                         .toSet()
 
                     // A timed block ends when its timer expires.
-                    if (now >= session.endTime) {
+                    if (QuickBlockPolicy.isExpired(session.endTime, now)) {
+                        // Repair rows created by older builds that incorrectly promoted
+                        // temporary quick-block apps to the permanent blocked list.
+                        QuickBlockPolicy.packagesToRelease(
+                            session.blockedPackages,
+                            session.previouslyBlockedPackages
+                        )
+                            .forEach { database.blockedAppDao().setBlocked(it, false) }
                         database.quickBlockSessionDao().deactivate(session.id)
                         Log.i(TAG, "Timed block ended and session was deactivated")
 
@@ -1299,7 +1308,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                 // Check schedules
                 val currentMinute = TimeUtils.getCurrentMinuteOfDay()
                 val dayOfWeek = TimeUtils.getCurrentDayOfWeek().toString()
-                val activeSchedules = scheduleDao.getActiveSchedules(currentMinute, dayOfWeek)
+                val activeSchedules = scheduleDao.getEnabledSchedulesSync().filter {
+                    SchedulePolicy.isActive(it, currentMinute, dayOfWeek.toIntOrNull() ?: return@filter false)
+                }
 
                 for (schedule in activeSchedules) {
                     val blockedPackages = schedule.blockedPackages.split(",")
@@ -1925,7 +1936,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Check schedules
         val currentMinute = TimeUtils.getCurrentMinuteOfDay()
         val dayOfWeek = TimeUtils.getCurrentDayOfWeek().toString()
-        val activeSchedules = scheduleDao.getActiveSchedules(currentMinute, dayOfWeek)
+        val activeSchedules = scheduleDao.getEnabledSchedulesSync().filter {
+            SchedulePolicy.isActive(it, currentMinute, dayOfWeek.toIntOrNull() ?: return@filter false)
+        }
 
         for (schedule in activeSchedules) {
             val blockedPackages = schedule.blockedPackages.split(",")

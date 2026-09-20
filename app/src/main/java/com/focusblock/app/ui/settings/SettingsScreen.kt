@@ -49,6 +49,7 @@ fun SettingsScreen(
     var showAboutDialog by remember { mutableStateOf(false) }
     var showPomodoroPicker by remember { mutableStateOf<String?>(null) } // "work", "short", "long"
     var showDailyLimitPicker by remember { mutableStateOf(false) }
+    var showDailyLimitAppsDialog by remember { mutableStateOf(false) }
     var showStrictModePinDialog by remember { mutableStateOf(false) }
     var showStrictModeLockedDialog by remember { mutableStateOf(false) }
     var showStrictModeDurationPicker by remember { mutableStateOf(false) }
@@ -167,8 +168,10 @@ fun SettingsScreen(
                     SettingsItem(
                         icon = Icons.Outlined.Block,
                         title = "Apps Tracked",
-                        subtitle = "Social media, videos, games & more",
-                        onClick = { /* TODO: Add app picker */ }
+                        subtitle = if (uiState.globalDailyLimitPackages.isEmpty())
+                            "Choose the apps this limit applies to"
+                        else "${uiState.globalDailyLimitPackages.size} apps selected",
+                        onClick = { showDailyLimitAppsDialog = true }
                     )
                 }
 
@@ -382,6 +385,18 @@ fun SettingsScreen(
             onConfirm = { selected ->
                 viewModel.updateAllowlist(selected)
                 showAllowlistDialog = false
+            }
+        )
+    }
+
+    if (showDailyLimitAppsDialog) {
+        AppSelectionDialog(
+            apps = viewModel.getInstalledApps(),
+            selectedApps = uiState.globalDailyLimitPackages,
+            onDismiss = { showDailyLimitAppsDialog = false },
+            onConfirm = { selected ->
+                viewModel.setGlobalDailyLimitPackages(selected)
+                showDailyLimitAppsDialog = false
             }
         )
     }

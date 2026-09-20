@@ -12,6 +12,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.focusblock.app.FocusBlockApp
 import com.focusblock.app.R
+import com.focusblock.app.blocking.QuickBlockPolicy
 import com.focusblock.app.database.entity.*
 import com.focusblock.app.database.repository.FocusBlockRepository
 import com.focusblock.app.service.AppBlockingService
@@ -259,7 +260,10 @@ class HomeViewModel @Inject constructor(
                 _uiState.update { it.copy(
                     isQuickBlockActive = session != null,
                     quickBlockSession = session,
-                    isPomodoroMode = session?.isPomodoroSession == true
+                    isPomodoroMode = session?.isPomodoroSession == true,
+                    pomodoroState = it.pomodoroState.copy(
+                        isActive = session?.isPomodoroSession == true
+                    )
                 )}
             }
         }
@@ -860,38 +864,34 @@ class HomeViewModel @Inject constructor(
 
     fun startQuickBlock(selectedPackages: List<String>, durationMinutes: Int? = null) {
         viewModelScope.launch {
-            // Save the selected apps for future use
-            repository.saveQuickBlockApps(selectedPackages)
+            val packages = QuickBlockPolicy.sanitizePackages(selectedPackages)
+            if (packages.isEmpty()) {
+                showToast("Choose at least one app to block.")
+                return@launch
+            }
+            if (durationMinutes != null && durationMinutes <= 0) {
+                showToast("Choose a block duration greater than zero.")
+                return@launch
+            }
 
-            // Get currently blocked packages BEFORE making any changes
+            // Save the selected apps for future use
+            repository.saveQuickBlockApps(packages)
+
+            // A quick session is temporary. Never turn its apps into permanent blocked apps.
             val previouslyBlocked = repository.getBlockedPackageNames().toSet()
 
-            // First, ensure all selected apps are in the database and marked as blocked
-            selectedPackages.forEach { packageName ->
-                val existingApp = repository.getBlockedApp(packageName)
-                if (existingApp == null) {
-                    val appName = AppUtils.getAppName(application, packageName)
-                    repository.insertBlockedApp(
-                        BlockedApp(
-                            packageName = packageName,
-                            appName = appName,
-                            isBlocked = true
-                        )
-                    )
-                } else if (!existingApp.isBlocked) {
-                    // App exists but is not blocked - update it
-                    repository.setAppBlocked(packageName, true)
-                }
-            }
+            // There must be exactly one active session. Otherwise an older session can
+            // reappear after the newest timed session expires.
+            repository.deactivateAllQuickBlockSessions()
 
             // Create quick block session with previously blocked packages tracked
             val session = QuickBlockSession(
                 startTime = System.currentTimeMillis(),
                 endTime = durationMinutes?.let { System.currentTimeMillis() + it * 60 * 1000L },
-                blockedPackages = selectedPackages.joinToString(","),
+                blockedPackages = packages.joinToString(","),
                 isActive = true,
                 isPomodoroSession = false,
-                previouslyBlockedPackages = previouslyBlocked.intersect(selectedPackages.toSet()).joinToString(",")
+                previouslyBlockedPackages = previouslyBlocked.intersect(packages.toSet()).joinToString(",")
             )
             repository.insertQuickBlockSession(session)
 
@@ -901,8 +901,7 @@ class HomeViewModel @Inject constructor(
             // Schedule peak-time reminder for mindful breaks
             PeakTimeReminderWorker.schedule(application)
 
-            val newAppsCount = selectedPackages.count { !previouslyBlocked.contains(it) }
-            showToast("Quick Block started. $newAppsCount apps blocked.")
+            showToast("Quick Block started. ${packages.size} apps blocked.")
         }
     }
 
@@ -1004,34 +1003,26 @@ class HomeViewModel @Inject constructor(
 
     fun startPomodoroSession(selectedPackages: List<String>, workMinutes: Int = 25, breakMinutes: Int = 5) {
         viewModelScope.launch {
-            // Get currently blocked packages BEFORE making any changes
-            val previouslyBlocked = repository.getBlockedPackageNames().toSet()
-
-            // Ensure all selected apps are in the database
-            selectedPackages.forEach { packageName ->
-                val existingApp = repository.getBlockedApp(packageName)
-                if (existingApp == null) {
-                    val appName = AppUtils.getAppName(application, packageName)
-                    repository.insertBlockedApp(
-                        BlockedApp(
-                            packageName = packageName,
-                            appName = appName,
-                            isBlocked = true
-                        )
-                    )
-                }
+            val packages = QuickBlockPolicy.sanitizePackages(selectedPackages)
+            if (packages.isEmpty() || workMinutes <= 0 || breakMinutes <= 0) {
+                showToast("Choose apps and valid focus/break durations.")
+                return@launch
             }
+
+            val previouslyBlocked = repository.getBlockedPackageNames().toSet()
+            repository.saveQuickBlockApps(packages)
+            repository.deactivateAllQuickBlockSessions()
 
             // Create pomodoro quick block session
             val session = QuickBlockSession(
                 startTime = System.currentTimeMillis(),
                 endTime = System.currentTimeMillis() + workMinutes * 60 * 1000L,
-                blockedPackages = selectedPackages.joinToString(","),
+                blockedPackages = packages.joinToString(","),
                 isActive = true,
                 isPomodoroSession = true,
                 pomodoroWorkMinutes = workMinutes,
                 pomodoroBreakMinutes = breakMinutes,
-                previouslyBlockedPackages = previouslyBlocked.intersect(selectedPackages.toSet()).joinToString(",")
+                previouslyBlockedPackages = previouslyBlocked.intersect(packages.toSet()).joinToString(",")
             )
             repository.insertQuickBlockSession(session)
 

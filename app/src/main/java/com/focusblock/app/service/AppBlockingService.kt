@@ -15,6 +15,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.focusblock.app.FocusBlockApp
 import com.focusblock.app.R
+import com.focusblock.app.blocking.QuickBlockPolicy
 import com.focusblock.app.database.entity.BlockLog
 import com.focusblock.app.database.entity.BlockedByType
 import com.focusblock.app.database.repository.FocusBlockRepository
@@ -165,7 +166,12 @@ class AppBlockingService : Service() {
         val quickBlockSession = repository.getActiveQuickBlockSessionSync()
         if (quickBlockSession != null) {
             val now = System.currentTimeMillis()
-            if (quickBlockSession.endTime != null && now >= quickBlockSession.endTime) {
+            if (QuickBlockPolicy.isExpired(quickBlockSession.endTime, now)) {
+                QuickBlockPolicy.packagesToRelease(
+                    quickBlockSession.blockedPackages,
+                    quickBlockSession.previouslyBlockedPackages
+                )
+                    .forEach { repository.setAppBlocked(it, false) }
                 repository.deactivateQuickBlockSession(quickBlockSession.id)
                 return false
             }
@@ -187,11 +193,8 @@ class AppBlockingService : Service() {
             }
         }
 
-        // Check if individually blocked
-        if (blockedApp?.isBlocked == true) {
-            return true
-        }
-
+        // The permanent list defines which apps policies act on; it is not itself an
+        // always-on policy. Accessibility and fallback enforcement must agree here.
         return false
     }
 

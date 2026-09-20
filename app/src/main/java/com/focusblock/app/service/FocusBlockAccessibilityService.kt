@@ -1522,6 +1522,12 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     putExtra(BlockedAppActivity.EXTRA_RULE_NAME, primary.ruleName)
                     primary.endsAt?.let { putExtra(BlockedAppActivity.EXTRA_ENDS_AT, it) }
 
+                    // Without these the block screen cannot offer a way out:
+                    // it needs to know WHICH rule to ask the engine to lift,
+                    // and how hard that rule is to stop.
+                    putExtra(BlockedAppActivity.EXTRA_RULE_ID, primary.ruleId)
+                    putExtra(BlockedAppActivity.EXTRA_COMMITMENT, primary.commitment.name)
+
                     val others = decision.reasons
                         .filter { it.ruleId != primary.ruleId }
                         .map { it.ruleName }

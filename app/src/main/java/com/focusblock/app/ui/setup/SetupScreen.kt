@@ -9,7 +9,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,6 +25,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.focusblock.app.database.entity.CommitmentLevel
 import com.focusblock.app.ui.components.AppIconGrid
 import com.focusblock.app.ui.components.GridApp
+import com.focusblock.app.ui.permissions.PermissionFlow
 import com.focusblock.app.ui.theme.*
 
 /**
@@ -64,29 +64,40 @@ fun SetupScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = BackgroundDark
     ) { padding ->
-        Column(
+        Box(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .background(BackgroundDark)
-                .padding(24.dp)
         ) {
-            StepDots(state.step)
-            Spacer(Modifier.height(24.dp))
+            // Permissions get the whole screen and their own pacing: they are a
+            // guided walk through Android's settings, one at a time, and they
+            // do not fit the question-and-Next rhythm of the rest of setup.
+            if (state.step == SetupStep.PERMISSIONS) {
+                PermissionFlow(
+                    onFinished = viewModel::next,
+                    onExit = null
+                )
+            } else {
+                Column(Modifier.fillMaxSize().padding(24.dp)) {
+                    StepDots(state.step)
+                    Spacer(Modifier.height(24.dp))
 
-            Box(Modifier.weight(1f)) {
-                when (state.step) {
-                    SetupStep.WHAT_IT_DOES -> WhatItDoes()
-                    SetupStep.PERMISSIONS -> Permissions(state, viewModel)
-                    SetupStep.CHOOSE_APPS -> ChooseApps(state, viewModel)
-                    SetupStep.EVENING_BLOCK -> EveningBlock(state, viewModel)
-                    SetupStep.REASON -> Reason(state, viewModel)
-                    SetupStep.DONE -> Done(state)
+                    Box(Modifier.weight(1f)) {
+                        when (state.step) {
+                            SetupStep.WHAT_IT_DOES -> WhatItDoes()
+                            SetupStep.PERMISSIONS -> Unit
+                            SetupStep.CHOOSE_APPS -> ChooseApps(state, viewModel)
+                            SetupStep.EVENING_BLOCK -> EveningBlock(state, viewModel)
+                            SetupStep.REASON -> Reason(state, viewModel)
+                            SetupStep.DONE -> Done(state)
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                    NavRow(state, viewModel, onComplete)
                 }
             }
-
-            Spacer(Modifier.height(16.dp))
-            NavRow(state, viewModel, onComplete)
         }
     }
 }
@@ -144,85 +155,6 @@ private fun WhatItDoes() {
             color = TextTertiary,
             fontSize = 13.sp
         )
-    }
-}
-
-@Composable
-private fun Permissions(state: SetupUiState, viewModel: SetupViewModel) {
-    Column(Modifier.verticalScroll(rememberScrollState())) {
-        Heading("Two permissions")
-        Text(
-            "Android only lets an app block other apps if you allow these. " +
-                "Without them this app can't do its job, and it will say so " +
-                "on the home screen rather than pretend.",
-            color = TextSecondary,
-            fontSize = 14.sp
-        )
-        Spacer(Modifier.height(20.dp))
-
-        PermissionRow(
-            title = "Accessibility service",
-            why = "Lets FocusBlock see which app just opened. This is what does the blocking.",
-            granted = state.hasAccessibility,
-            onGrant = viewModel::openAccessibilitySettings
-        )
-        PermissionRow(
-            title = "Usage access",
-            why = "Lets it count time for daily limits and show your screen time.",
-            granted = state.hasUsageAccess,
-            onGrant = viewModel::openUsageAccessSettings
-        )
-        PermissionRow(
-            title = "Display over apps",
-            why = "Lets the block screen appear reliably. Recommended.",
-            granted = state.hasOverlay,
-            onGrant = viewModel::openOverlaySettings
-        )
-
-        if (!state.canEnforce) {
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "You can continue without these, but nothing will be blocked " +
-                    "until they're on.",
-                color = AccentOrange,
-                fontSize = 13.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun PermissionRow(title: String, why: String, granted: Boolean, onGrant: () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(bottom = 10.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(SurfaceDark)
-            .padding(16.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                if (granted) Icons.Filled.CheckCircle else Icons.Filled.Warning,
-                contentDescription = null,
-                tint = if (granted) Signal else AccentOrange,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(why, color = TextSecondary, fontSize = 13.sp)
-        if (!granted) {
-            Spacer(Modifier.height(10.dp))
-            Button(
-                onClick = onGrant,
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Signal)
-            ) {
-                Text("Turn on", fontSize = 13.sp)
-            }
-        }
     }
 }
 

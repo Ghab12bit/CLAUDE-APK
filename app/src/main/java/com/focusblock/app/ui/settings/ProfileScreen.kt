@@ -30,6 +30,8 @@ import com.focusblock.app.ui.components.ScreenTitle
 import com.focusblock.app.ui.components.SectionHeading
 import com.focusblock.app.ui.components.StatusHero
 import com.focusblock.app.ui.components.SummaryRow
+import com.focusblock.app.ui.permissions.PermissionFlow
+import com.focusblock.app.ui.permissions.PermissionId
 import com.focusblock.app.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -50,6 +52,10 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
     var showAllowlist by remember { mutableStateOf(false) }
     var showPinDialog by remember { mutableStateOf(false) }
     var permissionsExpanded by remember { mutableStateOf(false) }
+    // When set, the guided walk-through takes over the screen. null means the
+    // settings list is showing.
+    var permissionFlowAt by remember { mutableStateOf<PermissionId?>(null) }
+    var permissionFlowOpen by remember { mutableStateOf(false) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -65,6 +71,24 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
             snackbarHostState.showSnackbar(it)
             viewModel.consumeMessage()
         }
+    }
+
+    if (permissionFlowOpen) {
+        // Fixing a permission is the same guided walk setup uses. The previous
+        // version sent the user straight to a system screen from a one-word
+        // "Fix" link, which is where they got lost.
+        PermissionFlow(
+            onFinished = {
+                permissionFlowOpen = false
+                viewModel.refresh()
+            },
+            onExit = {
+                permissionFlowOpen = false
+                viewModel.refresh()
+            },
+            startAt = permissionFlowAt
+        )
+        return
     }
 
     Scaffold(
@@ -131,6 +155,26 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
                                 problemText = ""
                             )
                         }
+                    } else if (!allOk) {
+                        // One button to the guided walk, above the list, so the
+                        // user who does not know which of five to press has an
+                        // obvious move.
+                        Button(
+                            onClick = {
+                                permissionFlowAt = null
+                                permissionFlowOpen = true
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Signal),
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
+                        ) {
+                            Text(
+                                "Walk me through it",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Spacer(Modifier.height(10.dp))
                     }
                 }
             }
@@ -148,32 +192,32 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
                         "Accessibility service",
                         "Required. Nothing can be blocked without it.",
                         state.hasAccessibility,
-                        viewModel::openAccessibilitySettings
+                        { permissionFlowAt = PermissionId.ACCESSIBILITY; permissionFlowOpen = true }
                     )
                     PermRow(
                         "Usage access",
                         "Required for time budgets and screen-time figures.",
                         state.hasUsageAccess,
-                        viewModel::openUsageAccessSettings
+                        { permissionFlowAt = PermissionId.USAGE; permissionFlowOpen = true }
                     )
                     PermRow(
                         "Display over apps",
                         "Makes the block screen appear reliably.",
                         state.hasOverlay,
-                        viewModel::openOverlaySettings
+                        { permissionFlowAt = PermissionId.OVERLAY; permissionFlowOpen = true }
                     )
                     PermRow(
                         "Battery unrestricted",
                         "Stops the system killing blocking in the background. " +
                             "This is the usual reason a blocker quietly stops working.",
                         state.batteryUnrestricted,
-                        viewModel::openBatterySettings
+                        { permissionFlowAt = PermissionId.BATTERY; permissionFlowOpen = true }
                     )
                     PermRow(
                         "Exact alarms",
                         "Without this, routines can start or lift up to a minute late.",
                         state.canScheduleExactAlarms,
-                        viewModel::openExactAlarmSettings,
+                        { permissionFlowAt = PermissionId.EXACT_ALARM; permissionFlowOpen = true },
                         last = true
                     )
                 }

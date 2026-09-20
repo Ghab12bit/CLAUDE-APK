@@ -79,6 +79,22 @@ interface FocusProfileDao {
     @Query("SELECT * FROM window_outcomes WHERE date = :date LIMIT 1")
     suspend fun outcomeForDate(date: String): WindowOutcome?
 
+    /**
+     * The marker written when a window opened and not yet finished.
+     *
+     * A window in flight is stored with endedAt == startedAt, which is also
+     * what lets the app recover a window whose closing alarm never arrived:
+     * the marker is still there the next time anything reconciles.
+     */
+    @Query(
+        "SELECT * FROM window_outcomes WHERE ruleId = :ruleId AND endedAt <= startedAt " +
+            "ORDER BY startedAt DESC LIMIT 1"
+    )
+    suspend fun inFlightOutcome(ruleId: Long): WindowOutcome?
+
+    @Query("DELETE FROM window_outcomes WHERE id = :id")
+    suspend fun deleteOutcome(id: Long)
+
     @Query("SELECT COUNT(*) FROM window_outcomes WHERE clean = 1")
     suspend fun cleanWindowCount(): Int
 

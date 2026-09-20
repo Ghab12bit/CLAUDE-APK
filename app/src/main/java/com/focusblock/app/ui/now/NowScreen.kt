@@ -1,5 +1,6 @@
 package com.focusblock.app.ui.now
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,7 +19,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -65,6 +69,16 @@ fun NowScreen(
             snackbarHostState.showSnackbar(it)
             viewModel.consumeMessage()
         }
+    }
+
+    // The one thing in this app allowed to interrupt. A mark that is never
+    // marked is not a stake, it is a row in a database.
+    state.milestone?.let { m ->
+        MilestoneDialog(
+            milestone = m,
+            onShare = { viewModel.milestoneShared(m.id) },
+            onDismiss = { viewModel.dismissMilestone(m.id) }
+        )
     }
 
     Scaffold(
@@ -292,6 +306,89 @@ private fun AlwaysAllowedRow(apps: List<AppLabel>) {
             AppIconRow(apps.map { it.packageName }, max = 7, size = 26.dp)
             Spacer(Modifier.height(6.dp))
             Text("Always reachable", color = TextTertiary, fontSize = 11.sp)
+        }
+    }
+}
+
+/**
+ * A milestone, shown once.
+ *
+ * The share button is the only growth mechanic in the app, and it is here
+ * because telling another person is the strongest predictor in the research of
+ * sticking with a blocker -- it creates external accountability, which is the
+ * thing software on its own cannot. The app never shares anything by itself,
+ * never posts, and never asks twice: dismissing marks it seen for good.
+ */
+@Composable
+private fun MilestoneDialog(
+    milestone: MilestoneCard,
+    onShare: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(CardDark)
+                .border(1.dp, SignalBorder, RoundedCornerShape(24.dp))
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Box(Modifier.size(96.dp).clip(CircleShape).background(SignalGlow))
+                Box(
+                    Modifier.size(64.dp).clip(CircleShape).background(Signal),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = TextPrimary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+            Text(
+                milestone.title,
+                color = TextPrimary,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                lineHeight = 30.sp
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                milestone.body,
+                color = TextSecondary,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 21.sp
+            )
+
+            Spacer(Modifier.height(24.dp))
+            Button(
+                onClick = {
+                    onShare()
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, milestone.shareText)
+                    }
+                    context.startActivity(Intent.createChooser(send, "Tell someone"))
+                    onDismiss()
+                },
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Signal),
+                modifier = Modifier.fillMaxWidth().height(50.dp)
+            ) {
+                Text("Tell someone", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            }
+            TextButton(onClick = onDismiss) {
+                Text("Keep it to myself", color = TextTertiary, fontSize = 13.sp)
+            }
         }
     }
 }

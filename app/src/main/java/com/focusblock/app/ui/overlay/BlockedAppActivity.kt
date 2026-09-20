@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
+import com.focusblock.app.blocking.StakeTracker
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.BlockedByType
 import com.focusblock.app.database.entity.FocusProfile
@@ -179,9 +180,11 @@ fun BlockedAppScreen(
         if (!recorded) {
             recorded = true
             scope.launch(Dispatchers.IO) {
-                val dao = db.focusProfileDao()
-                dao.require()
-                if (followed) dao.recordImpulseFollowed() else dao.recordImpulsePassed()
+                // Through the tracker, not the DAO: writing the counter alone
+                // skipped the milestone check, so no milestone could ever be
+                // raised however many urges were passed.
+                val tracker = StakeTracker(db.focusProfileDao())
+                if (followed) tracker.impulseFollowed() else tracker.impulsePassed()
             }
         }
         onClose()

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.focusblock.app.blocking.BlockingEngine
 import com.focusblock.app.blocking.RuleAlarmScheduler
 import com.focusblock.app.blocking.RuleTemplates
+import com.focusblock.app.blocking.StakeTracker
 import com.focusblock.app.database.dao.BlockRuleDao
 import com.focusblock.app.database.dao.BlockedAppDao
 import com.focusblock.app.database.entity.BlockRule
@@ -52,7 +53,23 @@ data class NowUiState(
     val impulsesPassed: Int = 0,
     val protectedHours: Int = 0,
     val reason: String = "",
+    /**
+     * A milestone reached and not yet acknowledged.
+     *
+     * Shown once, dismissed for good. The only thing in the app that
+     * interrupts, and only because a mark that is never marked is not a
+     * stake -- it is a number in a database.
+     */
+    val milestone: MilestoneCard? = null,
     val message: String? = null
+)
+
+/** A milestone ready to show, with its copy already resolved. */
+data class MilestoneCard(
+    val id: Long,
+    val title: String,
+    val body: String,
+    val shareText: String
 )
 
 /**
@@ -135,7 +152,8 @@ class NowViewModel @Inject constructor(
     private val ruleDao: BlockRuleDao,
     private val blockedAppDao: BlockedAppDao,
     private val engine: BlockingEngine,
-    private val profileDao: com.focusblock.app.database.dao.FocusProfileDao
+    private val profileDao: com.focusblock.app.database.dao.FocusProfileDao,
+    private val stake: StakeTracker
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(NowUiState())
@@ -232,6 +250,18 @@ class NowViewModel @Inject constructor(
                 val manual = rules.firstOrNull { it.manualIsRunning(now) }
                 val profile = profileDao.require()
 
+                // ---- 4. A milestone waiting to be acknowledged -------------
+                val pendingCard = stake.pendingMilestone()?.let { m ->
+                    val (title, body) = StakeTracker.headline(m.kind, m.value)
+                    MilestoneCard(
+                        id = m.id,
+                        title = title,
+                        body = body,
+                        shareText = "$title — $body\n\nKeeping my evenings for my own work, " +
+                            "with FocusBlock."
+                    )
+                }
+
                 // Seed the one-off block's app list from the routines the user
                 // has already built, so "Block now" is a single tap instead of
                 // a picker they must fill in from scratch every time.
@@ -251,13 +281,28 @@ class NowViewModel @Inject constructor(
                         streakDays = profile.currentStreakDays,
                         impulsesPassed = profile.impulsesPassed,
                         protectedHours = (profile.totalProtectedMinutes / 60).toInt(),
-                        reason = profile.reason
+                        reason = profile.reason,
+                        milestone = it.milestone ?: pendingCard
                     )
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(loading = false, message = "Couldn't read your rules.") }
             }
         }
+    }
+
+    /**
+     * Acknowledge a milestone. Marked seen whether or not it was shared, so it
+     * never appears twice.
+     */
+    fun dismissMilestone(id: Long) {
+        _uiState.update { it.copy(milestone = null) }
+        viewModelScope.launch(Dispatchers.IO) { stake.markSeen(id) }
+    }
+
+    /** Record that the user chose to tell someone. Sharing itself is the UI's job. */
+    fun milestoneShared(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) { stake.markShared(id) }
     }
 
     /** Human-readable "why", e.g. "Evening work block · until 10:30 PM". */

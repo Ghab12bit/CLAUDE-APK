@@ -1,6 +1,8 @@
 package com.focusblock.app.blocking
 
 import com.focusblock.app.database.dao.FocusProfileDao
+import com.focusblock.app.database.entity.BlockRule
+import com.focusblock.app.database.entity.RuleKind
 import com.focusblock.app.database.entity.FocusProfile
 import com.focusblock.app.database.entity.Milestone
 import com.focusblock.app.database.entity.MilestoneKind
@@ -37,6 +39,115 @@ import javax.inject.Singleton
 class StakeTracker @Inject constructor(
     private val profileDao: FocusProfileDao
 ) {
+
+    // ------------------------------------------------------------------
+    // Windows
+    // ------------------------------------------------------------------
+
+    /**
+     * Bring the record of protected windows up to date with reality.
+     *
+     * This is state reconciliation rather than event handling, and deliberately
+     * so. An approach that opened a window on one alarm and closed it on
+     * another loses the whole evening whenever a single alarm is delayed,
+     * dropped by a doze, or missed because the phone was off -- which on
+     * Android is not an edge case. Comparing "is this rule inside its window
+     * right now" against "do we have a window open for it" is self-correcting:
+     * whatever ran last, the next call puts the books right.
+     *
+     * Call it from anywhere that already wakes up: rule boundaries, boot, the
+     * service's periodic re-check.
+     */
+    suspend fun reconcileWindows(
+        rules: List<BlockRule>,
+        countOverrides: suspend (ruleId: Long, from: Long, to: Long) -> Int,
+        now: Long = System.currentTimeMillis()
+    ) {
+        profileDao.require()
+
+        for (rule in rules) {
+            if (!rule.isEnabled || rule.kind != RuleKind.AUTOMATIC) continue
+            if (!rule.hasTimeCondition) continue
+
+            val calendar = Calendar.getInstance().apply { timeInMillis = now }
+            val inside = rule.timeConditionMatches(calendar)
+            val open = profileDao.inFlightOutcome(rule.id)
+
+            when {
+                inside && open == null -> openWindow(rule, now)
+                !inside && open != null -> closeWindow(rule, open, countOverrides, now)
+            }
+        }
+    }
+
+    /**
+     * Mark a window as started, baselining the counters it will be measured
+     * against.
+     *
+     * The impulse fields carry the profile's totals at the moment of opening;
+     * closing turns them into the window's own numbers. Storing the baseline
+     * in the row is what lets a window survive the process being killed
+     * mid-evening, which an in-memory snapshot would not.
+     */
+    private suspend fun openWindow(rule: BlockRule, now: Long) {
+        // Read fresh rather than reusing a snapshot: closing an earlier rule in
+        // the same pass can have moved these counters.
+        val profile = profileDao.require()
+        profileDao.insertOutcome(
+            WindowOutcome(
+                ruleId = rule.id,
+                ruleName = rule.name,
+                date = dayKey(now),
+                startedAt = now,
+                endedAt = now,
+                minutesProtected = 0,
+                impulsesPassed = profile.impulsesPassed,
+                impulsesFollowed = profile.impulsesFollowed,
+                clean = true
+            )
+        )
+    }
+
+    /**
+     * Finish an open window: turn the baselines into deltas, decide whether it
+     * was clean, and let [windowFinished] do the streak and milestone work.
+     */
+    private suspend fun closeWindow(
+        rule: BlockRule,
+        open: WindowOutcome,
+        countOverrides: suspend (ruleId: Long, from: Long, to: Long) -> Int,
+        now: Long
+    ) {
+        val profile = profileDao.require()
+        val passed = (profile.impulsesPassed - open.impulsesPassed).coerceAtLeast(0)
+        val followed = (profile.impulsesFollowed - open.impulsesFollowed).coerceAtLeast(0)
+        val overrides = countOverrides(rule.id, open.startedAt, now)
+
+        // Clean means the user never got past the pause: no override taken on
+        // this rule, and no impulse followed through. Backing out, however many
+        // times, is the opposite of a broken evening.
+        val clean = followed == 0 && overrides == 0
+
+        // The in-flight marker is replaced by the finished row rather than
+        // left beside it.
+        profileDao.deleteOutcome(open.id)
+
+        // If the phone was off or asleep past the window's end, "now" can be
+        // hours later than the evening actually was. Bank the window's real
+        // length, never the gap until something next ran.
+        val endedAt = minOf(now, open.startedAt + windowLengthMs(rule))
+
+        windowFinished(
+            ruleId = rule.id,
+            ruleName = rule.name,
+            startedAt = open.startedAt,
+            endedAt = endedAt,
+            impulsesPassed = passed,
+            impulsesFollowed = followed,
+            clean = clean,
+            now = now
+        )
+    }
 
     /** The user reached for a blocked app, sat through the pause, and backed out. */
     suspend fun impulsePassed() {
@@ -157,6 +268,16 @@ class StakeTracker @Inject constructor(
     suspend fun markShared(id: Long) = profileDao.markMilestoneShared(id)
 
     // ------------------------------------------------------------------
+
+    /** A window's length in millis, handling one that crosses midnight. */
+    private fun windowLengthMs(rule: BlockRule): Long {
+        val minutes = if (rule.endMinute > rule.startMinute) {
+            rule.endMinute - rule.startMinute
+        } else {
+            (24 * 60) - rule.startMinute + rule.endMinute
+        }
+        return minutes * 60_000L
+    }
 
     private fun dayKey(epoch: Long): String =
         SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(epoch))

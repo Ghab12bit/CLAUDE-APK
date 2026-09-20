@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.focusblock.app.blocking.RuleAlarmScheduler
+import com.focusblock.app.blocking.StakeTracker
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.service.AppBlockingService
 import com.focusblock.app.service.FocusBlockAccessibilityService
@@ -55,6 +56,18 @@ class RuleAlarmReceiver : BroadcastReceiver() {
 
                 ruleDao.pruneOverridesBefore(now)
                 ruleDao.pruneUsage(now)
+
+                // Keep the record of protected evenings honest. Reconciliation
+                // rather than an event handler, so a boundary that never
+                // arrived -- doze, reboot, a killed process -- is corrected
+                // here instead of losing the evening.
+                StakeTracker(db.focusProfileDao()).reconcileWindows(
+                    rules = ruleDao.getAllRulesSync(),
+                    countOverrides = { ruleId, from, to ->
+                        ruleDao.countOverridesBetween(ruleId, from, to)
+                    },
+                    now = now
+                )
                 RuleAlarmScheduler.rescheduleAll(appContext, ruleDao.getAllRulesSync())
 
                 // The boundary itself must enforce, not just tidy up.

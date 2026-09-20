@@ -144,6 +144,13 @@ interface BlockRuleDao {
     @Query("DELETE FROM rule_overrides WHERE expiresAt < :cutoff")
     suspend fun pruneOverridesBefore(cutoff: Long)
 
+    /** Overrides taken on one rule inside a window -- what makes it not clean. */
+    @Query(
+        "SELECT COUNT(*) FROM rule_overrides WHERE ruleId = :ruleId " +
+            "AND createdAt >= :from AND createdAt <= :to"
+    )
+    suspend fun countOverridesBetween(ruleId: Long, from: Long, to: Long): Int
+
     @Query("DELETE FROM rule_overrides WHERE ruleId = :ruleId")
     suspend fun clearOverridesFor(ruleId: Long)
 }

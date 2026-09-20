@@ -99,7 +99,9 @@ fun NowScreen(
                         !p.enforcing -> p.firstProblem ?: "Check permissions in Setup."
                         blockedApps > 0 -> state.blockedGroups.firstOrNull()?.reasonLine.orEmpty()
                         state.upcoming.isNotEmpty() ->
-                            "Next: ${state.upcoming.first().name}, ${state.upcoming.first().startsAtLabel}."
+                            state.upcoming.first().let {
+                                "${it.name} starts ${it.countdownLabel} — ${it.startsAtLabel}."
+                            }
                         else -> "No routine is running. Start a block below."
                     },
                     trailing = if (!p.enforcing) {
@@ -310,7 +312,15 @@ private fun UpcomingRow(next: UpcomingRule, onOpen: () -> Unit) {
             Text(next.name, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
             Text("${next.appCount} apps", color = TextTertiary, fontSize = 12.sp)
         }
-        Text(next.startsAtLabel, color = TextSecondary, fontSize = 13.sp)
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                next.countdownLabel,
+                color = Signal,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(next.startsAtLabel, color = TextTertiary, fontSize = 11.sp)
+        }
     }
 }
 

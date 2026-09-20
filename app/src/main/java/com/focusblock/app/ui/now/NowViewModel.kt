@@ -110,7 +110,12 @@ data class BlockedGroup(
 data class UpcomingRule(
     val ruleId: Long,
     val name: String,
+    /** When it opens, as epoch millis. Kept so these can be ordered properly. */
+    val startsAt: Long,
+    /** "today 20:45" -- when, on the clock. */
     val startsAtLabel: String,
+    /** "in 6h 12m" -- how far off, which is the part that lands. */
+    val countdownLabel: String,
     val appCount: Int
 )
 
@@ -213,12 +218,14 @@ class NowViewModel @Inject constructor(
                             UpcomingRule(
                                 ruleId = rule.id,
                                 name = rule.name,
+                                startsAt = at,
                                 startsAtLabel = relativeLabel(at, now),
+                                countdownLabel = countdownLabel(at, now),
                                 appCount = rule.packageList().size
                             )
                         }
                     }
-                    .sortedBy { it.startsAtLabel }
+                    .sortedBy { it.startsAt }
                     .take(3)
                     .toList()
 
@@ -267,6 +274,27 @@ class NowViewModel @Inject constructor(
 
     private fun clock(epoch: Long): String =
         java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date(epoch))
+
+    /**
+     * How long until it starts, in the units a person waits in.
+     *
+     * "today 20:45" is a fact you have to subtract from to use. "in 6h 12m" is
+     * the thing you actually wanted to know, and it is what makes an idle home
+     * screen feel like something is coming rather than like nothing is on.
+     */
+    private fun countdownLabel(at: Long, now: Long): String {
+        val totalMinutes = ((at - now).coerceAtLeast(0L) / 60_000L).toInt()
+        val days = totalMinutes / (24 * 60)
+        val hours = (totalMinutes % (24 * 60)) / 60
+        val minutes = totalMinutes % 60
+        return when {
+            totalMinutes < 1 -> "any moment"
+            days > 0 && hours > 0 -> "in ${days}d ${hours}h"
+            days > 0 -> "in ${days}d"
+            hours > 0 -> "in ${hours}h ${minutes}m"
+            else -> "in ${minutes}m"
+        }
+    }
 
     private fun relativeLabel(at: Long, now: Long): String {
         val cal = Calendar.getInstance().apply { timeInMillis = at }

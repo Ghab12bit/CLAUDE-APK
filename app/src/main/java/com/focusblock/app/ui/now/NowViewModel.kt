@@ -58,6 +58,8 @@ data class NowUiState(
     val reason: String = "",
     /** Today so far, from the usage data the phone already keeps. */
     val today: TodayGlance? = null,
+    /** Today in a sentence, above the figures. */
+    val todayStory: String? = null,
     /**
      * A milestone reached and not yet acknowledged.
      *
@@ -182,7 +184,8 @@ class NowViewModel @Inject constructor(
     private val blockedAppDao: BlockedAppDao,
     private val engine: BlockingEngine,
     private val profileDao: com.focusblock.app.database.dao.FocusProfileDao,
-    private val stake: StakeTracker
+    private val stake: StakeTracker,
+    private val blockLogDao: com.focusblock.app.database.dao.BlockLogDao
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(NowUiState())
@@ -296,6 +299,19 @@ class NowViewModel @Inject constructor(
                 // ---- 4. Today, from the phone's own usage data -------------
                 val today = readToday(context)
 
+                // What happened, in a sentence, before any number.
+                //
+                // block_logs has recorded every block since long before the
+                // rule engine existed, and nothing has ever read it: the table
+                // held the most interesting fact about the day and showed the
+                // user none of it. Pairing it with the impulses the block
+                // screen records gives the only account here that is about the
+                // person rather than about the software.
+                val startOfDay = startOfDay(now)
+                val stops = blockLogDao.countBlocksSince(startOfDay)
+                val worstApp = blockLogDao.mostReachedForSince(startOfDay)
+                val story = storyFor(stops, worstApp, today)
+
                 // ---- 5. A milestone waiting to be acknowledged -------------
                 val pendingCard = stake.pendingMilestone()?.let { m ->
                     val (title, body) = StakeTracker.headline(m.kind, m.value)
@@ -329,6 +345,7 @@ class NowViewModel @Inject constructor(
                         protectedHours = (profile.totalProtectedMinutes / 60).toInt(),
                         reason = profile.reason,
                         today = today,
+                        todayStory = story,
                         milestone = it.milestone ?: pendingCard
                     )
                 }
@@ -336,6 +353,27 @@ class NowViewModel @Inject constructor(
                 _uiState.update { it.copy(loading = false, message = "Couldn't read your rules.") }
             }
         }
+    }
+
+    /**
+     * Today as a sentence.
+     *
+     * Deliberately not a score and not a grade. It reports what happened and
+     * stops: no target the user did not set, no percentage, no colour-coded
+     * verdict on whether the day was good. A blocker that grades its user is
+     * the thing people uninstall, and the old Insights screen's
+     * Distracting / Neutral / Productive split was exactly that.
+     */
+    private fun storyFor(stops: Int, worstApp: String?, today: TodayGlance?): String? = when {
+        stops > 0 && worstApp != null ->
+            "You were stopped $stops ${if (stops == 1) "time" else "times"} today. " +
+                "Most often reaching for $worstApp."
+        stops > 0 ->
+            "You were stopped $stops ${if (stops == 1) "time" else "times"} today."
+        today != null && today.pickups > 0 ->
+            "Nothing blocked you today. You picked up your phone " +
+                "${today.pickups} ${if (today.pickups == 1) "time" else "times"}."
+        else -> null
     }
 
     /**

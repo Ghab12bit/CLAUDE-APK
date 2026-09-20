@@ -163,7 +163,9 @@ fun NowScreen(
             }
 
             // Today, filling what used to be four hundred empty pixels.
-            state.today?.let { today -> item { TodayCard(today, onOpenHistory) } }
+            state.today?.let { today ->
+                item { TodayCard(today, state.todayStory, onOpenHistory) }
+            }
 
             // The stake. Framed as what there is to lose, never as a score.
             if (state.streakDays > 0 || state.impulsesPassed > 0 || state.protectedHours > 0) {
@@ -368,7 +370,7 @@ private fun AlwaysAllowedRow(apps: List<AppLabel>) {
  * did not set is a grade, and this screen does not grade anyone.
  */
 @Composable
-private fun TodayCard(today: TodayGlance, onOpenHistory: () -> Unit) {
+private fun TodayCard(today: TodayGlance, story: String?, onOpenHistory: () -> Unit) {
     // A section, not a card. The figures are the content; a container around
     // them adds an edge to look at and nothing to read.
     Column(Modifier.fillMaxWidth()) {
@@ -381,7 +383,16 @@ private fun TodayCard(today: TodayGlance, onOpenHistory: () -> Unit) {
             fontWeight = FontWeight.Medium,
             letterSpacing = 1.8.sp
         )
-        Spacer(Modifier.height(14.dp))
+
+        // The sentence first, the figures under it. A number needs a reader to
+        // decide what it means; a sentence has already decided, and it is the
+        // difference between a report and a dashboard.
+        story?.let {
+            Spacer(Modifier.height(14.dp))
+            Text(it, color = Ink, fontSize = 19.sp, lineHeight = 26.sp)
+        }
+
+        Spacer(Modifier.height(18.dp))
 
         Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {

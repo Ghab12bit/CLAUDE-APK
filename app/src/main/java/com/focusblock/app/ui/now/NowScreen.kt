@@ -59,7 +59,9 @@ fun NowScreen(
     viewModel: NowViewModel = hiltViewModel(),
     onEditApps: () -> Unit = {},
     onOpenRoutines: () -> Unit = {},
-    onFixPermissions: () -> Unit = {}
+    onFixPermissions: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+    onOpenHistory: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -94,6 +96,32 @@ fun NowScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // Settings lives here, not in a tab. It is a door, not a place:
+            // a dot on the header rather than a quarter of the navigation.
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "FocusBlock",
+                        color = InkFaint,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "Settings",
+                        color = InkMuted,
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = onOpenSettings)
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
             // The whole point of the screen, stated at a size you can read
             // without looking for it.
             item {
@@ -132,7 +160,7 @@ fun NowScreen(
             }
 
             // Today, filling what used to be four hundred empty pixels.
-            state.today?.let { today -> item { TodayCard(today) } }
+            state.today?.let { today -> item { TodayCard(today, onOpenHistory) } }
 
             // The stake. Framed as what there is to lose, never as a score.
             if (state.streakDays > 0 || state.impulsesPassed > 0 || state.protectedHours > 0) {
@@ -326,7 +354,7 @@ private fun AlwaysAllowedRow(apps: List<AppLabel>) {
  * did not set is a grade, and this screen does not grade anyone.
  */
 @Composable
-private fun TodayCard(today: TodayGlance) {
+private fun TodayCard(today: TodayGlance, onOpenHistory: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -395,6 +423,18 @@ private fun TodayCard(today: TodayGlance) {
                 }
             }
         }
+
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "See the week",
+            color = Ember,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onOpenHistory)
+                .padding(vertical = 4.dp)
+        )
     }
 }
 
@@ -443,7 +483,7 @@ private fun MilestoneDialog(
                     Icon(
                         Icons.Filled.CheckCircle,
                         contentDescription = null,
-                        tint = TextPrimary,
+                        tint = Ground,
                         modifier = Modifier.size(32.dp)
                     )
                 }

@@ -446,7 +446,8 @@ fun BlockedAppScreen(
                     text = if (paused) "Put it down" else "Close",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color.White
+                    // Ground, not white: white on Ember reads at 2.6:1.
+                    color = Ground
                 )
             }
 

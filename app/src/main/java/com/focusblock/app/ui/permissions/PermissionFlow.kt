@@ -332,7 +332,7 @@ fun PermissionFlow(
                 Box(
                     Modifier.size(18.dp).clip(CircleShape).background(Signal),
                     contentAlignment = Alignment.Center
-                ) { Text("✓", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                ) { Text("✓", color = Ground, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.width(8.dp))
                 Text("That one's on.", color = Signal, fontSize = 14.sp, fontWeight = FontWeight.Medium)
             }

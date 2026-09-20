@@ -46,7 +46,10 @@ import java.util.Locale
  * switch that does nothing is worse than no switch.
  */
 @Composable
-fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
+fun ProfileScreen(
+    viewModel: ProfileViewModel = hiltViewModel(),
+    onClose: () -> Unit = {}
+) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var showAllowlist by remember { mutableStateOf(false) }
@@ -103,7 +106,26 @@ fun ProfileScreen(viewModel: ProfileViewModel = hiltViewModel()) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item { ScreenTitle("Setup") }
+            item {
+                // Settings is reached from NOW now, not from a tab, so it has
+                // to carry its own way back.
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Done",
+                        color = Ember,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = onClose)
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                    )
+                }
+            }
+            item { ScreenTitle("Settings") }
 
             // The answer first, at a size that reads instantly. Five small grey
             // ticks could not distinguish a protected phone from a broken one.

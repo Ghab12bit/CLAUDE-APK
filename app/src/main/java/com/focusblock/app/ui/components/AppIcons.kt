@@ -230,7 +230,7 @@ private fun GridCell(app: GridApp, modifier: Modifier, onClick: () -> Unit) {
                         .background(Signal),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("✓", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("✓", color = Ground, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }

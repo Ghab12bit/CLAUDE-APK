@@ -30,6 +30,7 @@ import com.focusblock.app.database.entity.CommitmentLevel
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import com.focusblock.app.ui.components.AppIconGrid
+import com.focusblock.app.ui.components.AppPicker
 import com.focusblock.app.ui.components.AppIcon
 import com.focusblock.app.ui.components.AppIconRow
 import com.focusblock.app.ui.components.GridApp
@@ -678,40 +679,22 @@ private fun AppPickerSheet(
 ) {
     ModalBottomSheet(onDismissRequest = onDone, containerColor = BackgroundDarkTertiary) {
         Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
-            Text(
-                "Block which apps?",
-                color = TextPrimary,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "${apps.count { it.selected }} selected",
-                color = Signal,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Spacer(Modifier.height(14.dp))
-
-            if (loading) {
-                Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Signal, modifier = Modifier.size(24.dp))
-                }
-            } else {
-                Box(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                    AppIconGrid(
-                        apps = apps.map {
-                            GridApp(
-                                packageName = it.packageName,
-                                label = it.label,
-                                selected = it.selected,
-                                essential = it.essential
-                            )
-                        },
-                        onToggle = onToggle,
-                        columns = 4
-                    )
-                }
+            Box(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+                AppPicker(
+                    apps = apps.map {
+                        GridApp(
+                            packageName = it.packageName,
+                            label = it.label,
+                            selected = it.selected,
+                            essential = it.essential
+                        )
+                    },
+                    loading = loading,
+                    onToggle = onToggle,
+                    title = "Block which apps?"
+                )
+            }
+            if (!loading) {
                 Spacer(Modifier.height(12.dp))
                 Button(
                     onClick = onDone,

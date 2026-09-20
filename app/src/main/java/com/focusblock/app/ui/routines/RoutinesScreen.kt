@@ -31,7 +31,7 @@ import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material.icons.filled.Work
-import com.focusblock.app.ui.components.AppIconGrid
+import com.focusblock.app.ui.components.AppPicker
 import com.focusblock.app.ui.components.GridApp
 import com.focusblock.app.ui.components.AppIconRow
 import com.focusblock.app.ui.components.TimeWindowBar
@@ -497,28 +497,19 @@ private fun RuleEditorScreen(
                 Spacer(Modifier.height(16.dp))
             }
 
-            FieldLabel("Apps to block (${draft.packageList().size})")
-            if (appsLoading) {
-                Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Signal, modifier = Modifier.size(22.dp))
-                }
-            } else {
-                // No nested scroll: the page scrolls, the grid just lays out.
-                Box(Modifier.fillMaxWidth()) {
-                    AppIconGrid(
-                        apps = apps.map {
-                            GridApp(
-                                packageName = it.packageName,
-                                label = it.label,
-                                selected = it.selected,
-                                essential = it.essential
-                            )
-                        },
-                        onToggle = onToggleApp,
-                        columns = 4
+            FieldLabel("Apps to block")
+            AppPicker(
+                apps = apps.map {
+                    GridApp(
+                        packageName = it.packageName,
+                        label = it.label,
+                        selected = it.selected,
+                        essential = it.essential
                     )
-                }
-            }
+                },
+                loading = appsLoading,
+                onToggle = onToggleApp
+            )
 
             Spacer(Modifier.height(24.dp))
             FieldLabel("How hard to stop")

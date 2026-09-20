@@ -23,7 +23,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.focusblock.app.database.entity.CommitmentLevel
-import com.focusblock.app.ui.components.AppIconGrid
+import com.focusblock.app.ui.components.AppPicker
 import com.focusblock.app.ui.components.GridApp
 import com.focusblock.app.ui.permissions.PermissionFlow
 import com.focusblock.app.ui.theme.*
@@ -179,28 +179,22 @@ private fun ChooseApps(state: SetupUiState, viewModel: SetupViewModel) {
         )
         Spacer(Modifier.height(12.dp))
 
-        if (state.appsLoading) {
-            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Signal, modifier = Modifier.size(26.dp))
-            }
-        } else {
-            // A grid of real icons, not a column of checkboxes. The user
-            // recognises their own apps instantly; a list makes them read.
-            Box(Modifier.verticalScroll(rememberScrollState())) {
-                AppIconGrid(
-                    apps = state.apps.map {
-                        GridApp(
-                            packageName = it.packageName,
-                            label = it.label,
-                            selected = it.selected,
-                            essential = it.essential,
-                            caption = if (it.minutesPerDay > 0) "${it.minutesPerDay}m/day" else ""
-                        )
-                    },
-                    onToggle = viewModel::toggleApp,
-                    columns = 4
-                )
-            }
+        // A grid of real icons, not a column of checkboxes. The user
+        // recognises their own apps instantly; a list makes them read.
+        Box(Modifier.verticalScroll(rememberScrollState())) {
+            AppPicker(
+                apps = state.apps.map {
+                    GridApp(
+                        packageName = it.packageName,
+                        label = it.label,
+                        selected = it.selected,
+                        essential = it.essential,
+                        caption = if (it.minutesPerDay > 0) "${it.minutesPerDay}m/day" else ""
+                    )
+                },
+                loading = state.appsLoading,
+                onToggle = viewModel::toggleApp
+            )
         }
     }
 }

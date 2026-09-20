@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -248,6 +249,65 @@ private fun GridCell(app: GridApp, modifier: Modifier, onClick: () -> Unit) {
             Text("needed", color = AccentOrange, fontSize = 9.sp, textAlign = TextAlign.Center)
         } else if (app.caption.isNotBlank()) {
             Text(app.caption, color = TextTertiary, fontSize = 9.sp, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+/**
+ * The one app picker.
+ *
+ * There were three: the home screen's sheet, the routine editor's section and
+ * the setup step, each mapping its own model to GridApp and each drawing its
+ * own heading, selected count and loading spinner. Three copies of the same
+ * screen drift -- one gained the "needed" marking for communication apps, one
+ * gained a count, one had neither -- so the same task looked different
+ * depending on where the user arrived from.
+ *
+ * Callers now supply the apps and a toggle. What a picker looks like is
+ * decided once, here.
+ */
+@Composable
+fun AppPicker(
+    apps: List<GridApp>,
+    loading: Boolean,
+    onToggle: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    title: String? = null,
+    columns: Int = 4
+) {
+    Column(modifier.fillMaxWidth()) {
+        title?.let {
+            Text(it, color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+        }
+
+        Text(
+            when (val n = apps.count { it.selected }) {
+                0 -> "None selected"
+                1 -> "1 selected"
+                else -> "$n selected"
+            },
+            color = if (apps.any { it.selected }) Signal else TextTertiary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(Modifier.height(16.dp))
+
+        when {
+            loading -> Box(
+                Modifier.fillMaxWidth().padding(30.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Signal, modifier = Modifier.size(24.dp))
+            }
+
+            apps.isEmpty() -> Text(
+                "No apps found to block.",
+                color = TextSecondary,
+                fontSize = 14.sp
+            )
+
+            else -> AppIconGrid(apps = apps, onToggle = onToggle, columns = columns)
         }
     }
 }

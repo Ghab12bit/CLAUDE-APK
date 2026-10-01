@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -25,11 +26,12 @@ import androidx.navigation.compose.rememberNavController
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.OnboardingState
 import com.focusblock.app.service.AppBlockingService
-import com.focusblock.app.ui.home.HomeScreen
+import com.focusblock.app.ui.focus.FocusExperienceScreen
+import com.focusblock.app.ui.focus.GuardrailsScreen
+import com.focusblock.app.ui.focus.PatternsScreen
 import com.focusblock.app.ui.onboarding.OnboardingScreen
 import com.focusblock.app.ui.schedules.SchedulesScreen
 import com.focusblock.app.ui.settings.SettingsScreen
-import com.focusblock.app.ui.statistics.StatisticsScreen
 import com.focusblock.app.ui.theme.BackgroundDark
 import com.focusblock.app.ui.theme.CardDark
 import com.focusblock.app.ui.theme.TextPrimary
@@ -138,23 +140,23 @@ sealed class Screen(
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 ) {
-    data object Home : Screen(
-        route = "home",
-        title = "Blocking",
-        selectedIcon = Icons.Filled.Shield,
-        unselectedIcon = Icons.Outlined.Shield
+    data object Focus : Screen(
+        route = "focus",
+        title = "Focus",
+        selectedIcon = Icons.Filled.CenterFocusStrong,
+        unselectedIcon = Icons.Outlined.CenterFocusStrong
     )
-    data object Schedules : Screen(
-        route = "schedules",
-        title = "Schedules",
-        selectedIcon = Icons.Filled.Schedule,
-        unselectedIcon = Icons.Outlined.Schedule
+    data object Guardrails : Screen(
+        route = "guardrails",
+        title = "Guardrails",
+        selectedIcon = Icons.Filled.AltRoute,
+        unselectedIcon = Icons.Outlined.AltRoute
     )
-    data object Statistics : Screen(
-        route = "statistics",
-        title = "Insights",
-        selectedIcon = Icons.Filled.Insights,
-        unselectedIcon = Icons.Outlined.Insights
+    data object Patterns : Screen(
+        route = "patterns",
+        title = "Patterns",
+        selectedIcon = Icons.Filled.QueryStats,
+        unselectedIcon = Icons.Outlined.QueryStats
     )
     data object Settings : Screen(
         route = "settings",
@@ -165,10 +167,9 @@ sealed class Screen(
 }
 
 val bottomNavItems = listOf(
-    Screen.Home,
-    Screen.Schedules,
-    Screen.Statistics,
-    Screen.Settings
+    Screen.Focus,
+    Screen.Guardrails,
+    Screen.Patterns
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -206,11 +207,11 @@ fun MainApp() {
                         },
                         label = { Text(screen.title) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = BackgroundDark,
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
                             selectedTextColor = MaterialTheme.colorScheme.primary,
                             unselectedIconColor = TextSecondary,
                             unselectedTextColor = TextSecondary,
-                            indicatorColor = MaterialTheme.colorScheme.primary
+                            indicatorColor = Color.Transparent
                         )
                     )
                 }
@@ -219,20 +220,35 @@ fun MainApp() {
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Home.route,
+            startDestination = Screen.Focus.route,
             modifier = Modifier.padding(innerPadding)
         ) {
-            composable(Screen.Home.route) {
-                HomeScreen()
+            composable(Screen.Focus.route) {
+                FocusExperienceScreen(
+                    onOpenSettings = { navController.navigate(Screen.Settings.route) }
+                )
             }
-            composable(Screen.Schedules.route) {
-                SchedulesScreen()
+            composable(Screen.Guardrails.route) {
+                GuardrailsScreen(
+                    onOpenScheduleEditor = { navController.navigate("schedule_editor") },
+                    onOpenProtectionSettings = { navController.navigate(Screen.Settings.route) }
+                )
             }
-            composable(Screen.Statistics.route) {
-                StatisticsScreen()
+            composable(Screen.Patterns.route) {
+                PatternsScreen(
+                    onOpenFocus = {
+                        navController.navigate(Screen.Focus.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    }
+                )
             }
             composable(Screen.Settings.route) {
                 SettingsScreen()
+            }
+            composable("schedule_editor") {
+                SchedulesScreen()
             }
         }
     }

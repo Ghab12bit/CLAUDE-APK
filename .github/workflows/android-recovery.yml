@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - codex/focusblock-recovery
+      - codex/blocking-first-20261001
   workflow_dispatch:
 
 permissions:

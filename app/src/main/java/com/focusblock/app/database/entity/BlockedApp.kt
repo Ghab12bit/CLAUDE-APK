@@ -116,6 +116,14 @@ data class AppSettings(
 
         // Quick Block saved app selection (comma-separated package names)
         const val KEY_QUICK_BLOCK_SAVED_APPS = "quick_block_saved_apps"
+
+        // Focus experience metadata. These are deliberately stored as settings so the
+        // recovered database does not need a destructive schema migration.
+        const val KEY_LAST_FOCUS_INTENTION = "last_focus_intention"
+        const val KEY_LAST_FOCUS_DURATION_MINUTES = "last_focus_duration_minutes"
+        const val KEY_LAST_FOCUS_STRICT = "last_focus_strict"
+        const val KEY_LAST_FOCUS_OUTCOME = "last_focus_outcome"
+        const val KEY_LAST_FOCUS_OUTCOME_AT = "last_focus_outcome_at"
     }
 }
 

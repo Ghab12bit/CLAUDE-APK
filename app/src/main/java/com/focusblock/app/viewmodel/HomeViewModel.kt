@@ -219,6 +219,7 @@ class HomeViewModel @Inject constructor(
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     private val installedApps = MutableStateFlow<List<AppUtils.AppInfo>>(emptyList())
+    val installedAppsState: StateFlow<List<AppUtils.AppInfo>> = installedApps.asStateFlow()
 
     init {
         loadData()
@@ -862,6 +863,47 @@ class HomeViewModel @Inject constructor(
         return repository.getQuickBlockSavedApps()
     }
 
+    suspend fun getLastFocusIntention(): String =
+        repository.getSetting(AppSettings.KEY_LAST_FOCUS_INTENTION).orEmpty()
+
+    suspend fun getLastFocusDurationMinutes(): Int =
+        repository.getSetting(AppSettings.KEY_LAST_FOCUS_DURATION_MINUTES)?.toIntOrNull()
+            ?.coerceIn(5, 480) ?: 45
+
+    suspend fun getLastFocusStrict(): Boolean =
+        repository.getSetting(AppSettings.KEY_LAST_FOCUS_STRICT)?.toBooleanStrictOrNull() ?: false
+
+    fun saveFocusIntention(intention: String) {
+        viewModelScope.launch {
+            repository.setSetting(AppSettings.KEY_LAST_FOCUS_INTENTION, intention.trim())
+        }
+    }
+
+    fun saveFocusSetup(intention: String, durationMinutes: Int, strict: Boolean, packages: List<String>) {
+        viewModelScope.launch {
+            repository.setSetting(AppSettings.KEY_LAST_FOCUS_INTENTION, intention.trim())
+            repository.setSetting(AppSettings.KEY_LAST_FOCUS_DURATION_MINUTES, durationMinutes.toString())
+            repository.setSetting(AppSettings.KEY_LAST_FOCUS_STRICT, strict.toString())
+            repository.saveQuickBlockApps(QuickBlockPolicy.sanitizePackages(packages))
+        }
+    }
+
+    fun saveQuickBlockSelection(packages: List<String>) {
+        viewModelScope.launch {
+            repository.saveQuickBlockApps(QuickBlockPolicy.sanitizePackages(packages))
+        }
+    }
+
+    fun recordFocusOutcome(outcome: String) {
+        viewModelScope.launch {
+            repository.setSetting(AppSettings.KEY_LAST_FOCUS_OUTCOME, outcome)
+            repository.setSetting(
+                AppSettings.KEY_LAST_FOCUS_OUTCOME_AT,
+                System.currentTimeMillis().toString()
+            )
+        }
+    }
+
     fun startQuickBlock(selectedPackages: List<String>, durationMinutes: Int? = null) {
         viewModelScope.launch {
             val packages = QuickBlockPolicy.sanitizePackages(selectedPackages)
@@ -905,6 +947,27 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /** Extend the currently active timed focus without replacing its app selection. */
+    fun extendQuickBlock(additionalMinutes: Int) {
+        if (additionalMinutes <= 0) return
+        viewModelScope.launch {
+            val session = repository.getActiveQuickBlockSessionSync() ?: return@launch
+            val base = maxOf(session.endTime ?: System.currentTimeMillis(), System.currentTimeMillis())
+            val updated = session.copy(endTime = base + additionalMinutes * 60_000L)
+            repository.updateQuickBlockSession(updated)
+            if (_uiState.value.isStrictModeLocked) {
+                addStrictModeTime(additionalMinutes)
+            }
+            _uiState.update {
+                it.copy(
+                    quickBlockSession = updated,
+                    remainingTime = (updated.endTime ?: base) - System.currentTimeMillis()
+                )
+            }
+            showToast("Focus extended by ${additionalMinutes} minutes.")
+        }
+    }
+
     fun stopQuickBlock(forceStop: Boolean = false): StopQuickBlockResult {
         // Check if strict mode is time-locked - cannot be bypassed (synchronous check)
         if (_uiState.value.isStrictModeLocked) {
@@ -938,8 +1001,9 @@ class HomeViewModel @Inject constructor(
 
             repository.deactivateAllQuickBlockSessions()
 
-            // Stop the blocking service
-            AppBlockingService.stop(application)
+            // Keep the fallback monitor alive. Scheduled routines and other policies may
+            // still need enforcement after this temporary focus ends.
+            AppBlockingService.update(application)
 
             // Notify accessibility service to refresh its state
             val refreshIntent = android.content.Intent(FocusBlockAccessibilityService.ACTION_REFRESH_STRICT_MODE_CACHE)

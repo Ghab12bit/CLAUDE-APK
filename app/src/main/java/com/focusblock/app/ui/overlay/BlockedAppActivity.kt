@@ -37,7 +37,9 @@ import com.focusblock.app.ui.theme.*
 import com.focusblock.app.utils.AppUtils
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import dagger.hilt.android.AndroidEntryPoint
 
+@AndroidEntryPoint
 class BlockedAppActivity : ComponentActivity() {
 
     companion object {
@@ -73,7 +75,7 @@ class BlockedAppActivity : ComponentActivity() {
 
         setContent {
             FocusBlockTheme {
-                BlockedAppScreen(
+                BlockedInterventionScreen(
                     packageName = packageName,
                     appName = appName,
                     blockedBy = blockedBy,

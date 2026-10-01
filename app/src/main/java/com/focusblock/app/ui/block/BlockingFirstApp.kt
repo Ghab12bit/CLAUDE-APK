@@ -34,6 +34,15 @@ import java.util.*
 @Composable
 fun BlockingFirstTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
+    val view = androidx.compose.ui.platform.LocalView.current
+    SideEffect {
+        (view.context as? android.app.Activity)?.window?.let { window ->
+            androidx.core.view.WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !dark
+            androidx.core.view.WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !dark
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        }
+    }
     val colors = if (dark) darkColorScheme(primary = Color(0xFFE4AA8A), onPrimary = Color(0xFF24211E),
         primaryContainer = Color(0xFF463125), background = Color(0xFF1C1B19), surface = Color(0xFF292724),
         onBackground = Color(0xFFF3F0E9), onSurface = Color(0xFFF3F0E9), onSurfaceVariant = Color(0xFFBCB6AC),
@@ -131,9 +140,9 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
                     } else {
                         val m = s.metadata.takeIf { it.id == session.id } ?: BlockSessionMetadata()
                         val phase = BlockSessionPolicy.phase(session.startTime, session.endTime, s.now, m.focus, m.rest, m.rounds)
-                        Heading(if (phase.blocking) "Distractions paused." else "Take a break.")
+                        if (s.ready) Heading(if (phase.blocking) "Distractions paused." else "Take a break.")
                         Column(Modifier.fillMaxWidth().padding(top = 24.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp)).padding(22.dp)) {
-                            Text(if (!phase.blocking) "Scheduled break" else if (m.strict) "Strict Lock active" else "Blocking active", color = MaterialTheme.colorScheme.primary)
+                            Text(if (!s.ready) "Protection interrupted" else if (!phase.blocking) "Scheduled break" else if (m.strict) "Strict Lock active" else "Blocking active", color = MaterialTheme.colorScheme.primary)
                             Text(if (session.endTime == null) "Until stopped" else formatRemaining(phase.remaining), fontSize = 48.sp, modifier = Modifier.padding(vertical = 16.dp))
                             Muted(if (m.rounds > 1) "Round ${phase.round} of ${m.rounds}" else "remaining in this block")
                             session.endTime?.let { end -> LinearProgressIndicator(progress = ((s.now - session.startTime).toFloat() / (end - session.startTime).coerceAtLeast(1)).coerceIn(0f, 1f), modifier = Modifier.fillMaxWidth().padding(top = 21.dp)) }
@@ -170,6 +179,16 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
                         }; Switch(l.isEnabled, { vm.saveLimit(l.copy(isEnabled = it)) }, enabled = !s.busy)
                     }; Line() }
                     Gap(); Action("Add a rule") { sheet = "add" }
+                    if (s.importedRules.isNotEmpty()) {
+                        Section("PRESERVED RULES FROM YOUR PREVIOUS BUILD")
+                        Muted("These retain their original combined conditions and app selections.")
+                        s.importedRules.forEach { imported ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) { Text(imported.name); Muted(imported.description()); Muted("${QuickBlockPolicy.packages(imported.packages).size} apps · ${imported.commitment.lowercase()}") }
+                                Switch(imported.enabled, { vm.toggleImported(imported) }, enabled = !s.configurationLocked && !s.busy)
+                            }; Line()
+                        }
+                    }
                     Gap(12); Muted("A session ending does not turn off another active rule.")
                     TextButton(onClick = onAdvanced) { Text("Existing advanced protection controls") }
                 }

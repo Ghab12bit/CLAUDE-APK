@@ -1779,6 +1779,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
     private suspend fun shouldBlockApp(packageName: String): Boolean {
         if (BlockSessionStore.essential(this, database, packageName)) return false
+        if (com.focusblock.app.blocking.ImportedRuleStore.blocks(this, database, packageName)) return true
         if (com.focusblock.app.blocking.AppLimitPolicy.reached(this, database, packageName)) return true
         Log.d(TAG, "shouldBlockApp() checking: $packageName")
 
@@ -1964,6 +1965,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     private suspend fun blockApp(packageName: String) {
+        if (BlockSessionStore.essential(this, database, packageName)) return
         isBlockingInProgress = true
         Log.d(TAG, "blockApp() called for: $packageName")
 

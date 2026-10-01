@@ -130,11 +130,16 @@ fun MainAppWithOnboarding() {
         }
         true -> {
             var advanced by remember { mutableStateOf(false) }
+            var advancedSettings by remember { mutableStateOf(false) }
             androidx.activity.compose.BackHandler(advanced) { advanced = false }
             if (advanced) {
                 Column {
-                    TextButton(onClick = { advanced = false }, modifier = Modifier.statusBarsPadding()) { Text("Back to Block") }
-                    com.focusblock.app.ui.home.HomeScreen()
+                    Row(Modifier.statusBarsPadding()) {
+                        TextButton(onClick = { advanced = false }) { Text("Back") }
+                        TextButton(onClick = { advancedSettings = false }) { Text("Protection") }
+                        TextButton(onClick = { advancedSettings = true }) { Text("Settings") }
+                    }
+                    if (advancedSettings) SettingsScreen() else com.focusblock.app.ui.home.HomeScreen()
                 }
             } else {
                 com.focusblock.app.ui.block.BlockingFirstApp(onAdvanced = { advanced = true })

@@ -906,6 +906,10 @@ class HomeViewModel @Inject constructor(
 
     fun startQuickBlock(selectedPackages: List<String>, durationMinutes: Int? = null) {
         viewModelScope.launch {
+            val db = com.focusblock.app.database.FocusBlockDatabase.getDatabase(application)
+            if (com.focusblock.app.blocking.BlockSessionStore.isLocked(db)) {
+                showToast("The current block is locked until its timer ends."); return@launch
+            }
             val packages = QuickBlockPolicy.sanitizePackages(selectedPackages)
             if (packages.isEmpty()) {
                 showToast("Choose at least one app to block.")
@@ -980,6 +984,10 @@ class HomeViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            val db = com.focusblock.app.database.FocusBlockDatabase.getDatabase(application)
+            if (com.focusblock.app.blocking.BlockSessionStore.isLocked(db) || com.focusblock.app.blocking.ImportedRuleStore.configurationLocked(db)) {
+                showToast("The current protection is locked."); return@launch
+            }
             val session = _uiState.value.quickBlockSession
             if (session != null) {
                 // Get the apps that Quick Block added (not previously blocked)
@@ -1067,6 +1075,9 @@ class HomeViewModel @Inject constructor(
 
     fun startPomodoroSession(selectedPackages: List<String>, workMinutes: Int = 25, breakMinutes: Int = 5) {
         viewModelScope.launch {
+            if (com.focusblock.app.blocking.BlockSessionStore.isLocked(com.focusblock.app.database.FocusBlockDatabase.getDatabase(application))) {
+                showToast("The current block is locked until its timer ends."); return@launch
+            }
             val packages = QuickBlockPolicy.sanitizePackages(selectedPackages)
             if (packages.isEmpty() || workMinutes <= 0 || breakMinutes <= 0) {
                 showToast("Choose apps and valid focus/break durations.")

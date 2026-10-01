@@ -180,6 +180,8 @@ class SettingsViewModel @Inject constructor(
 
     fun updateAllowlist(packageNames: List<String>) {
         viewModelScope.launch {
+            val db = com.focusblock.app.database.FocusBlockDatabase.getDatabase(application)
+            if (com.focusblock.app.blocking.BlockSessionStore.isLocked(db) || com.focusblock.app.blocking.ImportedRuleStore.configurationLocked(db)) return@launch
             // Clear current allowlist
             _uiState.value.allowlistApps.forEach { app ->
                 repository.updateBlockedApp(app.copy(isInAllowlist = false))

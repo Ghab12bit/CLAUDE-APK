@@ -54,7 +54,8 @@ class AppBlockingService : Service() {
         when (intent?.action) {
             ACTION_START -> startBlocking()
             ACTION_STOP -> stopBlocking()
-            ACTION_UPDATE -> updateNotification()
+            ACTION_UPDATE -> { startBlocking(); updateNotification() }
+            null -> startBlocking() // Android recreates a START_STICKY service without its old intent.
         }
         return START_STICKY
     }
@@ -160,6 +161,7 @@ class AppBlockingService : Service() {
     private suspend fun shouldBlockApp(packageName: String): Boolean {
         val db = FocusBlockDatabase.getDatabase(this)
         if (BlockSessionStore.essential(this, db, packageName)) return false
+        if (com.focusblock.app.blocking.ImportedRuleStore.blocks(this, db, packageName)) return true
         if (com.focusblock.app.blocking.AppLimitPolicy.reached(this, db, packageName)) return true
         // Check if in allowlist
         val blockedApp = repository.getBlockedApp(packageName)
@@ -443,7 +445,14 @@ class AppBlockingService : Service() {
             val intent = Intent(context, AppBlockingService::class.java).apply {
                 action = ACTION_UPDATE
             }
-            context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+                else context.startService(intent)
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "Background monitoring restart deferred by Android", e)
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Monitoring permission changed", e)
+            }
         }
     }
 }

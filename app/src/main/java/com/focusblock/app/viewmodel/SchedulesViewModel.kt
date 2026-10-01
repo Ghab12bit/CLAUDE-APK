@@ -58,20 +58,31 @@ class SchedulesViewModel @Inject constructor(
 
     fun updateSchedule(schedule: Schedule) {
         viewModelScope.launch {
+            if (activeLock(schedule.id)) return@launch
             repository.updateSchedule(schedule)
         }
     }
 
     fun deleteSchedule(schedule: Schedule) {
         viewModelScope.launch {
+            if (activeLock(schedule.id)) return@launch
             repository.deleteSchedule(schedule)
         }
     }
 
     fun toggleSchedule(id: Long, enabled: Boolean) {
         viewModelScope.launch {
+            if (activeLock(id)) return@launch
             repository.setScheduleEnabled(id, enabled)
         }
+    }
+
+    private suspend fun activeLock(id: Long): Boolean {
+        val s = repository.getSchedule(id) ?: return false
+        val c = java.util.Calendar.getInstance()
+        return s.isStrictMode && com.focusblock.app.blocking.SchedulePolicy.isActive(s,
+            c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE),
+            (c.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7 + 1)
     }
 
     fun createFromTemplate(type: ScheduleIconType) {

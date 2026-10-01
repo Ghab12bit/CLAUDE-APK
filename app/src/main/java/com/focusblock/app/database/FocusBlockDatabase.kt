@@ -39,7 +39,7 @@ import com.focusblock.app.database.entity.*
         // Onboarding
         OnboardingState::class
     ],
-    version = 12,
+    version = 16,
     exportSchema = false
 )
 abstract class FocusBlockDatabase : RoomDatabase() {
@@ -88,7 +88,7 @@ abstract class FocusBlockDatabase : RoomDatabase() {
                     FocusBlockDatabase::class.java,
                     "focusblock_database"
                 )
-                .fallbackToDestructiveMigration()
+                .addMigrations(*PreservingMigrations.ALL)
                 .build()
                 INSTANCE = instance
                 instance

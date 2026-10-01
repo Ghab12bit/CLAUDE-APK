@@ -41,6 +41,7 @@ data class BlockUiState(
     val usage: Map<String, Long>? = null, val yesterday: Map<String, Long>? = null,
     val ready: Boolean = false, val now: Long = System.currentTimeMillis(),
     val reminder: String = "", val busy: Boolean = false, val error: String? = null
+    , val importedRules: List<ImportedRuleStore.Rule> = emptyList(), val configurationLocked: Boolean = false
 )
 
 @HiltViewModel
@@ -72,7 +73,9 @@ class BlockViewModel @Inject constructor(private val app: Application) : Android
             while (isActive) {
                 val now = System.currentTimeMillis()
                 val ready = PermissionUtils.hasAccessibilityServiceEnabled(app) && PermissionUtils.hasUsageStatsPermission(app) && PermissionUtils.hasOverlayPermission(app)
-                mutable.update { it.copy(now = now, ready = ready) }
+                val imported = ImportedRuleStore.rules(db)
+                val locked = ImportedRuleStore.configurationLocked(db)
+                mutable.update { it.copy(now = now, ready = ready, importedRules = imported, configurationLocked = locked) }
                 val s = db.quickBlockSessionDao().getActiveSessionSync()
                 if (s != null && QuickBlockPolicy.isExpired(s.endTime, now)) db.quickBlockSessionDao().deactivate(s.id)
                 if (ticks++ % 30 == 0) refreshUsage(now)
@@ -97,6 +100,7 @@ class BlockViewModel @Inject constructor(private val app: Application) : Android
         }
     }
     fun clearError() { mutable.update { it.copy(error = null) } }
+    fun toggleImported(rule: ImportedRuleStore.Rule) = mutate { ImportedRuleStore.toggle(db, rule) }
     fun start(setup: BlockSetup) = mutate {
         check(state.value.ready) { "Restore accessibility, usage access and overlay permissions first." }
         require(setup.minutes in 1..720 && setup.rest in 1..30 && setup.rounds in 2..8) { "Check the duration and cycle settings." }
@@ -122,6 +126,8 @@ class BlockViewModel @Inject constructor(private val app: Application) : Android
     fun stop() = mutate {
         db.withTransaction {
             check(!BlockSessionStore.isLocked(db)) { "This block cannot be ended before its timer." }
+            check(!ImportedRuleStore.configurationLocked(db)) { "Your existing configuration lock is active." }
+            check((db.settingsDao().getValue(AppSettings.KEY_STRICT_MODE_END_TIME)?.toLongOrNull() ?: 0) <= System.currentTimeMillis()) { "Existing Strict Mode is still active." }
             check(db.settingsDao().getValue(AppSettings.KEY_HARD_MODE_ENABLED) != "true") { "Use the existing Hard Mode unlock in advanced controls." }
             val s = db.quickBlockSessionDao().getActiveSessionSync() ?: return@withTransaction
             db.quickBlockSessionDao().update(s.copy(isActive = false, endTime = System.currentTimeMillis()))
@@ -144,6 +150,7 @@ class BlockViewModel @Inject constructor(private val app: Application) : Android
         return s.isStrictMode && SchedulePolicy.isActive(s, c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE), day)
     }
     fun saveRule(rule: Schedule) = mutate {
+        check(!ImportedRuleStore.configurationLocked(db)) { "Your existing configuration lock is active." }
         require(rule.name.isNotBlank() && rule.blockedPackages.isNotBlank()) { "Name the rule and choose apps." }
         require(rule.startTimeMinutes in 0..1439 && rule.endTimeMinutes in 0..1439 && rule.startTimeMinutes != rule.endTimeMinutes && rule.daysOfWeek.isNotBlank()) { "Choose different start/end times and repeat days." }
         db.withTransaction {
@@ -154,12 +161,14 @@ class BlockViewModel @Inject constructor(private val app: Application) : Android
     }
     fun toggleRule(rule: Schedule, enabled: Boolean) = saveRule(rule.copy(isEnabled = enabled))
     fun saveLimit(limit: AppTimeLimit) = mutate {
+        check(!ImportedRuleStore.configurationLocked(db)) { "Your existing configuration lock is active." }
         require(limit.dailyLimitMinutes in 1..720 && limit.packageName !in state.value.essential) { "Choose a non-essential app and 1–720 minutes." }
         db.appTimeLimitDao().insert(limit.copy(updatedAt = System.currentTimeMillis()))
     }
     fun reminder(value: String) = mutate { db.settingsDao().insert(AppSettings(BlockSessionStore.REMINDER, value)) }
     fun essentials(packages: Set<String>) = mutate {
         check(!BlockSessionStore.isLocked(db)) { "Essentials cannot change during Strict Lock." }
+        check(!ImportedRuleStore.configurationLocked(db) && state.value.schedules.none(::ruleLocked)) { "An active rule locks this configuration." }
         val required = BlockSessionStore.requiredPackages(app)
         val old = db.blockedAppDao().getAllowlistApps().first()
         old.filter { it.packageName !in packages && it.packageName !in required }.forEach { db.blockedAppDao().update(it.copy(isInAllowlist = false)) }
@@ -168,7 +177,8 @@ class BlockViewModel @Inject constructor(private val app: Application) : Android
             db.blockedAppDao().insert(existing?.copy(isInAllowlist = true) ?: BlockedApp(pkg, AppUtils.getAppName(app, pkg), isBlocked = false, isInAllowlist = true))
         }
         // Existing whitelist entries are kept; removing those requires the legacy settings editor.
-        mutable.update { it.copy(essential = required + packages + db.essentialAppWhitelistDao().getWhitelistedPackageNames()) }
+        val preserved = db.essentialAppWhitelistDao().getWhitelistedPackageNames()
+        mutable.update { it.copy(essential = required + packages + preserved) }
     }
     private suspend fun refreshUsage(now: Long) {
         if (!PermissionUtils.hasUsageStatsPermission(app)) { mutable.update { it.copy(usage = null, yesterday = null) }; return }
@@ -177,8 +187,8 @@ class BlockViewModel @Inject constructor(private val app: Application) : Android
         c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0)
         val midnight = c.timeInMillis
         c.add(Calendar.DAY_OF_YEAR, -1)
-        val today = readUsage(midnight, now)
-        val yesterday = readUsage(c.timeInMillis, priorNow)
+        val today = UsageWindowReader.read(app, midnight, now)
+        val yesterday = UsageWindowReader.read(app, c.timeInMillis, priorNow)
         mutable.update { it.copy(usage = today, yesterday = yesterday) }
     }
     private fun readUsage(start: Long, end: Long): Map<String, Long>? {

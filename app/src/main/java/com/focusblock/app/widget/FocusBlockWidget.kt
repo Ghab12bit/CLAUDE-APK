@@ -49,22 +49,28 @@ class FocusBlockWidget : AppWidgetProvider() {
                 val activeSession = dao.getActiveQuickBlockSessionDirect()
 
                 if (activeSession != null) {
-                    // Stop blocking
-                    dao.endQuickBlockSession(activeSession.id)
+                    // Widgets must obey the same persisted lock as the app.
+                    if (!com.focusblock.app.blocking.BlockSessionStore.isLocked(db) &&
+                        db.settingsDao().getValue("hard_mode_enabled") != "true" &&
+                        (db.settingsDao().getValue("strict_mode_end_time")?.toLongOrNull() ?: 0) <= System.currentTimeMillis()) {
+                        db.quickBlockSessionDao().update(activeSession.copy(isActive = false, endTime = System.currentTimeMillis()))
+                    }
                 } else {
                     // Start blocking with default apps
-                    val blockedApps = dao.getActiveBlockedAppsDirect()
-                    if (blockedApps.isNotEmpty()) {
-                        val packages = blockedApps.map { it.packageName }.joinToString(",")
+                    val saved = com.focusblock.app.blocking.QuickBlockPolicy.packages(db.settingsDao().getValue("quick_block_saved_apps").orEmpty())
+                    val packages = saved.filter { !com.focusblock.app.blocking.BlockSessionStore.essential(context, db, it) }.joinToString(",")
+                    if (packages.isNotEmpty()) {
                         val session = com.focusblock.app.database.entity.QuickBlockSession(
                             startTime = System.currentTimeMillis(),
-                            endTime = null,
+                            endTime = System.currentTimeMillis() + 25 * 60000L,
                             blockedPackages = packages,
                             isActive = true
                         )
                         dao.insertQuickBlockSession(session)
                     }
                 }
+
+                com.focusblock.app.service.AppBlockingService.update(context)
 
                 // Refresh widget
                 val appWidgetManager = AppWidgetManager.getInstance(context)

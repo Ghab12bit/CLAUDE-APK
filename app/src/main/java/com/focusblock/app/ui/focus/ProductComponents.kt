@@ -41,8 +41,8 @@ internal fun InstalledAppIcon(
         modifier = modifier
             .size(size)
             .clip(RoundedCornerShape(size * 0.28f))
-            .background(SurfaceDark)
-            .border(1.dp, Divider, RoundedCornerShape(size * 0.28f)),
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(size * 0.28f)),
         contentAlignment = Alignment.Center
     ) {
         if (bitmap != null) {
@@ -55,7 +55,7 @@ internal fun InstalledAppIcon(
             Icon(
                 imageVector = Icons.Outlined.Apps,
                 contentDescription = contentDescription,
-                tint = TextSecondary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(size * 0.52f)
             )
         }

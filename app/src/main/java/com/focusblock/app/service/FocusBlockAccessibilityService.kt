@@ -22,6 +22,7 @@ import androidx.core.app.NotificationCompat
 import com.focusblock.app.FocusBlockApp
 import com.focusblock.app.R
 import com.focusblock.app.blocking.QuickBlockPolicy
+import com.focusblock.app.blocking.BlockSessionStore
 import com.focusblock.app.blocking.SchedulePolicy
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.AppSettings
@@ -414,6 +415,14 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private fun checkQuickBlockTimerExpiration() {
         immediateScope.launch {
             try {
+                // Re-evaluate while an app stays open: catches cycle transitions,
+                // per-app limits and expiry of a two-minute exception.
+                val foreground = lastForegroundPackage
+                if (foreground != null && !shouldIgnorePackage(foreground) && !isBlockingInProgress &&
+                    System.currentTimeMillis() - lastBlockTime >= BLOCK_COOLDOWN && shouldBlockApp(foreground)) {
+                    lastBlockTime = System.currentTimeMillis()
+                    blockApp(foreground)
+                }
                 val session = database.quickBlockSessionDao().getActiveSessionSync()
 
                 if (session != null && session.endTime != null) {
@@ -1358,6 +1367,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
         val packageName = event.packageName?.toString() ?: return
         val eventTime = System.currentTimeMillis()
+        lastForegroundPackage = packageName
 
         // Don't block our own app or system components
         if (shouldIgnorePackage(packageName)) return
@@ -1768,6 +1778,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     private suspend fun shouldBlockApp(packageName: String): Boolean {
+        if (BlockSessionStore.essential(this, database, packageName)) return false
+        if (com.focusblock.app.blocking.AppLimitPolicy.reached(this, database, packageName)) return true
         Log.d(TAG, "shouldBlockApp() checking: $packageName")
 
         val blockedAppDao = database.blockedAppDao()
@@ -1840,12 +1852,13 @@ class FocusBlockAccessibilityService : AccessibilityService() {
                     if (overrideExpires != null && now < overrideExpires) {
                         // Override is active - allow for now
                         Log.d(TAG, "App Timer: Override active for $packageName (expires in ${(overrideExpires - now)/1000}s)")
-                        return false
+                        // An app-timer exception does not bypass a schedule or a session.
+                    } else {
+                        return true
                     }
 
                     // No active override - block the app
                     Log.i(TAG, "App Timer blocking: $packageName (usage: $currentUsage min >= limit: $limitMinutes min)")
-                    return true
                 }
             }
         }
@@ -1869,19 +1882,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Check Quick Block session
         val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
         if (quickBlockSession != null) {
-            val blockedPackages = quickBlockSession.blockedPackages.split(",")
-            if (blockedPackages.contains(packageName)) {
-                val now = System.currentTimeMillis()
-
-                if (quickBlockSession.endTime != null && now >= quickBlockSession.endTime) {
-                    Log.d(TAG, "Ignoring expired timed block for $packageName")
-                    return false
-                }
-
-                // Standard, timed and focus sessions all block selected apps while active.
-                Log.i(TAG, "Quick Block blocking: $packageName (session active)")
-                return true
-            }
+            if (BlockSessionStore.blocks(database, quickBlockSession, packageName, System.currentTimeMillis())) return true
         }
 
         // Check Focus Cycles (blocks during break phase OR when usage window exhausted)
@@ -2026,6 +2027,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     private suspend fun determineBlockedByType(packageName: String): BlockedByType {
+        if (com.focusblock.app.blocking.AppLimitPolicy.reached(this, database, packageName)) return BlockedByType.APP_TIMER
         val settingsDao = database.settingsDao()
         val quickBlockSessionDao = database.quickBlockSessionDao()
         val focusCycleDao = database.focusCycleDao()
@@ -2111,8 +2113,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
         val quickBlockSession = quickBlockSessionDao.getActiveSessionSync()
         if (quickBlockSession != null) {
-            val blockedPackages = quickBlockSession.blockedPackages.split(",")
-            if (blockedPackages.contains(packageName)) {
+            if (BlockSessionStore.blocks(database, quickBlockSession, packageName, System.currentTimeMillis())) {
                 return BlockedByType.QUICK_BLOCK
             }
         }

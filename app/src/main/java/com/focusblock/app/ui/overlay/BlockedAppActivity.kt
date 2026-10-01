@@ -75,7 +75,7 @@ class BlockedAppActivity : ComponentActivity() {
 
         setContent {
             FocusBlockTheme {
-                BlockedInterventionScreen(
+                com.focusblock.app.ui.block.BlockingIntervention(
                     packageName = packageName,
                     appName = appName,
                     blockedBy = blockedBy,

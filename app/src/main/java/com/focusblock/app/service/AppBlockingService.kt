@@ -16,6 +16,8 @@ import androidx.core.app.NotificationCompat
 import com.focusblock.app.FocusBlockApp
 import com.focusblock.app.R
 import com.focusblock.app.blocking.QuickBlockPolicy
+import com.focusblock.app.blocking.BlockSessionStore
+import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.BlockLog
 import com.focusblock.app.database.entity.BlockedByType
 import com.focusblock.app.database.repository.FocusBlockRepository
@@ -156,6 +158,9 @@ class AppBlockingService : Service() {
     }
 
     private suspend fun shouldBlockApp(packageName: String): Boolean {
+        val db = FocusBlockDatabase.getDatabase(this)
+        if (BlockSessionStore.essential(this, db, packageName)) return false
+        if (com.focusblock.app.blocking.AppLimitPolicy.reached(this, db, packageName)) return true
         // Check if in allowlist
         val blockedApp = repository.getBlockedApp(packageName)
         if (blockedApp?.isInAllowlist == true) {
@@ -173,10 +178,8 @@ class AppBlockingService : Service() {
                 )
                     .forEach { repository.setAppBlocked(it, false) }
                 repository.deactivateQuickBlockSession(quickBlockSession.id)
-                return false
             }
-            val blockedPackages = quickBlockSession.blockedPackages.split(",")
-            if (blockedPackages.contains(packageName)) {
+            if (BlockSessionStore.blocks(db, quickBlockSession, packageName, now)) {
                 return true
             }
         }

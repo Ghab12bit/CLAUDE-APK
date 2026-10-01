@@ -15,7 +15,13 @@ class BootReceiver : BroadcastReceiver() {
             // Check if we have required permissions before starting service
             val permissionStatus = PermissionUtils.getPermissionStatus(context)
             if (permissionStatus.hasRequiredPermissions) {
-                AppBlockingService.start(context)
+                try {
+                    AppBlockingService.start(context)
+                } catch (e: IllegalStateException) {
+                    android.util.Log.w("FocusBlockBoot", "Android deferred background start; accessibility or opening FocusBlock restores monitoring", e)
+                } catch (e: SecurityException) {
+                    android.util.Log.w("FocusBlockBoot", "Permission changed before service restart", e)
+                }
             }
         }
     }

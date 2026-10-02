@@ -76,7 +76,7 @@ fun RuleEditorScreen(state: EditorUi, vm: RuleEditorViewModel, onClose: () -> Un
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         BackHeader(title, onClose)
-        if (state.loading) { SkeletonLine(0.8f, 40.dp); SkeletonLine(0.6f, 40.dp); return@Column }
+        if (state.loading) { SkeletonLine(0.8f, 40.dp); SkeletonLine(0.6f, 40.dp) } else {
         if (locked) {
             Text(stringResource(R.string.error_locked, Fmt.time(context, state.lockedUntil!!)), style = FbType.body.copy(color = Fb.warning), modifier = Modifier.padding(horizontal = Fb.gutter))
             Spacer(Modifier.height(12.dp))
@@ -188,6 +188,7 @@ fun RuleEditorScreen(state: EditorUi, vm: RuleEditorViewModel, onClose: () -> Un
             }
         }
         Spacer(Modifier.height(32.dp))
+        }
     }
 
     if (picker) {

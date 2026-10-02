@@ -44,6 +44,7 @@ import androidx.lifecycle.createSavedStateHandle
 import com.focusblock.app.R
 import com.focusblock.app.core.AppGraph
 import com.focusblock.app.core.Fmt
+import com.focusblock.app.policy.BlockDecision
 import com.focusblock.app.policy.BlockReason
 import com.focusblock.app.policy.FrictionPolicy
 import com.focusblock.app.policy.ReasonType
@@ -188,77 +189,23 @@ fun InterventionScreen(
             AppIcon(state.pkg, null, 72.dp)
             Spacer(Modifier.height(20.dp))
 
-            // Opened via Open anyway / emergency access.
+            // Opened via Open anyway / emergency access. No early returns in this
+            // inline Column: they unbalance Compose groups on recomposition.
+            val reason = decision?.primary
             if (state.openedUntil != null) {
-                LaunchedEffect(state.openedUntil) { onLaunchApp() }
                 Text(stringResource(R.string.iv_open_until, state.appName, Fmt.time(context, state.openedUntil)), style = FbType.title, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = Fb.gutter))
-                return@Column
-            }
-            if (state.loading || decision == null) return@Column
-
-            val reason = decision.primary
-            if (!decision.blocked || reason == null) {
+            } else if (state.loading || decision == null) {
+                Spacer(Modifier.height(1.dp))
+            } else if (!decision.blocked || reason == null) {
                 Text(stringResource(R.string.iv_not_blocked, state.appName), style = FbType.title, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = Fb.gutter))
                 Spacer(Modifier.height(24.dp))
                 Column(Modifier.padding(horizontal = Fb.gutter)) { PrimaryButton(stringResource(R.string.iv_open_app, state.appName), onLaunchApp) }
-                return@Column
+            } else {
+                BlockedBody(state, decision, reason, onBackHome, onOpenAnyway, onEmergency, onCloseEmergency, onReason, onRequestEmergency, onUseEmergency, onCancelEmergency)
             }
-
-            val title = when (reason.type) {
-                ReasonType.APP_LIMIT -> stringResource(R.string.iv_app_limit, state.appName, Fmt.time(context, reason.until ?: state.now))
-                ReasonType.DAILY_LIMIT -> stringResource(R.string.iv_daily_limit, Fmt.time(context, reason.until ?: state.now))
-                else -> reason.until?.let { stringResource(R.string.iv_blocked_until, state.appName, Fmt.time(context, it)) }
-                    ?: stringResource(R.string.iv_blocked_open, state.appName)
-            }
-            Text(title, style = FbType.title, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = Fb.gutter).semantics { heading() })
-            Spacer(Modifier.height(10.dp))
-            Text(reasonLine(reason, state.session), style = FbType.body.copy(color = Fb.textSecondary), textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = Fb.gutter))
-            val intention = state.session?.intention
-            if (reason.type == ReasonType.SESSION && intention != null) {
-                Spacer(Modifier.height(6.dp))
-                Text(stringResource(R.string.iv_working_on, intention), style = FbType.body, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = Fb.gutter))
-            }
-
-            Spacer(Modifier.height(20.dp))
-            FbDivider()
-            Spacer(Modifier.height(14.dp))
-            reason.until?.let { until ->
-                Text(Fmt.left(context, until - state.now), style = FbType.heading, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                Spacer(Modifier.height(4.dp))
-            }
-            Text(stringResource(R.string.iv_attempt, Fmt.ordinal(state.attempt)), style = FbType.caption)
-            if (decision.strength == Strength.STRICT) {
-                Spacer(Modifier.height(4.dp))
-                Text(stringResource(R.string.strict_line), style = FbType.caption, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = Fb.gutter))
-            }
-            Spacer(Modifier.height(14.dp))
-            FbDivider()
-            Spacer(Modifier.height(20.dp))
-
-            Column(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (state.emergencyOpen && state.offer.emergency) {
-                    EmergencyPanel(state, onReason, onRequestEmergency, onUseEmergency, onCancelEmergency, onCloseEmergency)
-                    Spacer(Modifier.height(8.dp))
-                    SecondaryButton(stringResource(R.string.action_back_home), onBackHome)
-                } else {
-                    PrimaryButton(stringResource(R.string.action_back_home), onBackHome, leadingIcon = Icons.Outlined.ArrowBack)
-                    if (state.offer.openAnyway != FrictionPolicy.OpenAnyway.NONE) {
-                        val label = if (state.waitLeft > 0) stringResource(R.string.open_anyway_wait, state.waitLeft) else stringResource(R.string.open_anyway)
-                        TextLink(label, onOpenAnyway, accent = false, enabled = state.waitLeft == 0)
-                    }
-                    if (state.offer.emergency) {
-                        // Low emphasis, with its cost visible underneath (spec 2.5).
-                        TextLink(stringResource(R.string.emergency_access), onEmergency, accent = false)
-                        Text(stringResource(R.string.emergency_cost), style = FbType.caption)
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(28.dp))
-            AlsoBlockedBy(decision.others, state.session)
-            Text(stringResource(R.string.iv_footer), style = FbType.caption, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = Fb.gutter))
         }
     }
+    LaunchedEffect(state.openedUntil) { if (state.openedUntil != null) onLaunchApp() }
 
     if (state.showOpenConfirm) {
         AlertDialog(
@@ -269,6 +216,78 @@ fun InterventionScreen(
             confirmButton = { TextButton(onClick = onConfirmOpen) { Text(stringResource(R.string.open_anyway_confirm_action), color = Fb.textPrimary) } },
             dismissButton = { TextButton(onClick = onDismissConfirm) { Text(stringResource(R.string.action_cancel), color = Fb.accent) } },
         )
+    }
+}
+
+@Composable
+private fun BlockedBody(
+    state: InterventionState,
+    decision: BlockDecision,
+    reason: BlockReason,
+    onBackHome: () -> Unit,
+    onOpenAnyway: () -> Unit,
+    onEmergency: () -> Unit,
+    onCloseEmergency: () -> Unit,
+    onReason: (String) -> Unit,
+    onRequestEmergency: () -> Unit,
+    onUseEmergency: () -> Unit,
+    onCancelEmergency: () -> Unit,
+) {
+    val context = LocalContext.current
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        val title = when (reason.type) {
+            ReasonType.APP_LIMIT -> stringResource(R.string.iv_app_limit, state.appName, Fmt.time(context, reason.until ?: state.now))
+            ReasonType.DAILY_LIMIT -> stringResource(R.string.iv_daily_limit, Fmt.time(context, reason.until ?: state.now))
+            else -> reason.until?.let { stringResource(R.string.iv_blocked_until, state.appName, Fmt.time(context, it)) }
+                ?: stringResource(R.string.iv_blocked_open, state.appName)
+        }
+        Text(title, style = FbType.title, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = Fb.gutter).semantics { heading() })
+        Spacer(Modifier.height(10.dp))
+        Text(reasonLine(reason, state.session), style = FbType.body.copy(color = Fb.textSecondary), textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = Fb.gutter))
+        val intention = state.session?.intention
+        if (reason.type == ReasonType.SESSION && intention != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(stringResource(R.string.iv_working_on, intention), style = FbType.body, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = Fb.gutter))
+        }
+
+        Spacer(Modifier.height(20.dp))
+        FbDivider()
+        Spacer(Modifier.height(14.dp))
+        reason.until?.let { until ->
+            Text(Fmt.left(context, until - state.now), style = FbType.heading, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            Spacer(Modifier.height(4.dp))
+        }
+        Text(stringResource(R.string.iv_attempt, Fmt.ordinal(state.attempt)), style = FbType.caption)
+        if (decision.strength == Strength.STRICT) {
+            Spacer(Modifier.height(4.dp))
+            Text(stringResource(R.string.strict_line), style = FbType.caption, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = Fb.gutter))
+        }
+        Spacer(Modifier.height(14.dp))
+        FbDivider()
+        Spacer(Modifier.height(20.dp))
+
+        Column(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (state.emergencyOpen && state.offer.emergency) {
+                EmergencyPanel(state, onReason, onRequestEmergency, onUseEmergency, onCancelEmergency, onCloseEmergency)
+                Spacer(Modifier.height(8.dp))
+                SecondaryButton(stringResource(R.string.action_back_home), onBackHome)
+            } else {
+                PrimaryButton(stringResource(R.string.action_back_home), onBackHome, leadingIcon = Icons.Outlined.ArrowBack)
+                if (state.offer.openAnyway != FrictionPolicy.OpenAnyway.NONE) {
+                    val label = if (state.waitLeft > 0) stringResource(R.string.open_anyway_wait, state.waitLeft) else stringResource(R.string.open_anyway)
+                    TextLink(label, onOpenAnyway, accent = false, enabled = state.waitLeft == 0)
+                }
+                if (state.offer.emergency) {
+                    // Low emphasis, with its cost visible underneath (spec 2.5).
+                    TextLink(stringResource(R.string.emergency_access), onEmergency, accent = false)
+                    Text(stringResource(R.string.emergency_cost), style = FbType.caption)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(28.dp))
+        AlsoBlockedBy(decision.others, state.session)
+        Text(stringResource(R.string.iv_footer), style = FbType.caption, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = Fb.gutter))
     }
 }
 

@@ -57,8 +57,7 @@ fun ActivityScreen(state: ActivityUi, vm: ActivityViewModel, onSettings: () -> U
         Spacer(Modifier.height(20.dp))
         if (state.loading) {
             SkeletonLine(0.9f, 24.dp); SkeletonLine(0.7f); SkeletonLine(0.95f, 140.dp); SkeletonLine(0.8f, 40.dp)
-            return@Column
-        }
+        } else {
 
         // Lead sentence from data, or an honest explanation (never zeros as if real).
         if (!state.usageAccess) {
@@ -171,6 +170,7 @@ fun ActivityScreen(state: ActivityUi, vm: ActivityViewModel, onSettings: () -> U
             Text(stringResource(R.string.sugg_applied), style = FbType.body, modifier = Modifier.padding(horizontal = Fb.gutter))
         }
         Spacer(Modifier.height(32.dp))
+        }
     }
 }
 

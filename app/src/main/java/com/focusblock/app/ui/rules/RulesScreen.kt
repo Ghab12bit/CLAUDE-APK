@@ -104,8 +104,7 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
 
             if (state.loading) {
                 SkeletonLine(0.6f); SkeletonLine(0.95f, 20.dp); SkeletonLine(0.9f, 48.dp); SkeletonLine(0.9f, 48.dp)
-                return@Column
-            }
+            } else {
 
             // Coverage line + 24-hour strip (spec 4.6).
             val nowMinute = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
@@ -290,6 +289,7 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                 PrimaryButton(stringResource(R.string.add_a_rule), { addOpen = true }, leadingIcon = Icons.Outlined.Add)
             }
             Spacer(Modifier.height(32.dp))
+            }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(16.dp))
     }

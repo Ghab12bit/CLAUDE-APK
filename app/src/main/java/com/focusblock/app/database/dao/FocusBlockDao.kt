@@ -174,6 +174,13 @@ interface UsageStatDao {
 
     @Query("SELECT * FROM usage_stats WHERE packageName = :packageName AND date = :date")
     suspend fun getStatForAppAndDate(packageName: String, date: String): UsageStat?
+
+    /** Daily per-app history written by earlier versions (dates are yyyy-MM-dd). */
+    @Query("SELECT * FROM usage_stats WHERE date >= :startDate AND date <= :endDate")
+    suspend fun between(startDate: String, endDate: String): List<UsageStat>
+
+    @Query("SELECT MIN(date) FROM usage_stats WHERE usageTimeMillis > 0")
+    suspend fun firstDate(): String?
 }
 
 data class AppUsageTime(

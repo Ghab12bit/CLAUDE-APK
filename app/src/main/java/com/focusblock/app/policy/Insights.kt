@@ -50,6 +50,25 @@ object CategoryDefaults {
 }
 
 /**
+ * One day of phone use, kept so Activity can show more than the ~7–10 days Android keeps its
+ * detailed usage events. Built from events while they exist ([Insights.dayUsage]) and saved by
+ * FocusBlock; days from the previous version's daily log only have [totals].
+ */
+data class DayUsage(
+    val date: LocalDate,
+    /** Per app: foreground ms in each local hour 0–23. Null when only daily totals are known. */
+    val hourly: Map<String, LongArray>?,
+    /** Per app: foreground ms for the whole day. */
+    val totals: Map<String, Long>,
+    val opens: Map<String, Int>,
+    val pickups: Int?,
+    val longestUse: Long?,
+    val longestFocus: Long?,
+) {
+    fun total(counted: (String) -> Boolean): Long = totals.entries.sumOf { if (counted(it.key)) it.value else 0L }
+}
+
+/**
  * Activity-tab metrics computed from foreground intervals and screen events (formulas in
  * docs/metrics.md). Pure, so every number is unit-tested.
  */
@@ -131,6 +150,88 @@ object Insights {
             }
         }
         return out
+    }
+
+    /**
+     * One day from foreground [intervals] and raw [events]: per-app time per local hour, opens,
+     * pickups, continuous use and longest focus. Apps in [notInSpans] (apps the user does not count,
+     * e.g. a clock left running) are left out of continuous use and longest focus.
+     */
+    fun dayUsage(
+        intervals: List<UsageCalculator.Interval>,
+        events: List<UsageCalculator.Event>,
+        date: LocalDate,
+        zone: ZoneId,
+        now: Long,
+        notInSpans: Set<String> = emptySet(),
+    ): DayUsage {
+        val start = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val end = minOf(date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(), now)
+        val hourly = HashMap<String, LongArray>()
+        for (i in intervals) {
+            var s = maxOf(i.start, start)
+            val e = minOf(i.end, end)
+            while (s < e) {
+                val z = java.time.Instant.ofEpochMilli(s).atZone(zone)
+                val hourEnd = z.withMinute(0).withSecond(0).withNano(0).plusHours(1).toInstant().toEpochMilli()
+                val stop = minOf(e, hourEnd)
+                hourly.getOrPut(i.pkg) { LongArray(24) }[z.hour] += stop - s
+                s = stop
+            }
+        }
+        val spans = spans(intervals.filter { it.pkg !in notInSpans })
+        return DayUsage(
+            date = date,
+            hourly = hourly,
+            totals = hourly.mapValues { it.value.sum() },
+            opens = UsageCalculator.launches(events, start, end),
+            pickups = pickups(events, start, end),
+            longestUse = longestUse(spans, start, end),
+            longestFocus = longestFocus(spans, date, zone, now),
+        )
+    }
+
+    /** Counted time per local hour of [day], stacked by category; empty when the day has no hourly detail. */
+    fun hourStack(day: DayUsage, categoryOf: (String) -> AppCategory, counted: (String) -> Boolean): List<LongArray> {
+        val out = List(24) { LongArray(AppCategory.values().size) }
+        day.hourly?.forEach { (pkg, hours) ->
+            if (!counted(pkg)) return@forEach
+            val c = categoryOf(pkg).ordinal
+            hours.forEachIndexed { h, v -> out[h][c] += v }
+        }
+        return out
+    }
+
+    /** Counted time of a whole day, stacked by category. */
+    fun dayStack(day: DayUsage, categoryOf: (String) -> AppCategory, counted: (String) -> Boolean): LongArray {
+        val out = LongArray(AppCategory.values().size)
+        day.totals.forEach { (pkg, v) -> if (counted(pkg)) out[categoryOf(pkg).ordinal] += v }
+        return out
+    }
+
+    /** Counted time per local hour of day, summed over [days] that have hourly detail. */
+    fun hourOfDay(days: List<DayUsage>, counted: (String) -> Boolean): LongArray {
+        val out = LongArray(24)
+        days.forEach { d -> d.hourly?.forEach { (pkg, hours) -> if (counted(pkg)) hours.forEachIndexed { h, v -> out[h] += v } } }
+        return out
+    }
+
+    /**
+     * Counted time of [day] before [minuteOfDay] (for "usual by this time of day"). Uses whole hours
+     * plus the matching share of the current hour; days without hourly detail are scaled by the
+     * share of the day that has passed.
+     */
+    fun totalBefore(day: DayUsage, minuteOfDay: Int, counted: (String) -> Boolean): Long {
+        val hours = day.hourly ?: return day.total(counted) * minuteOfDay / 1440
+        val h = minuteOfDay / 60
+        val part = (minuteOfDay % 60) / 60.0
+        var sum = 0L
+        hours.forEach { (pkg, v) ->
+            if (!counted(pkg)) return@forEach
+            for (i in 0 until h.coerceAtMost(24)) sum += v[i]
+            if (h < 24) sum += (v[h] * part).toLong()
+        }
+        return sum
     }
 
     /** The hour of day with the most use, or null when there was none. Ties go to the earlier hour. */

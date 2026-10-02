@@ -105,4 +105,36 @@ class InsightsTest {
         assertEquals(24, Insights.hourBoundaries(LocalDate.of(2026, 3, 29), berlin).size) // 23 hours + end
         assertEquals(25, Insights.hourBoundaries(LocalDate.of(2026, 10, 2), berlin).size)
     }
+
+    @Test fun dayUsageSplitsHoursAndLeavesUncountedAppsOutOfSpans() {
+        val intervals = listOf(
+            Interval("social", t(9, 50), t(10, 20)),
+            Interval("clock", t(10, 20), t(12, 0)), // a stopwatch left running
+            Interval("docs", t(12, 0), t(12, 10)),
+        )
+        val events = listOf(Event(t(9, 49), null, Type.UNLOCK), Event(t(9, 50), "social", Type.RESUMED), Event(t(12, 0), "docs", Type.RESUMED))
+        val all = Insights.dayUsage(intervals, events, day, zone, t(9, 0, 3))
+        assertEquals(10 * min, all.hourly!!["social"]!![9])
+        assertEquals(20 * min, all.hourly!!["social"]!![10])
+        assertEquals(30 * min, all.totals["social"])
+        assertEquals(1, all.pickups)
+        assertEquals(140 * min, all.longestUse) // one stretch 09:50–12:10
+        val noClock = Insights.dayUsage(intervals, events, day, zone, t(9, 0, 3), notInSpans = setOf("clock"))
+        assertEquals(30 * min, noClock.longestUse)
+        assertEquals(100 * min, noClock.longestFocus) // 10:20–12:00 without the phone
+        // Stacks and totals skip uncounted apps.
+        val counted: (String) -> Boolean = { it != "clock" }
+        assertEquals(40 * min, all.total(counted))
+        val stack = Insights.hourStack(all, categoryOf, counted)
+        assertEquals(30 * min, stack[9].sum() + stack[10].sum())
+        assertEquals(10 * min, Insights.dayStack(all, categoryOf, counted)[AppCategory.PRODUCTIVE.ordinal])
+        assertEquals(10 * min, Insights.hourOfDay(listOf(all), counted)[12])
+    }
+
+    @Test fun totalBeforeUsesHoursAndScalesDaysWithoutDetail() {
+        val d = DayUsage(day, mapOf("a" to LongArray(24).also { it[9] = 60 * min; it[10] = 60 * min }), mapOf("a" to 120 * min), emptyMap(), null, null, null)
+        assertEquals(90 * min, Insights.totalBefore(d, 10 * 60 + 30) { true })
+        val legacy = DayUsage(day, null, mapOf("a" to 120 * min), emptyMap(), null, null, null)
+        assertEquals(60 * min, Insights.totalBefore(legacy, 720) { true })
+    }
 }

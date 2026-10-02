@@ -276,6 +276,7 @@ private fun BlockedBody(
                 if (state.offer.openAnyway != FrictionPolicy.OpenAnyway.NONE) {
                     val label = if (state.waitLeft > 0) stringResource(R.string.open_anyway_wait, state.waitLeft) else stringResource(R.string.open_anyway)
                     TextLink(label, onOpenAnyway, accent = false, enabled = state.waitLeft == 0)
+                    Text(stringResource(R.string.open_anyway_cost), style = FbType.caption, textAlign = TextAlign.Center)
                 }
                 if (state.offer.emergency) {
                     // Low emphasis, with its cost visible underneath (spec 2.5).

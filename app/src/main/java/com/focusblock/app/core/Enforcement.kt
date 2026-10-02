@@ -136,6 +136,15 @@ class OverrideManager(
         Result.Granted(until)
     }
 
+    /**
+     * Open anyway covers one visit: leaving the app ends it (at the latest after five minutes), so
+     * the next opening shows the block screen again as the next try. Emergency access keeps its full
+     * five minutes, because it already cost a reason and a 10-minute wait.
+     */
+    suspend fun onLeft(pkg: String) = withContext(Dispatchers.IO) {
+        if (db.unlockEventDao().endOpenAnyway(pkg, clock.now()) > 0) onChanged()
+    }
+
     /** Starts the 10-minute wait. A reason is required. Re-requesting keeps the earlier wait. */
     suspend fun requestEmergency(pkg: String, reasonText: String, logId: Long): Result = withContext(Dispatchers.IO) {
         if (!FrictionPolicy.emergencyReasonValid(reasonText)) return@withContext Result.NotAllowed

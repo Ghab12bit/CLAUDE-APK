@@ -169,6 +169,15 @@ class EndToEndTest {
         assertTrue((grant.expiresAt ?: 0) - (grant.grantedAt ?: 0) <= 5 * 60_000L)
         val decision = runBlocking { graph.enforcer.decide(target).first }
         assertTrue("App should be open for the override window", !decision.blocked)
+        // Open anyway covers one visit: leaving the app ends it, and the next opening is blocked again.
+        device.pressHome()
+        val deadline = System.currentTimeMillis() + 5_000
+        while (!runBlocking { graph.enforcer.decide(target).first }.blocked && System.currentTimeMillis() < deadline) Thread.sleep(200)
+        check(runBlocking { graph.enforcer.decide(target).first }.blocked, "Leaving the app ends Open anyway")
+        Thread.sleep(1_600) // past the attempt debounce
+        openTarget()
+        waitForBlockScreen()
+        check(device.hasObject(By.textContains("2nd try")), "Reopening counts as the next try")
     }
 
     @Test fun tabsRenderFromPersistedState() {
@@ -248,6 +257,15 @@ class EndToEndTest {
         device.findObject(By.text("Keep blocking")).click()
         check(device.wait(Until.gone(By.text("Keep blocking")), 5_000), "Keep blocking closes the sheet")
         assertNotNull(runBlocking { graph.sessions.active() })
+    }
+
+    @Test fun anAppCanBeLeftOutOfScreenTimeAndCountedAgain() {
+        runBlocking {
+            graph.history.setCounted(target, targetName, false)
+            assertTrue(target in graph.history.notCounted())
+            graph.history.setCounted(target, targetName, true)
+            assertTrue(target !in graph.history.notCounted())
+        }
     }
 
     @Test fun appsCanBeAddedToARunningStrictBlock() {

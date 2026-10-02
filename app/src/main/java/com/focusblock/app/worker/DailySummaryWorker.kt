@@ -21,9 +21,11 @@ import java.util.concurrent.TimeUnit
 class DailySummaryWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val graph = AppGraph.get(applicationContext)
+        // Save complete days before Android drops its detailed events (about 7–10 days).
+        runCatching { graph.history.persistRecent() }
         if (!graph.notifier.enabled(Notifier.Kind.SUMMARY)) return Result.success()
         val now = graph.clock.now()
-        val exempt = graph.policy.exempt()
+        val exempt = graph.history.notCounted()
         val totals = graph.usage.todayTotals(0)
         val attempts = graph.db.attemptDao().since(PolicyTime.startOfDay(now, graph.clock.zone())).size
         val ctx = applicationContext

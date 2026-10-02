@@ -28,10 +28,32 @@ phone. Each one is listed here with its formula and source (spec 4.8). There is 
 
 ## Activity tab
 
-The tab has three views. **Day** shows one day; the arrows step back up to 27 days. **Week** shows
-7 days ending today; the arrows step back up to 3 weeks. **Trend** shows the last 4 weeks. Every
+The tab has three views. **Day** shows one day. **Week** shows
+7 days ending today. **Trend** shows 4 weeks. The arrows step back as far as history goes
+(see History below), up to a year. Every
 number below covers the range on screen. The arithmetic is in `policy/Insights.kt` and
 `policy/UsageCalculator.kt`, and is unit-tested in `InsightsTest`.
+
+### History
+
+Android keeps detailed usage events for only about 7–10 days. FocusBlock therefore saves every
+complete day it sees: per-app foreground time for each hour, opens, pickups, continuous use and
+longest focus, one small file per day in app-private storage, kept for about a year. Days are saved
+whenever Activity loads and by the daily background job, so none are lost while the app stays
+closed. For each day Activity uses, in order: Android's events while they still cover the whole
+day; the day FocusBlock saved; the daily per-app log written by earlier versions of FocusBlock
+(daily totals only, so no hourly chart, pickups, focus or continuous use). Days that Android had
+already discarded before FocusBlock started saving cannot be recovered. Settings › Data › Delete
+history removes the saved days.
+
+### Apps not counted
+
+Any app can be left out of screen time from its sheet ("Count in screen time"), for apps left
+running on purpose such as a clock used as a stopwatch. Left-out apps do not count in totals,
+charts, habits, the usage split, continuous use or longest focus, and are listed under "Not counted
+in screen time" with their time and a Count button. Saved days keep per-app detail, so totals and
+charts follow later changes; continuous use and longest focus of saved days keep the choice that
+applied when the day was saved.
 
 ### App categories
 

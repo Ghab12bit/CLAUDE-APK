@@ -168,6 +168,7 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
             db.unlockEventDao().deleteHistory(graph.clock.now())
             db.recommendationDao().deleteAll()
             db.diagnosticEventDao().deleteAll()
+            graph.history.clear()
             mutable.update { it.copy(message = R.string.data_deleted) }
         }
     }

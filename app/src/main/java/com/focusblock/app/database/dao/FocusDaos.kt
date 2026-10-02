@@ -120,6 +120,10 @@ interface UnlockEventDao {
     @Query("SELECT * FROM unlock_events WHERE status = 'GRANTED' AND expiresAt > :now")
     suspend fun activeOverrides(now: Long): List<UnlockEventEntity>
 
+    /** Ends a running Open anyway for [pkg] now (the user left the app). Returns the rows changed. */
+    @Query("UPDATE unlock_events SET expiresAt = :now WHERE packageName = :pkg AND kind = 'OPEN_ANYWAY' AND status = 'GRANTED' AND expiresAt > :now")
+    suspend fun endOpenAnyway(pkg: String, now: Long): Int
+
     @Query("SELECT * FROM unlock_events WHERE status = 'GRANTED' AND expiresAt > :now")
     fun activeOverridesFlow(now: Long): Flow<List<UnlockEventEntity>>
 

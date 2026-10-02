@@ -35,6 +35,8 @@ class AppBlockingService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var loop: Job? = null
     private var current: String? = null
+    /** Last app in front that was not a keyboard or system overlay. */
+    private var lastReal: String? = null
     private var lastSameAppCheck = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -67,6 +69,11 @@ class AppBlockingService : Service() {
                     if (pkg != current) {
                         val previous = current
                         current = pkg
+                        if (pkg !in graph.safety.transient() && pkg != lastReal) {
+                            // Leaving an app ends its Open anyway (it covers one visit only).
+                            lastReal?.takeIf { it != packageName }?.let { left -> runCatching { graph.overrides.onLeft(left) } }
+                            lastReal = pkg
+                        }
                         if (pkg != packageName && pkg !in graph.safety.transient()) {
                             graph.focusCycles.onForeground(pkg, previous)
                             graph.enforcer.check(pkg)?.let { blocked -> show(pkg, blocked.logId, blocked.attempt) }

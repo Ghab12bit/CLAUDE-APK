@@ -121,8 +121,16 @@ fun ActivityScreen(state: ActivityUi, vm: ActivityViewModel, onSettings: () -> U
         }
         Spacer(Modifier.height(32.dp))
     }
-    val app = state.apps.firstOrNull { it.pkg == openApp }
-    if (app != null) AppSheet(app, state, onCategory = { vm.setCategory(app.pkg, it) }, onDismiss = { openApp = null })
+    val excluded = state.excludedApps.firstOrNull { it.pkg == openApp }
+    val app = state.apps.firstOrNull { it.pkg == openApp } ?: excluded
+    if (app != null) {
+        AppSheet(
+            app, state, counted = excluded == null,
+            onCategory = { vm.setCategory(app.pkg, it) },
+            onCounted = { c -> vm.setCounted(app.pkg, app.label, c); if (!c || excluded != null) openApp = null },
+            onDismiss = { openApp = null },
+        )
+    }
 }
 
 @Composable
@@ -153,7 +161,9 @@ private fun ActivityContent(state: ActivityUi, vm: ActivityViewModel, onOpenApp:
         Spacer(Modifier.height(8.dp))
         ProblemBanner(stringResource(R.string.status_needs, stringResource(R.string.perm_usage)), stringResource(R.string.action_fix),
             { PermissionHealth.open(context, Requirement.USAGE) })
-    } else {
+        Spacer(Modifier.height(8.dp))
+    }
+    if (state.screenTime != null) {
         Hero(state)
         Spacer(Modifier.height(12.dp))
         FbCard {
@@ -168,6 +178,10 @@ private fun ActivityContent(state: ActivityUi, vm: ActivityViewModel, onOpenApp:
             )
             Spacer(Modifier.height(10.dp))
             Legend()
+            if (state.hourlyMissing) {
+                Spacer(Modifier.height(8.dp))
+                Text(stringResource(R.string.history_no_hours), style = FbType.caption)
+            }
         }
 
         // Most used apps.
@@ -198,6 +212,24 @@ private fun ActivityContent(state: ActivityUi, vm: ActivityViewModel, onOpenApp:
             }
         }
 
+        // Apps the user does not count (e.g. a clock used as a stopwatch), with a way back.
+        if (state.excludedApps.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            FbCard(contentPadding = 0.dp) {
+                Text(stringResource(R.string.not_counted_title), style = FbType.label.copy(color = Fb.textSecondary),
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
+                state.excludedApps.forEach { a ->
+                    DividerRow(
+                        title = a.label,
+                        subtitle = if (a.millis > 0) stringResource(R.string.not_counted_time, Fmt.duration(context, a.millis)) else null,
+                        leading = { AppIcon(a.pkg, null, 32.dp) },
+                        trailing = { com.focusblock.app.ui.components.TextLink(stringResource(R.string.action_count_again), { vm.setCounted(a.pkg, a.label, true) }) },
+                        onClick = { onOpenApp(a.pkg) },
+                    )
+                }
+            }
+        }
+
         // Habits.
         SectionHeader(stringResource(R.string.section_habits))
         BalanceCard(state)
@@ -208,6 +240,10 @@ private fun ActivityContent(state: ActivityUi, vm: ActivityViewModel, onOpenApp:
 
         // Focus.
         SectionHeader(stringResource(R.string.section_focus))
+        if (state.detailMissing) {
+            Text(stringResource(R.string.history_no_detail), style = FbType.caption, modifier = Modifier.padding(horizontal = Fb.gutter))
+            Spacer(Modifier.height(8.dp))
+        }
         Row(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatTile(Fmt.duration(context, state.longestFocus), stringResource(R.string.stat_longest_focus), Icons.Outlined.SelfImprovement, Fb.success, Modifier.weight(1f),
                 sub = stringResource(R.string.stat_longest_focus_sub))
@@ -219,8 +255,9 @@ private fun ActivityContent(state: ActivityUi, vm: ActivityViewModel, onOpenApp:
     // Distractions.
     SectionHeader(stringResource(R.string.section_distractions))
     Row(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        val pickups = if (state.usageAccess) stringResource(R.string.times_count, state.pickups) else stringResource(R.string.data_unavailable)
-        val perDay = if (state.usageAccess && state.daysInRange > 1) stringResource(R.string.per_day, state.pickups / state.daysInRange) else null
+        val known = state.screenTime != null && !state.detailMissing
+        val pickups = if (known) stringResource(R.string.times_count, state.pickups) else stringResource(R.string.data_unavailable)
+        val perDay = if (known && state.daysInRange > 1) stringResource(R.string.per_day, state.pickups / state.daysInRange) else null
         StatTile(pickups, stringResource(R.string.stat_pickups), Icons.Outlined.TouchApp, Fb.accentAlt, Modifier.weight(1f), sub = perDay)
         StatTile(stringResource(R.string.times_count, state.totalAttempts), stringResource(R.string.stat_blocked_attempts), Icons.Outlined.Block, Fb.warning, Modifier.weight(1f))
     }
@@ -506,7 +543,7 @@ private fun OutcomeCell(count: Int, label: Int, color: Color, modifier: Modifier
 }
 
 @Composable
-private fun AppSheet(app: AppStat, state: ActivityUi, onCategory: (AppCategory) -> Unit, onDismiss: () -> Unit) {
+private fun AppSheet(app: AppStat, state: ActivityUi, counted: Boolean, onCategory: (AppCategory) -> Unit, onCounted: (Boolean) -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
     FbSheet(onDismiss = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
@@ -530,6 +567,20 @@ private fun AppSheet(app: AppStat, state: ActivityUi, onCategory: (AppCategory) 
             ChoiceChips(options.map { it.label() }, options.indexOf(app.category), { i -> onCategory(options[i]) })
             Spacer(Modifier.height(8.dp))
             Text(stringResource(R.string.app_sheet_category_note), style = FbType.caption, modifier = Modifier.padding(horizontal = Fb.gutter))
+            Spacer(Modifier.height(16.dp))
+            FbCard(contentPadding = 0.dp) {
+                Row(
+                    Modifier.fillMaxWidth().clickable { onCounted(!counted) }.heightIn(min = 64.dp).padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.count_in_screen_time), style = FbType.body)
+                        Text(stringResource(R.string.count_in_screen_time_note), style = FbType.caption)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    com.focusblock.app.ui.components.FbSwitch(counted, { onCounted(it) }, contentDescription = stringResource(R.string.count_in_screen_time))
+                }
+            }
         }
     }
 }

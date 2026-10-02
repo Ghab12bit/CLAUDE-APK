@@ -69,6 +69,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         val previous = foreground
         if (pkg == previous) return
         foreground = pkg
+        // Leaving an app ends its Open anyway (it covers one visit only).
+        if (previous != null && previous != packageName) scope.launch { runCatching { graph.overrides.onLeft(previous) } }
         foregroundSince = System.currentTimeMillis()
         remindersSent = 0
         handler.removeCallbacks(reminderRunnable)

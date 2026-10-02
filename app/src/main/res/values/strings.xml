@@ -169,9 +169,10 @@
     <string name="action_back_home">Back to home screen</string>
     <string name="open_anyway">Open anyway</string>
     <string name="open_anyway_wait">Open anyway in %d s</string>
-    <string name="open_anyway_confirm_title">Open %s for 5 minutes?</string>
+    <string name="open_anyway_cost">For this visit only (5 min at most). Each try waits longer.</string>
+    <string name="open_anyway_confirm_title">Open %s for this visit?</string>
     <string name="open_anyway_confirm_body">This is your %s try. It will be logged.</string>
-    <string name="open_anyway_confirm_action">Open for 5 min</string>
+    <string name="open_anyway_confirm_action">Open this once</string>
     <string name="emergency_access">Emergency access</string>
     <string name="emergency_cost">10-min wait · reason required</string>
     <string name="emergency_body">Why do you need %s? After a 10-minute wait it opens for 5 minutes. This is logged.</string>
@@ -183,7 +184,7 @@
     <string name="emergency_cancel">Cancel request</string>
     <string name="emergency_reason_short">Write a short reason</string>
     <string name="iv_footer">Calls and essential apps are still available.</string>
-    <string name="iv_open_until">%1$s is open until %2$s</string>
+    <string name="iv_open_until">%1$s is open until you leave it, or until %2$s at the latest</string>
     <string name="iv_not_blocked">%s isn\'t blocked right now.</string>
     <string name="iv_open_app">Open %s</string>
     <string name="iv_strict_no_bypass">Strict Lock is on, so there is no temporary access.</string>
@@ -620,4 +621,12 @@
     <string name="app_sheet_time">%1$s · %2$s</string>
     <string name="app_sheet_category">Category</string>
     <string name="app_sheet_category_note">Changes how this app counts in Usage and the charts. It does not block anything.</string>
+    <!-- Activity history and exclusions -->
+    <string name="history_no_hours">Hourly detail is not available for this day. Its totals come from the daily log of an earlier version.</string>
+    <string name="history_no_detail">Pickups, focus and continuous use were not recorded for these days.</string>
+    <string name="not_counted_title">Not counted in screen time</string>
+    <string name="not_counted_time">%s in this period, not counted</string>
+    <string name="action_count_again">Count</string>
+    <string name="count_in_screen_time">Count in screen time</string>
+    <string name="count_in_screen_time_note">Turn off for apps you leave running on purpose, like a clock or stopwatch. They are left out of totals, charts and habits.</string>
 </resources>

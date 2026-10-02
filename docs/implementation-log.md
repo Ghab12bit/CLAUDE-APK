@@ -495,3 +495,11 @@ Decisions to confirm:
 - **Default categories** come from a short list of well-known apps and the developer's declared category. WhatsApp and other messengers default to Distracting, matching the reference; any app can be changed.
 - **End-early friction**: 10 s wait + 3 s hold, the same for every block. It could grow with each early end, like Open anyway.
 - **Mood check-in** from the reference screenshot is not built: it needs a decision on what is asked and how it is used.
+
+## Round 3: history, left-out apps and Open anyway (2026-10-02)
+
+| Feedback | Change |
+|---|---|
+| Activity only reaches about a week back | Android keeps detailed usage events for only 7–10 days. FocusBlock now saves each complete day (hourly per app, opens, pickups, continuous use, longest focus) to one file per day in app-private storage, from Activity and from the daily background job, for about a year. Activity also reads the daily per-app log that earlier versions wrote. The arrows go back as far as any history exists. Days Android discarded before saving began cannot be recovered. |
+| Leave an app such as a clock out of total usage | "Count in screen time" switch on each app's sheet. Left-out apps are removed from totals, charts, habits, the usage split, continuous use and longest focus, and listed in a "Not counted in screen time" card with a Count button. The daily summary uses the same rule. |
+| Open anyway lets the app open again without the block screen | Open anyway was a 5-minute unlock for the app, so reopening it within 5 minutes skipped the block screen. It now covers one visit: leaving the app (going home or to another app) ends it at once, in both enforcement paths, and the next opening is blocked again as the next try, with its longer wait. Keyboards and system overlays such as the notification shade do not count as leaving. Emergency access keeps its full 5 minutes. |

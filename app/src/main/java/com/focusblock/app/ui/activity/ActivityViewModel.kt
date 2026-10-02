@@ -71,6 +71,12 @@ data class ActivityUi(
     val longestUse: Long = 0,
     val pickups: Int = 0,
     val weeks: List<WeekStat> = emptyList(),
+    /** Apps the user chose not to count, with their time in the range. */
+    val excludedApps: List<AppStat> = emptyList(),
+    /** The day on screen only has daily totals (from an earlier version), no hourly detail. */
+    val hourlyMissing: Boolean = false,
+    /** Pickups, continuous use and focus are unknown for this range (no saved detail). */
+    val detailMissing: Boolean = false,
     val outcomes: Metrics.OutcomeCounts = Metrics.OutcomeCounts(0, 0, 0, 0, 0),
     val attemptsByHour: IntArray = IntArray(24),
     val totalAttempts: Int = 0,
@@ -109,6 +115,14 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
         load()
     }
 
+    /** Count or stop counting an app in screen time (e.g. a clock used as a stopwatch). */
+    fun setCounted(pkg: String, label: String, counted: Boolean) {
+        viewModelScope.launch {
+            graph.history.setCounted(pkg, label, counted)
+            load()
+        }
+    }
+
     fun setCategory(pkg: String, category: AppCategory) {
         viewModelScope.launch {
             graph.categories.set(pkg, category)
@@ -123,7 +137,10 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
             val zone = graph.clock.zone()
             val today = PolicyTime.localDate(now, zone)
             val period = mutable.value.period
-            val maxOffset = when (period) { Period.DAY -> UsageRepository.INSIGHT_DAYS; Period.WEEK -> 3; Period.TREND -> 0 }
+            // History reaches back as far as any source has data (up to about a year).
+            val earliest = graph.history.earliestDate() ?: today
+            val historyDays = java.time.temporal.ChronoUnit.DAYS.between(earliest, today).toInt().coerceIn(0, 365)
+            val maxOffset = when (period) { Period.DAY -> historyDays; Period.WEEK -> historyDays / 7; Period.TREND -> historyDays / 28 }
             val offset = mutable.value.offset.coerceIn(0, maxOffset)
             graph.categories.load()
             val categoryOf: (String) -> AppCategory = graph.categories::categoryOf
@@ -132,7 +149,7 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
             val dates: List<LocalDate> = when (period) {
                 Period.DAY -> listOf(today.minusDays(offset.toLong()))
                 Period.WEEK -> (6 downTo 0).map { today.minusDays(it + 7L * offset) }
-                Period.TREND -> (UsageRepository.INSIGHT_DAYS downTo 0).map { today.minusDays(it.toLong()) }
+                Period.TREND -> (27 downTo 0).map { today.minusDays(it + 28L * offset) }
             }
             val from = dates.first().atStartOfDay(zone).toInstant().toEpochMilli()
             val to = minOf(dates.last().plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(), now)
@@ -144,15 +161,23 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
                 }
                 Period.WEEK -> if (offset == 0) ctx.getString(R.string.range_last_7_days)
                     else ctx.getString(R.string.range_dates, Fmt.dayMonth(dates.first()), Fmt.dayMonth(dates.last()))
-                Period.TREND -> ctx.getString(R.string.range_last_4_weeks)
+                Period.TREND -> if (offset == 0) ctx.getString(R.string.range_last_4_weeks)
+                    else ctx.getString(R.string.range_dates, Fmt.dayMonth(dates.first()), Fmt.dayMonth(dates.last()))
             }
 
             // Screen time: every app except FocusBlock, home-screen launchers, System UI and apps the user excluded.
-            val notCounted = graph.safety.launchers() + setOf(ctx.packageName, "com.android.systemui") +
-                graph.db.excludedAppDao().getExcludedPackageNames(ExclusionType.SCREEN_TIME_REPORT)
+            val notCounted = graph.history.notCounted()
+            val userExcluded = graph.history.userExcluded()
             val counted: (String) -> Boolean = { it !in notCounted }
-            val read = graph.usage.insightEvents()
-            val access = read != null
+            val access = graph.usage.hasAccess()
+            // Days used for comparisons: the 14 days before (Day) or the week before (Week).
+            val extra = when (period) {
+                Period.DAY -> (14 downTo 1).map { dates.first().minusDays(it.toLong()) }
+                Period.WEEK -> dates.map { it.minusDays(7) }
+                Period.TREND -> emptyList()
+            }
+            val byDate = graph.history.days(dates + extra)
+            val inRange = dates.mapNotNull { byDate[it] }
 
             var screen: Long? = null
             var comparison: Long? = null
@@ -161,6 +186,7 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
             var chartLabels: List<String?> = emptyList()
             var chartAverage: Long? = null
             var apps: List<AppStat> = emptyList()
+            var excludedApps: List<AppStat> = emptyList()
             var byCategory = LongArray(3)
             var hourTotals = LongArray(24)
             var longestFocus = 0L
@@ -168,76 +194,74 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
             var pickups = 0
             var weeks: List<WeekStat> = emptyList()
             var daysInRange = dates.size
+            var hourlyMissing = false
 
-            if (read != null) {
-                val (readAt, events) = read
-                val intervals = UsageCalculator.intervals(events, readAt)
-                val dayBuckets = Insights.buckets(intervals, Insights.dayBoundaries(dates, zone), categoryOf, counted)
-
+            if (access || inRange.isNotEmpty()) {
+                val dayTotals = dates.map { d -> byDate[d]?.total(counted) ?: 0L }
                 when (period) {
                     Period.DAY -> {
-                        val date = dates.first()
-                        // Fold the hour buckets into 24 local hours (DST days have 23 or 25).
-                        val hours = List(24) { LongArray(3) }
-                        Insights.buckets(intervals, Insights.hourBoundaries(date, zone), categoryOf, counted).forEach { b ->
-                            val h = java.time.Instant.ofEpochMilli(b.start).atZone(zone).hour
-                            b.byCategory.forEachIndexed { c, v -> hours[h][c] += v }
-                        }
-                        chart = hours
+                        val day = byDate[dates.first()]
+                        chart = day?.let { Insights.hourStack(it, categoryOf, counted) } ?: List(24) { LongArray(3) }
+                        hourlyMissing = day != null && day.hourly == null
                         chartLabels = List(24) { h -> if (h % 6 == 0) Fmt.hourShort(ctx, h) else null }
                         // Usual screen time: today is compared at the same time of day; past days whole.
                         val cutoff = if (offset == 0) ((now - from) / 60_000L).toInt().coerceIn(0, 1439) else null
-                        val history = (14 downTo 0).map { date.minusDays(it.toLong()) }
-                        val totals = UsageCalculator.dailyTotals(intervals, history, zone, cutoff)
-                            .mapValues { (_, m) -> m.filterKeys(counted).values.sum() }
-                        comparison = Metrics.baseline(totals, date)
+                        val totals = (14 downTo 0).map { dates.first().minusDays(it.toLong()) }.associateWith { d ->
+                            byDate[d]?.let { u -> if (cutoff != null) Insights.totalBefore(u, cutoff, counted) else u.total(counted) } ?: 0L
+                        }
+                        comparison = Metrics.baseline(totals, dates.first())
                         daysInRange = 1
                     }
                     Period.WEEK -> {
-                        chart = dayBuckets.map { it.byCategory }
+                        chart = dates.map { d -> byDate[d]?.let { Insights.dayStack(it, categoryOf, counted) } ?: LongArray(3) }
                         chartLabels = dates.map { if (it == today) ctx.getString(R.string.range_today_short) else Fmt.weekdayShort(it) }
-                        val withData = dayBuckets.count { it.total > 0 }.coerceAtLeast(1)
-                        chartAverage = dayBuckets.sumOf { it.total } / withData
-                        val prevDates = dates.map { it.minusDays(7) }
-                        comparison = Insights.buckets(intervals, Insights.dayBoundaries(prevDates, zone), categoryOf, counted).sumOf { it.total }
-                            .takeIf { it > 0 }
+                        val withData = dayTotals.count { it > 0 }.coerceAtLeast(1)
+                        chartAverage = dayTotals.sum() / withData
+                        comparison = dates.sumOf { byDate[it.minusDays(7)]?.total(counted) ?: 0L }.takeIf { it > 0 }
                         daysInRange = dates.count { !it.isAfter(today) }
                     }
                     Period.TREND -> {
-                        chart = dayBuckets.map { it.byCategory }
+                        chart = dates.map { d -> byDate[d]?.let { Insights.dayStack(it, categoryOf, counted) } ?: LongArray(3) }
                         chartLabels = dates.mapIndexed { i, d -> if ((dates.size - 1 - i) % 7 == 0) Fmt.dayMonth(d) else null }
-                        val withData = dayBuckets.filter { it.total > 0 }
-                        dailyAverage = if (withData.isEmpty()) null else withData.sumOf { it.total } / withData.size
+                        val withData = dayTotals.filter { it > 0 }
+                        dailyAverage = if (withData.isEmpty()) null else withData.sum() / withData.size
                         chartAverage = dailyAverage
                         // Four weeks, newest first, each compared with the week before it.
-                        val weekTotals = (0 until 4).map { w ->
-                            val slice = dayBuckets.subList(dayBuckets.size - 7 * (w + 1), dayBuckets.size - 7 * w)
-                            Triple(dates[dates.size - 7 * (w + 1)], dates[dates.size - 1 - 7 * w], slice)
+                        val weekSlices = (0 until 4).map { w ->
+                            val range = (dates.size - 7 * (w + 1)) until (dates.size - 7 * w)
+                            Triple(dates[range.first], dates[range.last], range.map { dayTotals[it] })
                         }
-                        weeks = weekTotals.mapIndexed { i, (start, end, slice) ->
-                            val total = slice.sumOf { it.total }
-                            val prev = weekTotals.getOrNull(i + 1)?.third?.sumOf { it.total }
-                            WeekStat(start, end, total, slice.count { it.total > 0 }, prev?.let { Insights.changePercent(total, it) })
+                        weeks = weekSlices.mapIndexed { i, (start, end, slice) ->
+                            val total = slice.sum()
+                            val prev = weekSlices.getOrNull(i + 1)?.third?.sum()
+                            WeekStat(start, end, total, slice.count { it > 0 }, prev?.let { Insights.changePercent(total, it) })
                         }
                         daysInRange = withData.size.coerceAtLeast(1)
                     }
                 }
 
-                screen = dayBuckets.sumOf { it.total }
-                byCategory = LongArray(3).also { sum -> dayBuckets.forEach { b -> b.byCategory.forEachIndexed { c, v -> sum[c] += v } } }
-                hourTotals = Insights.hourOfDayTotals(intervals, from, to, zone, counted)
-                pickups = Insights.pickups(events, from, to)
-                val spans = Insights.spans(intervals)
-                longestUse = Insights.longestUse(spans, from, to)
-                longestFocus = dates.filter { !it.isAfter(today) }.maxOfOrNull { Insights.longestFocus(spans, it, zone, now) } ?: 0L
+                screen = dayTotals.sum()
+                byCategory = LongArray(3).also { sum -> inRange.forEach { d -> Insights.dayStack(d, categoryOf, counted).forEachIndexed { c, v -> sum[c] += v } } }
+                hourTotals = Insights.hourOfDay(inRange, counted)
+                pickups = inRange.sumOf { it.pickups ?: 0 }
+                longestUse = inRange.mapNotNull { it.longestUse }.maxOrNull() ?: 0L
+                longestFocus = inRange.mapNotNull { it.longestFocus }.maxOrNull() ?: 0L
 
-                val perApp = UsageCalculator.totals(intervals, from, to).filterKeys(counted)
-                val opens = UsageCalculator.launches(events, from, to)
+                val perApp = HashMap<String, Long>()
+                val opens = HashMap<String, Int>()
+                inRange.forEach { d ->
+                    d.totals.forEach { (pkg, ms) -> perApp[pkg] = (perApp[pkg] ?: 0L) + ms }
+                    d.opens.forEach { (pkg, n) -> opens[pkg] = (opens[pkg] ?: 0) + n }
+                }
                 val attemptsByApp = graph.db.attemptDao().since(from).filter { it.timestamp < to }.groupingBy { it.packageName }.eachCount()
-                apps = perApp.entries.filter { it.value >= 60_000L }.sortedByDescending { it.value }.take(20).map { (pkg, ms) ->
+                apps = perApp.entries.filter { counted(it.key) && it.value >= 60_000L }.sortedByDescending { it.value }.take(20).map { (pkg, ms) ->
                     AppStat(pkg, graph.apps.label(pkg), ms, categoryOf(pkg), opens[pkg] ?: 0, attemptsByApp[pkg] ?: 0)
                 }
+                excludedApps = userExcluded.map { pkg ->
+                    AppStat(pkg, graph.apps.label(pkg), perApp[pkg] ?: 0L, categoryOf(pkg), opens[pkg] ?: 0, attemptsByApp[pkg] ?: 0)
+                }.sortedByDescending { it.millis }
             }
+            val detailMissing = inRange.isNotEmpty() && inRange.all { it.pickups == null }
 
             // Blocks, attempts, unlocks and rules in the same range.
             val sessions = graph.db.blockSessionDao().since(from)
@@ -293,6 +317,9 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
                     longestUse = longestUse,
                     pickups = pickups,
                     weeks = weeks,
+                    excludedApps = excludedApps,
+                    hourlyMissing = hourlyMissing,
+                    detailMissing = detailMissing,
                     outcomes = outcomes,
                     attemptsByHour = Metrics.attemptsByHour(logs.map { l -> l.timestamp }, zone),
                     totalAttempts = logs.size,

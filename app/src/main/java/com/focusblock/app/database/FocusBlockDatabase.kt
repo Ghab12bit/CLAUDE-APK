@@ -40,7 +40,7 @@ import com.focusblock.app.database.entity.*
         OnboardingState::class
     ],
     version = 16,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class FocusBlockDatabase : RoomDatabase() {
 

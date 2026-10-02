@@ -5,10 +5,15 @@ on:
     branches:
       - codex/focusblock-recovery
       - codex/blocking-first-20261001
+      - claude/new-session-hf7zu9
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -31,14 +36,63 @@ jobs:
       - name: Allow Gradle wrapper execution
         run: chmod +x gradlew
 
-      - name: Run unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
-
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
       - name: Android lint
         run: ./gradlew lintDebug --stacktrace
+
+      - name: Print exported Room schemas
+        if: always()
+        run: |
+          for f in $(find app/schemas -name '*.json' 2>/dev/null | sort); do
+            echo "=== SCHEMA $f"
+            cat "$f"
+            echo
+            echo "=== END SCHEMA $f"
+          done
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: focusblock-build-reports
+          path: |
+            app/build/reports
+            app/build/test-results
+            app/schemas
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: focusblock-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+  emulator:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Allow Gradle wrapper execution
+        run: chmod +x gradlew
 
       - name: Enable KVM for emulator tests
         run: |
@@ -46,7 +100,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Native UI and Room persistence tests
+      - name: Native UI, enforcement and Room migration tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -54,7 +108,7 @@ jobs:
           profile: pixel_6_pro
           disable-animations: true
           script: |
-            ./gradlew connectedDebugAndroidTest --stacktrace; result=$?; mkdir -p app/build/screenshots; adb exec-out run-as com.focusblock.app tar -C files/screenshots -cf - . | tar -xf - -C app/build/screenshots; exit "$result"
+            ./gradlew connectedDebugAndroidTest --stacktrace; result=$?; mkdir -p app/build/screenshots; adb exec-out run-as com.focusblock.app tar -C files/screenshots -cf - . | tar -xf - -C app/build/screenshots || true; exit "$result"
 
       - name: Upload test evidence
         if: always()
@@ -66,10 +120,29 @@ jobs:
             app/build/outputs/androidTest-results
             app/build/screenshots
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+  release:
+    needs: [build, emulator]
+    if: github.ref == 'refs/heads/claude/new-session-hf7zu9'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download APK
+        uses: actions/download-artifact@v4
         with:
-          name: focusblock-recovery-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 14
+          name: focusblock-debug-apk
+
+      - name: Publish latest APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mv app-debug.apk FocusBlock-debug.apk
+          gh release delete focusblock-latest --cleanup-tag --yes || true
+          gh release create focusblock-latest FocusBlock-debug.apk \
+            --target "${GITHUB_SHA}" \
+            --prerelease \
+            --title "FocusBlock (latest build ${GITHUB_SHA::7})" \
+            --notes "Debug APK built from ${GITHUB_SHA} on branch claude/new-session-hf7zu9. Unit tests, lint and emulator tests passed for this commit. Signed with the repository's development key so later builds install over it."

@@ -66,6 +66,7 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
     var selected by remember { mutableStateOf<List<String>>(emptyList()) }
     var pickerTarget by remember { mutableStateOf("session") }
     var rule by remember { mutableStateOf<Schedule?>(null) }
+    var importedRule by remember { mutableStateOf<ImportedRuleStore.Rule?>(null) }
     var limit by remember { mutableStateOf<AppTimeLimit?>(null) }
     var previous by remember { mutableStateOf<QuickBlockSession?>(null) }
     var completed by remember { mutableStateOf<QuickBlockSession?>(null) }
@@ -184,7 +185,7 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
                         Muted("These retain their original combined conditions and app selections.")
                         s.importedRules.forEach { imported ->
                             Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) { Text(imported.name); Muted(imported.description()); Muted("${QuickBlockPolicy.packages(imported.packages).size} apps · ${imported.commitment.lowercase()}") }
+                                Column(Modifier.weight(1f).clickable { importedRule = imported; sheet = "imported" }) { Text(imported.name); Muted(imported.description()); Muted("${QuickBlockPolicy.packages(imported.packages).size} apps · ${imported.commitment.lowercase()}") }
                                 Switch(imported.enabled, { vm.toggleImported(imported) }, enabled = !s.configurationLocked && !s.busy)
                             }; Line()
                         }
@@ -203,6 +204,7 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
     if (sheet != null) ModalBottomSheet(onDismissRequest = { sheet = null }, containerColor = MaterialTheme.colorScheme.surface) {
         Column(Modifier.fillMaxWidth().heightIn(max = 660.dp).verticalScroll(rememberScrollState()).padding(horizontal = 22.dp).padding(bottom = 28.dp).imePadding()) {
             when (sheet) {
+                "imported" -> importedRule?.let { r -> ImportedRuleEditor(r, { importedRule = it }, { picker("imported", QuickBlockPolicy.packages(r.packages).toList()) }, { vm.saveImported(r); sheet = null }) }
                 "picker" -> {
                     Heading("Choose apps")
                     var query by remember { mutableStateOf("") }
@@ -224,6 +226,7 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
                     TextButton(onClick = { selected = s.last.packages }) { Text("Last selection") }
                     Action("Use ${selected.size} apps") {
                         when (pickerTarget) {
+                            "imported" -> { importedRule = importedRule?.copy(packages = selected.joinToString(",")); sheet = "imported" }
                             "rule" -> { rule = rule?.copy(blockedPackages = selected.joinToString(",")); sheet = "rule" }
                             "limit" -> { selected.firstOrNull()?.let { p -> limit = s.limits.find { it.packageName == p } ?: AppTimeLimit(p, s.apps.find { it.packageName == p }?.appName ?: p, 30) }; sheet = "limit" }
                             "essentials" -> { vm.essentials(selected.toSet()); sheet = "essentials" }

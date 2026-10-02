@@ -104,6 +104,9 @@ class BlockViewModel @Inject constructor(private val app: Application) : Android
     }
     fun clearError() { mutable.update { it.copy(error = null) } }
     fun toggleImported(rule: ImportedRuleStore.Rule) = mutate { ImportedRuleStore.toggle(db, rule) }
+    fun saveImported(rule: ImportedRuleStore.Rule) = mutate {
+        db.withTransaction { ImportedRuleStore.save(db, rule.copy(packages = QuickBlockPolicy.packages(rule.packages).filter { it !in state.value.essential }.joinToString(","))) }
+    }
     fun start(setup: BlockSetup) = mutate {
         check(state.value.ready) { "Restore accessibility, usage access and overlay permissions first." }
         require(setup.minutes in 1..720 && setup.rest in 1..30 && setup.rounds in 2..8) { "Check the duration and cycle settings." }

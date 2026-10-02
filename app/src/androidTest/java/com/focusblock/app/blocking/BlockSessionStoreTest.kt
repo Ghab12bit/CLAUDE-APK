@@ -71,4 +71,20 @@ class BlockSessionStoreTest {
             } finally { db.close(); context.deleteDatabase(name) }
         }
     }
+    @Test fun importedRuleEditingPreservesUnknownFieldsAndHonorsConfigurationLock() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(context, FocusBlockDatabase::class.java).build()
+        try {
+            val sql = db.openHelper.writableDatabase
+            sql.execSQL("CREATE TABLE block_rules (id INTEGER PRIMARY KEY, name TEXT, packages TEXT, isEnabled INTEGER, kind TEXT, commitment TEXT, hasUsageCondition INTEGER, usageLimitMinutes INTEGER, usageWindow TEXT, updatedAt INTEGER, original_notes TEXT)")
+            sql.execSQL("INSERT INTO block_rules VALUES (1, 'Combined', 'example.app', 1, 'SCHEDULE', 'OFF', 1, 30, 'DAILY', 0, 'preserve this')")
+            val rule = ImportedRuleStore.rules(db).single()
+            ImportedRuleStore.save(db, rule.copy(name = "Edited", minutes = 45))
+            assertEquals(45, ImportedRuleStore.rules(db).single().minutes)
+            sql.query("SELECT original_notes FROM block_rules").use { c -> assertTrue(c.moveToFirst()); assertEquals("preserve this", c.getString(0)) }
+            sql.execSQL("CREATE TABLE protection_lock (id INTEGER PRIMARY KEY, lockedUntil INTEGER, level TEXT)")
+            sql.execSQL("INSERT INTO protection_lock VALUES (1, ?, 'STRICT')", arrayOf(System.currentTimeMillis() + 60000))
+            assertTrue(runCatching { ImportedRuleStore.save(db, rule.copy(minutes = 60)) }.isFailure)
+            assertEquals(45, ImportedRuleStore.rules(db).single().minutes)
+        } finally { db.close() }
+    }
 }

@@ -1367,10 +1367,6 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
         val packageName = event.packageName?.toString() ?: return
         val eventTime = System.currentTimeMillis()
-        lastForegroundPackage = packageName
-
-        // Don't block our own app or system components
-        if (shouldIgnorePackage(packageName)) return
 
         // Log for instant trigger verification
         Log.d(TAG, "cycleTriggeredOnAppOpen($packageName, $eventTime)")
@@ -1386,6 +1382,11 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // ========== INSTANT FOCUS CYCLE HANDLING ==========
         // Use cached state for immediate response, then persist async
         handleFocusCycleInstant(packageName, eventTime)
+
+        // Tracking needs the previous foreground package, including when leaving
+        // for Home or FocusBlock. Only enforcement skips essential/system screens.
+        lastForegroundPackage = packageName
+        if (shouldIgnorePackage(packageName)) return
 
         // Refresh cache periodically in background
         if (eventTime - lastCacheRefresh > CACHE_REFRESH_INTERVAL_MS) {
@@ -1759,8 +1760,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         if (packageName == "com.android.systemui") return true
         if (packageName == "com.android.settings") return true
 
-        // Ignore all launchers
-        if (packageName.contains("launcher")) return true
+        // Resolve the real Home/phone packages; a name containing "launcher"
+        // must not exempt an unrelated app chosen by the user.
+        if (packageName in BlockSessionStore.requiredPackages(this)) return true
 
         // Samsung also ships launchable apps such as Internet and Game Hub.
         // Their vendor prefix must not bypass an explicit app selection.

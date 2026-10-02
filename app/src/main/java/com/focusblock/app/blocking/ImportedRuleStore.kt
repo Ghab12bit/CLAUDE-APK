@@ -14,7 +14,7 @@ object ImportedRuleStore {
         val manual: Boolean, val manualActive: Boolean, val until: Long?, val timed: Boolean,
         val start: Int, val end: Int, val days: String, val usage: Boolean, val minutes: Int,
         val hourly: Boolean, val launches: Boolean, val launchLimit: Int, val launchHourly: Boolean,
-        val commitment: String) {
+        val commitment: String, val supportsLaunch: Boolean = true) {
         fun inWindow(now: Long): Boolean {
             if (manual) return manualActive && (until == null || now < until)
             if (!timed) return true
@@ -40,7 +40,7 @@ object ImportedRuleStore {
                 text("kind") == "MANUAL", number("isManualActive") == 1L, number("activeUntil").takeIf { it > 0 },
                 number("hasTimeCondition") == 1L, number("startMinute").toInt(), number("endMinute").toInt(), text("daysOfWeek"),
                 number("hasUsageCondition") == 1L, number("usageLimitMinutes").toInt(), text("usageWindow") == "HOURLY",
-                number("hasLaunchCondition") == 1L, number("launchLimit").toInt(), text("launchWindow") == "HOURLY", text("commitment")))
+                number("hasLaunchCondition") == 1L, number("launchLimit").toInt(), text("launchWindow") == "HOURLY", text("commitment"), c.getColumnIndex("hasLaunchCondition") >= 0))
         } }
     }
     fun configurationLocked(db: FocusBlockDatabase): Boolean {
@@ -73,6 +73,25 @@ object ImportedRuleStore {
             }
             true
         }
+    }
+    fun save(db: FocusBlockDatabase, rule: Rule) {
+        check(!configurationLocked(db)) { "Your existing configuration lock is still active." }
+        val old = rules(db).firstOrNull { it.id == rule.id } ?: error("This rule no longer exists.")
+        check(!(old.enabled && old.commitment != "OFF" && old.inWindow(System.currentTimeMillis()))) { "This rule is locked while active." }
+        require(rule.name.isNotBlank() && QuickBlockPolicy.packages(rule.packages).isNotEmpty()) { "Name the rule and choose apps." }
+        require(!rule.timed || (rule.start in 0..1439 && rule.end in 0..1439 && rule.days.split(',').mapNotNull(String::toIntOrNull).any { it in 1..7 })) { "Check times and repeat days." }
+        require(!rule.usage || rule.minutes in 1..720) { "Choose 1–720 usage minutes." }
+        require(!rule.launches || rule.launchLimit in 1..1000) { "Choose 1–1000 app opens." }
+        val sqlite = db.openHelper.writableDatabase
+        val columns = sqlite.query("PRAGMA table_info(block_rules)").use { c -> buildSet { while(c.moveToNext()) add(c.getString(c.getColumnIndexOrThrow("name"))) } }
+        val values = linkedMapOf<String, Any>("name" to rule.name, "packages" to rule.packages,
+            "hasTimeCondition" to (if (rule.timed) 1 else 0), "startMinute" to rule.start, "endMinute" to rule.end,
+            "daysOfWeek" to rule.days, "hasUsageCondition" to (if (rule.usage) 1 else 0),
+            "usageLimitMinutes" to rule.minutes, "usageWindow" to (if (rule.hourly) "HOURLY" else "DAILY"),
+            "hasLaunchCondition" to (if (rule.launches) 1 else 0), "launchLimit" to rule.launchLimit,
+            "launchWindow" to (if (rule.launchHourly) "HOURLY" else "DAILY"), "updatedAt" to System.currentTimeMillis())
+            .filterKeys { it in columns }
+        sqlite.execSQL("UPDATE block_rules SET ${values.keys.joinToString(",") { "$it=?" }} WHERE id=?", (values.values + rule.id).toTypedArray())
     }
     fun toggle(db: FocusBlockDatabase, rule: Rule) {
         check(!configurationLocked(db)) { "Your existing configuration lock is still active." }

@@ -37,9 +37,16 @@ import com.focusblock.app.database.entity.*
         AppGroup::class,
         AppGroupMembership::class,
         // Onboarding
-        OnboardingState::class
+        OnboardingState::class,
+        // v17: product model (spec 8.4)
+        BlockSessionEntity::class,
+        EssentialApp::class,
+        AppLimitEntity::class,
+        UnlockEventEntity::class,
+        RecommendationEntity::class,
+        DiagnosticEvent::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = true
 )
 abstract class FocusBlockDatabase : RoomDatabase() {
@@ -77,6 +84,15 @@ abstract class FocusBlockDatabase : RoomDatabase() {
     // Combined DAO access for widget and services
     abstract fun focusBlockDao(): FocusBlockDao
 
+    // v17
+    abstract fun blockSessionDao(): BlockSessionDao
+    abstract fun essentialAppDao(): EssentialAppDao
+    abstract fun appLimitDao(): AppLimitDao
+    abstract fun unlockEventDao(): UnlockEventDao
+    abstract fun recommendationDao(): RecommendationDao
+    abstract fun diagnosticEventDao(): DiagnosticEventDao
+    abstract fun attemptDao(): AttemptDao
+
     companion object {
         @Volatile
         private var INSTANCE: FocusBlockDatabase? = null
@@ -88,7 +104,7 @@ abstract class FocusBlockDatabase : RoomDatabase() {
                     FocusBlockDatabase::class.java,
                     "focusblock_database"
                 )
-                .addMigrations(*PreservingMigrations.ALL)
+                .addMigrations(*PreservingMigrations.ALL, Migration16To17())
                 .build()
                 INSTANCE = instance
                 instance

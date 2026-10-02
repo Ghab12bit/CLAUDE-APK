@@ -122,7 +122,8 @@ jobs:
 
   release:
     needs: [build, emulator]
-    if: github.ref == 'refs/heads/claude/new-session-hf7zu9'
+    # Only commits marked [release] replace the published APK, so half-finished slices never ship.
+    if: github.ref == 'refs/heads/claude/new-session-hf7zu9' && contains(github.event.head_commit.message, '[release]')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

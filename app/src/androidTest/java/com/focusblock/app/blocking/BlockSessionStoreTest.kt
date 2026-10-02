@@ -63,9 +63,12 @@ class BlockSessionStoreTest {
             db.openHelper.writableDatabase.execSQL("INSERT INTO preserved_payload VALUES ('keep me')")
             db.openHelper.writableDatabase.version = version
             db.close()
-            db = Room.databaseBuilder(context, FocusBlockDatabase::class.java, name).addMigrations(*PreservingMigrations.ALL).build()
+            db = Room.databaseBuilder(context, FocusBlockDatabase::class.java, name)
+                .addMigrations(*PreservingMigrations.ALL, com.focusblock.app.database.Migration16To17()).build()
             try {
-                assertEquals("saved.app", db.quickBlockSessionDao().getActiveSessionSync()!!.blockedPackages)
+                // v17 moves the running block into block_sessions and retires the legacy row.
+                assertEquals("saved.app", db.blockSessionDao().active()!!.packages)
+                assertNull(db.quickBlockSessionDao().getActiveSessionSync())
                 assertEquals(1, BlockSessionStore.metadata(db).used)
                 db.openHelper.readableDatabase.query("SELECT value FROM preserved_payload").use { c -> assertTrue(c.moveToFirst()); assertEquals("keep me", c.getString(0)) }
             } finally { db.close(); context.deleteDatabase(name) }

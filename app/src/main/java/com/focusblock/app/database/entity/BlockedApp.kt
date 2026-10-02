@@ -1,5 +1,6 @@
 package com.focusblock.app.database.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -60,8 +61,18 @@ data class BlockLog(
     val appName: String,
     val timestamp: Long = System.currentTimeMillis(),
     val blockedBy: BlockedByType,
+    /** Rule id/name for routines, app limits and focus cycles (column names kept from v12). */
     val scheduleId: Long? = null,
-    val scheduleName: String? = null
+    val scheduleName: String? = null,
+    // ---- v17: structured attempt log (spec 8.4) ----
+    /** 1-based attempt for this app in the current block/window; 0 for legacy rows. */
+    @ColumnInfo(defaultValue = "0")
+    val attemptNumber: Int = 0,
+    /** What happened next: RETURNED, OPEN_ANYWAY, EMERGENCY, or null when unknown. */
+    val action: String? = null,
+    val sessionId: Long? = null,
+    /** [com.focusblock.app.policy.Strength] of the deciding reason. */
+    val strength: String? = null
 )
 
 enum class BlockedByType {
@@ -309,7 +320,13 @@ data class GlobalDailyLimitSettings(
     val hardModeUnlockPhrase: String = "I choose distraction over my goals", // Phrase to type
 
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    /**
+     * v17: when true the daily limit counts every app except essential apps; when false it counts
+     * [trackedPackages]. Migrated rows keep false so existing behaviour does not change.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val countsAllApps: Boolean = false
 ) {
     companion object {
         // Default distracting apps to track
@@ -604,7 +621,10 @@ data class BedtimeModeSettings(
     val overrideUsedToday: Boolean = false,
     val lastOverrideDate: String = "", // YYYY-MM-DD
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    /** v17: [com.focusblock.app.policy.Strength] name. */
+    @ColumnInfo(defaultValue = "NORMAL")
+    val strength: String = "NORMAL"
 ) {
     /**
      * Check if bedtime is active right now

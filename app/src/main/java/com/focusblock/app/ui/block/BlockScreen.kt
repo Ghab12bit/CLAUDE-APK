@@ -379,6 +379,13 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
         else -> stringResource(R.string.active_title_open)
     }
     ScreenTitle(title)
+    // Degraded protection mid-block is reported plainly (spec 4.11).
+    if (state.accessibility != HealthState.OK) {
+        Spacer(Modifier.height(12.dp))
+        val cause = stringResource(R.string.cause_accessibility_off)
+        ProblemBanner(stringResource(R.string.degraded_banner, cause), stringResource(R.string.action_fix),
+            { PermissionHealth.open(context, com.focusblock.app.core.Requirement.ACCESSIBILITY) })
+    }
     input.intention?.let {
         Spacer(Modifier.height(6.dp))
         Text(stringResource(R.string.intention_quoted, it), style = FbType.body.copy(color = Fb.textSecondary), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = Fb.gutter))

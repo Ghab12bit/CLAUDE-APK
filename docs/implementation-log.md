@@ -260,3 +260,155 @@ None have been decided. The findings above bear on two of them:
 7. Schedule activation with AlarmManager (exact alarms where permitted, with a fallback).
 
 R1 (Timed Block) and R12 are UI wiring fixes and fit Phase 4. They could be fixed earlier as a tiny isolated change if you want Timed Block working sooner.
+
+---
+
+## Phases 1–8 — Build (2026-10-02)
+
+The owner authorised every phase, commits and pushes, and asked for the final app. Phase reports
+are therefore combined here instead of pausing after each phase. Each slice was still pushed and
+checked by CI on its own.
+
+### Base and environment
+
+- **Base.** The work builds on the recovery line `codex/blocking-first-20261001` (`94a12aa`), which
+  the owner chose.
+  - Its v16 preserving migrations, fixed signing key and emulator CI were kept.
+  - Its interim UI was replaced.
+- **Build environment.** This cloud container cannot reach `dl.google.com`, so Android cannot be
+  compiled here.
+  - Every Android build, lint run and emulator test runs in GitHub Actions
+    (`.github/workflows/android-recovery.yml`).
+  - The pure-Kotlin policy core is also compiled and tested locally with a JVM-only Gradle build.
+- **Device testing.** No physical device is available to this session. The real-device matrix
+  (§11.3) is **not** marked as passed; see "Known limitations".
+
+### Architecture (what exists now)
+
+| Layer | Files | Notes |
+|---|---|---|
+| Policy (pure Kotlin) | `policy/*` | `BlockPolicyEngine.evaluate(pkg, snapshot, now, zone)` is the single decision. It also covers priority (§8.2), session phase math, time windows (overnight, DST, time zones), friction, usage accounting, coverage, metrics and recommendations. |
+| Runtime | `core/*` | `SessionManager` is the only session API, used by the UI, widget, notifications and recovery. `PolicyRepository` builds snapshots from Room. `Enforcer` decides and logs, and both services call it. Also: `OverrideManager`, `FocusCycleTracker`, `AlarmScheduler`, the receivers, `Notifier`, `PermissionHealth` and `AppGraph` (wiring). |
+| Enforcement | `service/FocusBlockAccessibilityService` | Primary path. Window-change events only; window content is never read. It holds no policy and re-checks at the next policy boundary or limit run-out. |
+| | `service/AppBlockingService` | Fallback. Runs only while Accessibility is not running and something needs enforcing. Same `Enforcer`, so the same policy set. |
+| Data | Room v17 | One table per concept (§8.4): `block_sessions`, `essential_apps`, `app_limits`, `unlock_events`, `recommendations`, `diagnostic_events`. Legacy tables are kept and never dropped. |
+| UI | `ui/*` | Block, Rules and Activity tabs; Settings and its sub-screens; app picker sheet; rule editor; intervention activity; first run; tokens and primitives. |
+
+### Final policy priority (§8.2), as implemented and tested
+
+1. Safety exemptions and essential apps:
+   - FocusBlock itself
+   - dialler, in-call, telecom and emergency apps, and cell broadcasts
+   - System UI and Settings, which includes accessibility settings
+   - permission controller and package installer
+   - home launchers and keyboards
+   - the user's essential apps
+2. A valid emergency override for that app (time-boxed).
+3. Strict Lock reasons: a Strict block, a Strict routine, then any other Strict reason (Strict
+   bedtime; a daily limit under a still-active legacy Hard Mode lock).
+4. Bedtime (allow-only: every user-facing app except essentials).
+5. Routine (including imported v13–15 rules).
+6. App limit.
+7. Daily limit.
+8. Focus Cycle break.
+9. Normal immediate block.
+
+Rules for overrides and display:
+- "Open anyway" overrides are honoured only when no Strict reason applies, and are refused at grant
+  time otherwise.
+- The highest reason decides the copy and the bypasses. The rest are listed as "Also blocked by".
+- Tests: `BlockPolicyEngineTest.everyOverlapPairResolvesToTheHigherPriorityReason` covers all 27
+  pairs, plus targeted tests for overrides, exemptions, intervals, limits and the trusted clock.
+
+### Strict/Hard migration mapping (§8.5)
+
+The migration is `Migration16To17`, tested in `Migration17Test` with legacy fixtures.
+
+| Legacy state | Becomes |
+|---|---|
+| Strict Mode on, future end time, not paused | Strict Lock until the original end time. A running block becomes Strict (an open-ended one gets that end time). With no block running, a Strict block of the daily-limit apps runs until the original end. |
+| Strict Mode on with end time 0, or paused (the R2 bug state) | Not carried over; recorded in `diagnostic_events` and `settings.migration_17_report`. |
+| Hard Mode A (PIN + time lock) | Default block strength becomes Strict Lock. **The plaintext PIN is deleted.** |
+| Hard Mode B (daily-limit cooldown/phrase) | `hardModeLockUntil` is kept. While it is in the future, the daily limit is enforced as Strict Lock and can't be turned off. |
+| Recovery session metadata (strict, cycles, one-time exception) | Applied to the migrated active block. An unexpired exception becomes a granted override until its original expiry. |
+| `blocked_apps.isInAllowlist` and `essential_apps_whitelist` | `essential_apps` |
+| `app_time_limits` rows and the `app_timer_settings` list | `app_limits` rows |
+| Global limit tracked set (tracked ∪ App Timer apps when shared − "tracked but not blocked") | An explicit counted list. When empty, the default distracting apps. |
+
+### Decisions taken (open decisions §12.3), safest temporary behaviour — please confirm
+
+| # | Decision | Chosen for now |
+|---|---|---|
+| 1 | Merge Focus Cycles into Intervals? | Kept separate; shown under Rules › Focus Cycles. The floating overlay timer was dropped; the state shows on the rule row. |
+| 2 | App limit vs Daily limit | App limit = shared allowance for chosen apps (any number of them). Daily limit = one total allowance, counting either all apps except essentials or a chosen list. They are separate in storage and code paths. |
+| 3 | Fallback parity | Full decision parity, because it uses the same `Enforcer`. Detection is best-effort (about 1 s, screen on), and it needs "Display over other apps" to show the block screen. |
+| 4 | 00:00–24:00 | `start == end` means a 24-hour window starting at that time; 00:00–00:00 is all day. The editor has an "All day" switch. |
+| 5 | What the widget starts | The last block by default (it always has an end time if it was timed); can be switched to the default block in Settings. |
+| 6 | Time saved | Not shown. |
+| 7 | App Groups | User-created saved sets only; they show in the picker and in Settings › Saved app sets. |
+| 8 | Work Mode / Digital Detox | Converted to rule templates (Work hours, Weekend detox, Evening routine, Slow morning). The orphaned dialogs were removed. |
+| 9 | Signature visual | Filling bars, taken from the brand mark: the tall bar fills with progress and the accent bar shows focus or break. |
+| 10 | Emergency wait / unlock length | 10 min wait, 5 min unlock. Open anyway is also 5 min. |
+
+Other choices:
+- Bedtime is allow-only: only essential and safety apps open. It applies only to apps with a
+  launcher icon.
+- Default essentials, seeded once: phone, messages, clock, camera, maps.
+- "Add 15 minutes" on the end sheet records `EXTENDED` and starts a new 15-minute block with the
+  same apps, strength and intention.
+- Charging-time insights and the 15-minute "peak time" worker were removed. They did not serve the
+  product loop and were noisy (spec 7 "Notifications: excessive"). Usage reminders (30/60 min) and
+  the daily summary remain, each with a switch.
+
+### §6 mockup fixes
+
+All 17 are done. Where an item is covered by an emulator test, the test is named.
+
+- [x] Bottom bar reads Block / Rules / Activity everywhere. (`EndToEndTest.tabsRenderFromPersistedState`)
+- [x] One verb: blocked copy only; no "paused" or "protected" in `strings.xml`.
+- [x] Strict intervention: no "Need access?". Only low-emphasis "Emergency access" with
+  "10-min wait · reason required". (`strictLockShowsOnlyEmergencyAccessAndCannotBeEnded`)
+- [x] Strict active screen: no temporary-access row.
+- [x] "You can't end this block early" replaces "cannot be stopped".
+- [x] "Blocked by {rule}" replaces "You chose to block this app".
+- [x] "Put your phone aside" removed. Strict active screen has Add 15 minutes only.
+- [x] Cycles → Intervals; Until stopped → Until I stop. (`idleBlockTabShowsSetupWithoutGiantNumber`)
+- [x] Intention field on setup; shown on the active screen and the intervention.
+- [x] Attempt counter and progressive friction on the intervention.
+- [x] Session end sheet: Finished / Not yet / Add 15 minutes.
+- [x] No giant duration number; the chip and the button carry it.
+- [x] Repeat last block: whole row tappable, play icon at the right edge.
+- [x] Essential apps row reads "Available" on one line (`maxLines = 1`, value never wraps).
+- [x] Active title is the end time; the countdown is secondary.
+- [x] Signature active visual (`ActiveBlockVisual`).
+- [x] Insets: one Scaffold applies system-bar padding, the bottom bar adds navigation-bar padding,
+  and content uses IME padding.
+
+### §7 parity table: every feature's new home
+
+| Feature | New home | Status |
+|---|---|---|
+| Quick Block | Block tab (Until I stop, Repeat last block) | Rebuilt on `SessionManager` |
+| Timed Block | Block › Timed (25/45/60/Custom) | Rebuilt; the duration bug (R1) is gone |
+| Focus/Pomodoro | Block › Intervals | Rebuilt; phases come from the clock; breaks unblock unless a rule covers |
+| Scheduled routines | Rules › Routines | Engine plus next-change alarm; Strict routines locked while active |
+| App selection | App picker sheet | Contextual, searchable, real icons |
+| Saved selection / last apps | Repeat last block, picker "Recent" | Kept (`blocking_first_last_v1` key reused) |
+| App Groups | Picker "Saved sets", Settings › Saved app sets | Connected |
+| Allowlist / essential apps | Settings › Essential apps; greyed in the picker | Migrated to its own table |
+| Strict Mode | Strict Lock strength | Migrated (see above) |
+| Hard Mode A / B | Strict Lock / daily-limit lock | Migrated; PIN deleted |
+| App Timer | Rules › Limits › App limit | Migrated |
+| Global daily limit | Rules › Limits › Daily limit | Kept; explicit counted list |
+| Bedtime Mode | Rules › Bedtime | **Now enforced** (R6) |
+| Focus Cycles | Rules › Focus Cycles | Kept; same engine |
+| Smart Suggestions | Activity › one suggestion | Rebuilt; approval required; the auto-enforcing path (R3) is gone |
+| Insights / statistics | Activity | Rebuilt from logged data; formulas in `docs/metrics.md` |
+| Block-attempt history | `block_logs` with attempt number and action | Extended |
+| Permission setup | First run, Settings › Blocking health | Rebuilt |
+| Emergency access | Intervention (one flow) | Standardised |
+| Widget | Widget on the session API | Rebuilt; respects Strict Lock |
+| Reboot/session recovery | `SystemEventReceiver` | Boot, update, time and time-zone changes |
+| Notifications | Settings › Notifications | One screen, five switches, separate channels |
+| Imported v13–15 rules | Rules › "Rules from the previous version" | Enforced through the engine; editable when unlocked |
+| Work Mode / Digital Detox | Rule templates | Converted |

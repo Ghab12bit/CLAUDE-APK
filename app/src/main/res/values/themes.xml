@@ -5,7 +5,6 @@
         <item name="android:navigationBarColor">@color/background_dark</item>
         <item name="android:windowBackground">@color/background_dark</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
     </style>
 
     <style name="Theme.FocusBlock.Overlay" parent="android:Theme.Material.NoActionBar">
@@ -14,6 +13,5 @@
         <item name="android:windowBackground">@color/overlay_background</item>
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>

@@ -44,6 +44,7 @@ class AppBlockingService : Service() {
     private var isMonitoring = false
     private var lastCheckedPackage: String? = null
     private var lastBlockTime = 0L
+    @Volatile private var notificationText = "Checking saved protection"
 
     override fun onCreate() {
         super.onCreate()
@@ -91,6 +92,7 @@ class AppBlockingService : Service() {
                     checkCurrentApp()
                     // Re-acquire wake lock every 5 minutes to prevent timeout
                     checkCount++
+                    if (checkCount % 10 == 0) refreshNotificationState()
                     if (checkCount >= 600) { // 600 * 500ms = 5 minutes
                         checkCount = 0
                         reacquireWakeLock()
@@ -109,6 +111,7 @@ class AppBlockingService : Service() {
     }
 
     private suspend fun checkCurrentApp() {
+        if (FocusBlockAccessibilityService.isServiceRunning) return
         val currentPackage = getCurrentForegroundApp() ?: return
 
         // Don't block our own app or system UI
@@ -369,8 +372,8 @@ class AppBlockingService : Service() {
         )
 
         return NotificationCompat.Builder(this, FocusBlockApp.CHANNEL_BLOCKING)
-            .setContentTitle(getString(R.string.notification_blocking_active))
-            .setContentText(getString(R.string.notification_apps_blocked, getBlockedAppsCountSync()))
+            .setContentTitle("FocusBlock")
+            .setContentText(notificationText)
             .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
@@ -385,15 +388,21 @@ class AppBlockingService : Service() {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
-    private fun getBlockedAppsCountSync(): Int {
-        // Use runBlocking with Dispatchers.IO to avoid blocking main thread
-        return runBlocking(Dispatchers.IO) {
-            try {
-                repository.getBlockedAppsCount().first()
-            } catch (e: Exception) {
-                0
-            }
+    private suspend fun refreshNotificationState() {
+        val session = repository.getActiveQuickBlockSessionSync()
+        val now = System.currentTimeMillis()
+        notificationText = if (!FocusBlockAccessibilityService.isServiceRunning) {
+            "Accessibility unavailable · open to check protection"
+        } else if (session == null || QuickBlockPolicy.isExpired(session.endTime, now)) {
+            "No quick block · saved rules continue"
+        } else {
+            val meta = BlockSessionStore.metadata(FocusBlockDatabase.getDatabase(this))
+            val phase = com.focusblock.app.blocking.BlockSessionPolicy.phase(session.startTime, session.endTime, now,
+                if (meta.id == session.id) meta.focus else 0, meta.rest, meta.rounds)
+            if (!phase.blocking) "Cycle break · other rules still apply"
+            else "${QuickBlockPolicy.packages(session.blockedPackages).size} session apps · ${session.endTime?.let { "${((it - now) / 60000).coerceAtLeast(0)} min left" } ?: "until stopped"}"
         }
+        updateNotification()
     }
 
     private fun acquireWakeLock() {

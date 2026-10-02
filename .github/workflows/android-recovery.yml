@@ -55,7 +55,8 @@ jobs:
           disable-animations: true
           script: |
             ./gradlew connectedDebugAndroidTest --stacktrace
-            adb pull /data/data/com.focusblock.app/files/screenshots app/build/screenshots
+            mkdir -p app/build/screenshots
+            adb exec-out run-as com.focusblock.app tar -C files/screenshots -cf - . | tar -xf - -C app/build/screenshots
 
       - name: Upload test evidence
         if: always()

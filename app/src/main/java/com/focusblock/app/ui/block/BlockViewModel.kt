@@ -40,8 +40,9 @@ data class BlockUiState(
     val logs: List<BlockLog> = emptyList(), val sessions: List<QuickBlockSession> = emptyList(),
     val usage: Map<String, Long>? = null, val yesterday: Map<String, Long>? = null,
     val ready: Boolean = false, val now: Long = System.currentTimeMillis(),
-    val reminder: String = "", val busy: Boolean = false, val error: String? = null
-    , val importedRules: List<ImportedRuleStore.Rule> = emptyList(), val configurationLocked: Boolean = false
+    val reminder: String = "", val busy: Boolean = false, val error: String? = null,
+    val importedRules: List<ImportedRuleStore.Rule> = emptyList(), val configurationLocked: Boolean = false,
+    val savedSelection: List<String> = emptyList()
 )
 
 @HiltViewModel
@@ -66,7 +67,9 @@ class BlockViewModel @Inject constructor(private val app: Application) : Android
             val apps = AppUtils.getInstalledApps(app, true)
             val essentials = BlockSessionStore.requiredPackages(app) + db.essentialAppWhitelistDao().getWhitelistedPackageNames() +
                 db.blockedAppDao().getAllowlistApps().first().map { it.packageName }
-            mutable.update { it.copy(apps = apps, essential = essentials, loading = false) }
+            val savedSelection = QuickBlockPolicy.packages(db.settingsDao().getValue(AppSettings.KEY_QUICK_BLOCK_SAVED_APPS).orEmpty()).toList()
+            val last = BlockSetup.parse(db.settingsDao().getValue(BlockSessionStore.LAST))
+            mutable.update { it.copy(apps = apps, essential = essentials, loading = false, savedSelection = savedSelection, last = last) }
         }
         observe {
             var ticks = 0
@@ -143,6 +146,7 @@ class BlockViewModel @Inject constructor(private val app: Application) : Android
     }
     fun saveSelection(packages: List<String>) = mutate {
         db.settingsDao().insert(AppSettings(AppSettings.KEY_QUICK_BLOCK_SAVED_APPS, packages.joinToString(",")))
+        mutable.update { it.copy(savedSelection = packages) }
     }
     private fun ruleLocked(s: Schedule): Boolean {
         val c = Calendar.getInstance()
@@ -190,27 +194,5 @@ class BlockViewModel @Inject constructor(private val app: Application) : Android
         val today = UsageWindowReader.read(app, midnight, now)
         val yesterday = UsageWindowReader.read(app, c.timeInMillis, priorNow)
         mutable.update { it.copy(usage = today, yesterday = yesterday) }
-    }
-    private fun readUsage(start: Long, end: Long): Map<String, Long>? {
-        val manager = app.getSystemService(Application.USAGE_STATS_SERVICE) as UsageStatsManager
-        val events = manager.queryEvents(start - 86400000L, end) ?: return null
-        val totals = mutableMapOf<String, Long>()
-        val open = mutableMapOf<String, Long>()
-        val event = UsageEvents.Event()
-        while (events.hasNextEvent()) {
-            events.getNextEvent(event)
-            val p = event.packageName ?: continue
-            when (event.eventType) {
-                UsageEvents.Event.ACTIVITY_RESUMED -> open.putIfAbsent(p, event.timeStamp)
-                UsageEvents.Event.ACTIVITY_PAUSED, UsageEvents.Event.ACTIVITY_STOPPED -> open.remove(p)?.let {
-                    totals[p] = (totals[p] ?: 0) + (minOf(end, event.timeStamp) - maxOf(start, it)).coerceAtLeast(0)
-                }
-                UsageEvents.Event.DEVICE_SHUTDOWN, UsageEvents.Event.SCREEN_NON_INTERACTIVE -> {
-                    open.forEach { (pkg, t) -> totals[pkg] = (totals[pkg] ?: 0) + (minOf(end, event.timeStamp) - maxOf(start, t)).coerceAtLeast(0) }; open.clear()
-                }
-            }
-        }
-        open.forEach { (p, t) -> totals[p] = (totals[p] ?: 0) + (end - maxOf(start, t)).coerceAtLeast(0) }
-        return totals.filterValues { it > 0 }
     }
 }

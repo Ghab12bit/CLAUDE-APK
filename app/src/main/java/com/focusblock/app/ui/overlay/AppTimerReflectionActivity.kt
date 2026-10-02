@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -85,6 +86,10 @@ class AppTimerReflectionActivity : ComponentActivity() {
         Log.i(TAG, "Showing reflection: usage=$totalUsageMinutes min, limit=$limitMinutes min, escalation=$isEscalation")
 
         setContent {
+            BackHandler {
+                AppUtils.goToHome(this)
+                finish()
+            }
             FocusBlockTheme {
                 AppTimerReflectionScreen(
                     totalUsageMinutes = totalUsageMinutes,
@@ -146,9 +151,6 @@ class AppTimerReflectionActivity : ComponentActivity() {
         }
     }
 
-    override fun onBackPressed() {
-        // Don't allow back press, user must make a choice
-    }
 }
 
 @Composable

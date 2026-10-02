@@ -62,6 +62,17 @@ class BlockedAppActivity : ComponentActivity() {
 
         enableEdgeToEdge()
 
+        showIntervention()
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        showIntervention()
+    }
+
+    private fun showIntervention() {
+
         val packageName = intent.getStringExtra(EXTRA_PACKAGE_NAME) ?: ""
         val appName = intent.getStringExtra(EXTRA_APP_NAME) ?: "App"
         val blockedByName = intent.getStringExtra(EXTRA_BLOCKED_BY) ?: BlockedByType.QUICK_BLOCK.name

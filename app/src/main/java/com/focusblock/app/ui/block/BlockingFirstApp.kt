@@ -69,7 +69,7 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
     var limit by remember { mutableStateOf<AppTimeLimit?>(null) }
     var previous by remember { mutableStateOf<QuickBlockSession?>(null) }
     var completed by remember { mutableStateOf<QuickBlockSession?>(null) }
-    LaunchedEffect(s.loading, s.last) { if (!s.loading && !initialized) { setup = s.last; initialized = true } }
+    LaunchedEffect(s.loading, s.last) { if (!s.loading && !initialized) { setup = s.last.copy(packages = s.savedSelection); initialized = true } }
     LaunchedEffect(s.session) {
         if (previous != null && s.session == null) { completed = s.sessions.firstOrNull { it.id == previous?.id } ?: previous; sheet = "complete" }
         previous = s.session

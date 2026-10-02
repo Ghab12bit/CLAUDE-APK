@@ -51,6 +51,7 @@ object BlockSessionStore {
         val m = metadata(db)
         if (m.id != s.id || m.used >= m.budget || pkg !in QuickBlockPolicy.packages(s.blockedPackages) ||
             QuickBlockPolicy.isExpired(s.endTime, now)) return@withTransaction false
+        if (!blocks(db, s, pkg, now)) return@withTransaction false
         db.settingsDao().insert(AppSettings(KEY, m.copy(used = m.used + 1, exceptionPackage = pkg,
             exceptionUntil = BlockSessionPolicy.exceptionEnd(now, s.endTime)).json()))
         true

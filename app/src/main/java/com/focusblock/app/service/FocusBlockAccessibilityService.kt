@@ -177,6 +177,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private var lastBlockedPackage: String? = null
     private var lastBlockTime = 0L
     private var isBlockingInProgress = false
+    private val blockingGate = AtomicBoolean(false)
     private val database by lazy { FocusBlockDatabase.getDatabase(applicationContext) }
     private var lastForegroundPackage: String? = null
 
@@ -366,11 +367,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             addAction(ACTION_REFRESH_STRICT_MODE_CACHE)
             addAction(ACTION_ACTIVATE_EMERGENCY_UNLOCK)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(settingsChangeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(settingsChangeReceiver, filter)
-        }
+        androidx.core.content.ContextCompat.registerReceiver(
+            this, settingsChangeReceiver, filter,
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+        )
         Log.d(TAG, "Settings change receiver registered")
 
         // Show toast to confirm service is running
@@ -1312,7 +1312,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
                 // Check if in allowlist
                 val blockedApp = blockedAppDao.getBlockedApp(currentPackage)
-                if (blockedApp?.isInAllowlist == true) return@launch
+                if (blockedApp?.isInAllowlist == true || BlockSessionStore.essential(this@FocusBlockAccessibilityService, database, currentPackage)) return@launch
 
                 // Check schedules
                 val currentMinute = TimeUtils.getCurrentMinuteOfDay()
@@ -1966,6 +1966,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
     private suspend fun blockApp(packageName: String) {
         if (BlockSessionStore.essential(this, database, packageName)) return
+        if (!blockingGate.compareAndSet(false, true)) return
         isBlockingInProgress = true
         Log.d(TAG, "blockApp() called for: $packageName")
 
@@ -2006,8 +2007,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             Log.e(TAG, "Error blocking app: $packageName", e)
         } finally {
-            delay(500)
             isBlockingInProgress = false
+            blockingGate.set(false)
         }
     }
 

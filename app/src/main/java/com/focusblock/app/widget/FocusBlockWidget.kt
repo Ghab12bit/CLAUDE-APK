@@ -42,6 +42,7 @@ class FocusBlockWidget : AppWidgetProvider() {
     }
 
     private fun toggleBlocking(context: Context) {
+        val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val db = FocusBlockDatabase.getInstance(context)
@@ -51,6 +52,7 @@ class FocusBlockWidget : AppWidgetProvider() {
                 if (activeSession != null) {
                     // Widgets must obey the same persisted lock as the app.
                     if (!com.focusblock.app.blocking.BlockSessionStore.isLocked(db) &&
+                        !com.focusblock.app.blocking.ImportedRuleStore.configurationLocked(db) &&
                         db.settingsDao().getValue("hard_mode_enabled") != "true" &&
                         (db.settingsDao().getValue("strict_mode_end_time")?.toLongOrNull() ?: 0) <= System.currentTimeMillis()) {
                         db.quickBlockSessionDao().update(activeSession.copy(isActive = false, endTime = System.currentTimeMillis()))
@@ -80,7 +82,9 @@ class FocusBlockWidget : AppWidgetProvider() {
                     updateAppWidget(context, appWidgetManager, appWidgetId)
                 }
             } catch (e: Exception) {
-                // Handle error
+                android.util.Log.e("FocusBlockWidget", "Could not change blocking", e)
+            } finally {
+                pendingResult.finish()
             }
         }
     }
@@ -99,7 +103,9 @@ class FocusBlockWidget : AppWidgetProvider() {
                     val db = FocusBlockDatabase.getInstance(context)
                     val dao = db.focusBlockDao()
                     val activeSession = dao.getActiveQuickBlockSessionDirect()
-                    val isBlocking = activeSession != null
+                    val isBlocking = activeSession != null && !com.focusblock.app.blocking.QuickBlockPolicy.isExpired(activeSession.endTime, System.currentTimeMillis())
+                    val locked = com.focusblock.app.blocking.BlockSessionStore.isLocked(db)
+                    val ready = com.focusblock.app.utils.PermissionUtils.hasAccessibilityServiceEnabled(context)
                     val blockedCount = activeSession?.blockedPackages?.split(",")
                         ?.filter { it.isNotBlank() }?.size ?: 0
 
@@ -108,7 +114,7 @@ class FocusBlockWidget : AppWidgetProvider() {
                     // Update status
                     views.setTextViewText(
                         R.id.widget_status,
-                        if (isBlocking) "Blocking Active" else "Not Blocking"
+                        if (!ready) "Check permissions" else if (isBlocking) "Block running" else "No quick block"
                     )
 
                     views.setTextViewText(
@@ -118,7 +124,7 @@ class FocusBlockWidget : AppWidgetProvider() {
 
                     views.setTextViewText(
                         R.id.widget_button,
-                        if (isBlocking) "Stop" else "Start"
+                        if (locked) "Locked" else if (isBlocking) "Stop" else "Start 25 min"
                     )
 
                     // Toggle action

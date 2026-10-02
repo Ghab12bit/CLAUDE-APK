@@ -14,6 +14,7 @@ import com.focusblock.app.database.entity.AppSettings
 import com.focusblock.app.database.entity.QuickBlockSession
 import com.focusblock.app.ui.MainActivity
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Before
@@ -26,7 +27,10 @@ class BlockingFirstUiTest {
     @Before fun prepare() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
-        listOf("appops set com.focusblock.app GET_USAGE_STATS allow", "appops set com.focusblock.app SYSTEM_ALERT_WINDOW allow").forEach { command ->
+        listOf("appops set com.focusblock.app GET_USAGE_STATS allow", "appops set com.focusblock.app SYSTEM_ALERT_WINDOW allow",
+            "pm grant com.focusblock.app android.permission.POST_NOTIFICATIONS",
+            "settings put secure enabled_accessibility_services com.focusblock.app/com.focusblock.app.service.FocusBlockAccessibilityService",
+            "settings put secure accessibility_enabled 1").forEach { command ->
             automation.executeShellCommand(command).use { android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes() }
         }
         runBlocking {
@@ -35,6 +39,28 @@ class BlockingFirstUiTest {
             db.settingsDao().insert(AppSettings("quick_block_saved_apps", ""))
             db.settingsDao().insert(AppSettings(BlockSessionStore.LAST, "{}"))
             db.focusBlockDao().insertOnboardingState(OnboardingState(id = 1, hasCompletedOnboarding = true, completedAt = System.currentTimeMillis()))
+        }
+    }
+    @Test fun startingBlockInterceptsAnInstalledApp() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = FocusBlockDatabase.getDatabase(context)
+        val app = com.focusblock.app.utils.AppUtils.getInstalledApps(context, true).first {
+            it.packageName !in BlockSessionStore.requiredPackages(context) &&
+                (it.packageName.contains("calendar") || it.packageName.contains("calculator") || it.packageName.contains("browser"))
+        }
+        runBlocking { db.settingsDao().insert(AppSettings("quick_block_saved_apps", app.packageName)) }
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.waitUntil(15000) { compose.onAllNodesWithText("Apps to block (1)").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(15000) { compose.onAllNodesWithText("Start 45-minute block").fetchSemanticsNodes().any { node -> !node.config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled) } }
+            screenshot(context, "block-selected")
+            compose.onNodeWithText("Start 45-minute block").performScrollTo().performClick()
+            compose.waitUntil(10000) { runBlocking { db.quickBlockSessionDao().getActiveSessionSync() != null } }
+            val since = System.currentTimeMillis()
+            context.startActivity(context.packageManager.getLaunchIntentForPackage(app.packageName)!!.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            compose.waitUntil(15000) { compose.onAllNodesWithText("${app.appName} is paused.").fetchSemanticsNodes().isNotEmpty() }
+            screenshot(context, "intervention")
+            org.junit.Assert.assertTrue(runBlocking { db.blockLogDao().getAllLogs().first().any { log -> log.packageName == app.packageName && log.timestamp >= since } })
+            compose.onNodeWithText("Back to home screen").performClick()
         }
     }
     @Test fun nativeNavigationAndIntegratedPicker() {
@@ -79,6 +105,8 @@ class BlockingFirstUiTest {
         compose.waitForIdle()
         val file = File(context.filesDir, "screenshots/$name.png")
         file.parentFile?.mkdirs()
-        file.outputStream().use { compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
+        val bitmap = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        checkNotNull(bitmap) { "Android did not return a screen capture" }
+        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 }

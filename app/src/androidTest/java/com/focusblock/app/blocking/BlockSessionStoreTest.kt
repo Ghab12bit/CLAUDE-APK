@@ -39,6 +39,20 @@ class BlockSessionStoreTest {
             assertFalse(BlockSessionStore.grantOnce(db, "example.app"))
         } finally { db.close() }
     }
+    @Test fun legacyTimerAllowanceCannotBeSpentTwiceOrChangeSessionLock() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(context, FocusBlockDatabase::class.java).build()
+        try {
+            val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+            db.appTimerSettingsDao().insert(AppTimerSettings(isEnabled = true, timerApps = "example.app"))
+            db.appTimerDailyUsageDao().insert(AppTimerDailyUsage(date = date))
+            val id = db.quickBlockSessionDao().insert(QuickBlockSession(startTime = System.currentTimeMillis(), endTime = Long.MAX_VALUE, blockedPackages = "example.app"))
+            db.settingsDao().insert(AppSettings(BlockSessionStore.KEY, BlockSessionMetadata(id = id, strict = true, budget = 0).json()))
+            assertTrue(LegacyLimitAccess.grant(db, BlockedByType.APP_TIMER, "example.app"))
+            assertFalse(LegacyLimitAccess.grant(db, BlockedByType.APP_TIMER, "example.app"))
+            assertTrue(BlockSessionStore.isLocked(db))
+            assertTrue(BlockSessionStore.blocks(db, db.quickBlockSessionDao().getActiveSessionSync()!!, "example.app", System.currentTimeMillis()))
+        } finally { db.close() }
+    }
     @Test fun migrationsRetainSessionsRulesAndExtraTables() = runBlocking {
         for (version in 12..15) {
             val name = "migration-$version-${System.nanoTime()}.db"

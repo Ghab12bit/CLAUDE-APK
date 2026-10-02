@@ -301,6 +301,30 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
     }
 }
 
+@Composable
+fun BlockingFirstOnboarding(onComplete: () -> Unit) = BlockingFirstTheme {
+    val context = LocalContext.current
+    var refresh by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(1000); refresh++ } }
+    val access = remember(refresh) { PermissionUtils.hasAccessibilityServiceEnabled(context) }
+    val usage = remember(refresh) { PermissionUtils.hasUsageStatsPermission(context) }
+    val overlay = remember(refresh) { PermissionUtils.hasOverlayPermission(context) }
+    Surface(color = MaterialTheme.colorScheme.background) {
+        Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp)) {
+            Text("FocusBlock", color = MaterialTheme.colorScheme.primary); Gap(30)
+            Heading("Make room for your day.")
+            Muted("Choose the apps you want a break from. Set a timer or a recurring rule. Calls and essential apps stay available.")
+            Gap(28); Line(); Section("Enable blocking")
+            SheetRow("Accessibility", if (access) "Enabled" else "Detect an app opening and show your block screen") { PermissionUtils.openAccessibilitySettings(context) }
+            SheetRow("Usage access", if (usage) "Enabled" else "Measure app time for limits and Activity") { PermissionUtils.openUsageAccessSettings(context) }
+            SheetRow("Display over apps", if (overlay) "Enabled" else "Show the intervention when a chosen app is blocked") { PermissionUtils.openOverlaySettings(context) }
+            Gap(); Muted("Strict Lock is optional and explained before you start. You decide which apps and how long.")
+            Gap(28); Action(if (access && usage && overlay) "Choose my apps" else "Continue setup", onClick = onComplete)
+            Gap(); Muted("Blocking stays unavailable until the required permissions are enabled. You can inspect the app first.")
+        }
+    }
+}
+
 @Composable internal fun Heading(text: String) { Text(text, fontSize = 30.sp, lineHeight = 34.sp, letterSpacing = (-1).sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 8.dp, bottom = 10.dp)) }
 @Composable internal fun Muted(text: String) { Text(text, fontSize = 12.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 @Composable internal fun Gap(size: Int = 20) { Spacer(Modifier.height(size.dp)) }

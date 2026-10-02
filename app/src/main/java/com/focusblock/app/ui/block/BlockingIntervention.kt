@@ -31,10 +31,11 @@ fun BlockingIntervention(packageName: String, appName: String, blockedBy: Blocke
     var confirm by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var legacyAvailable by remember { mutableStateOf(false) }
     var reminder by remember { mutableStateOf("") }
     LaunchedEffect(packageName) {
         while (isActive) {
-            withContext(Dispatchers.IO) { session = db.quickBlockSessionDao().getActiveSessionSync(); metadata = BlockSessionStore.metadata(db); reminder = db.settingsDao().getValue(BlockSessionStore.REMINDER).orEmpty() }
+            withContext(Dispatchers.IO) { session = db.quickBlockSessionDao().getActiveSessionSync(); metadata = BlockSessionStore.metadata(db); reminder = db.settingsDao().getValue(BlockSessionStore.REMINDER).orEmpty(); legacyAvailable = LegacyLimitAccess.available(db, blockedBy, packageName) }
             now = System.currentTimeMillis(); delay(1000)
         }
     }
@@ -83,6 +84,23 @@ fun BlockingIntervention(packageName: String, appName: String, blockedBy: Blocke
                 }
             }
             error?.let { Gap(); Text(it, color = MaterialTheme.colorScheme.error) }
+            if (legacyAvailable) {
+                Gap(); Muted(if (blockedBy == BlockedByType.APP_TIMER) "Your existing App Timer allows one 15-minute exception per day." else "Your existing daily limit allows 5 minutes of access, with a 15-minute cooldown.")
+                Muted("This only pauses that limit. Session locks and other rules remain active.")
+                OutlinedButton(onClick = {
+                    busy = true
+                    scope.launch {
+                        try {
+                            val granted = withContext(Dispatchers.IO) { LegacyLimitAccess.grant(db, blockedBy, packageName) }
+                            if (granted) {
+                                context.packageManager.getLaunchIntentForPackage(packageName)?.let { context.startActivity(it) }
+                                (context as? android.app.Activity)?.finish()
+                            } else error = "This allowance is no longer available."
+                        } catch (e: Exception) { error = "Could not save temporary access." }
+                        finally { busy = false }
+                    }
+                }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Use existing limit allowance") }
+            }
             Gap()
         }
     }

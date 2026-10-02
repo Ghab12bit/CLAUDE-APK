@@ -1762,13 +1762,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Ignore all launchers
         if (packageName.contains("launcher")) return true
 
-        // Ignore Samsung system utilities (One Hand Operation+, Edge Panel, Routines, etc.)
-        if (packageName.startsWith("com.samsung.android.")) {
-            // Only track Samsung browser - it can be distracting
-            if (packageName == "com.samsung.android.app.sbrowser") return false
-            return true // Ignore all other Samsung utilities
-        }
-        if (packageName.startsWith("com.sec.android.")) return true
+        // Samsung also ships launchable apps such as Internet and Game Hub.
+        // Their vendor prefix must not bypass an explicit app selection.
+        // Required system/phone packages are protected by the essential-app check.
 
         // Ignore Google Play Services
         if (packageName == "com.google.android.gms") return true

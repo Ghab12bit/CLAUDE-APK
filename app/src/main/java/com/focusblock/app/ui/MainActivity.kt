@@ -102,7 +102,7 @@ fun MainAppWithOnboarding() {
             }
         }
         false -> {
-            OnboardingScreen(
+            com.focusblock.app.ui.block.BlockingFirstOnboarding(
                 onComplete = {
                     coroutineScope.launch(Dispatchers.IO) {
                         try {

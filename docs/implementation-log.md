@@ -425,9 +425,13 @@ branch. Only the pure policy package was also compiled and tested locally, as a 
 | Unit tests, 66 in total: policy engine and every §8.2 overlap pair, time windows (overnight, DST, time zone), sessions and friction, usage, coverage, recommendations, migration SQL against Room's schema 17, colour contrast (WCAG AA) | CI `build` (and policy tests locally) | Pass |
 | `lintDebug` | CI `build` | Pass |
 | Room migrations 12–16 → 17 with legacy fixtures, including Strict and Hard Mode mapping (`Migration17Test`, 3 tests) | CI `emulator`, Android 14 | Pass |
-| End to end with the real accessibility service (`EndToEndTest`, 5 tests). Opening a blocked app shows the block screen and is logged; Strict Lock offers only emergency access and cannot be ended; Open anyway is time-boxed and logged; tabs render from persisted state; the idle Block tab shows setup | CI `emulator`, Android 14 | See the final run below |
+| End to end with the real accessibility service (`EndToEndTest`, 5 tests). Opening a blocked app shows the block screen and is logged; Strict Lock offers only emergency access and cannot be ended; Open anyway is time-boxed and logged; tabs render from persisted state; the idle Block tab shows setup | CI `emulator`, Android 14 | Pass |
 
-Bugs found by the emulator run and fixed:
+Final run: GitHub Actions run 36993637732 on commit `e5f0434`. Build, unit tests and lint passed, and
+all 8 emulator tests passed (5 end to end and 3 migration). The `release` job published
+`FocusBlock-debug.apk` as the `focusblock-latest` prerelease.
+
+Bugs found by the emulator runs and fixed:
 - Compose crashed after Open anyway, because of an early `return@Column` after conditional
   composition. All inline-layout early returns were removed.
 - Tests re-applied the accessibility setting before each test. Android then re-bound the service

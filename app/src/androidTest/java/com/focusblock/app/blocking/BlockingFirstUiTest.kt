@@ -57,7 +57,12 @@ class BlockingFirstUiTest {
             compose.waitUntil(10000) { runBlocking { db.quickBlockSessionDao().getActiveSessionSync() != null } }
             val since = System.currentTimeMillis()
             context.startActivity(context.packageManager.getLaunchIntentForPackage(app.packageName)!!.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            compose.waitUntil(15000) { compose.onAllNodesWithText("${app.appName} is paused.").fetchSemanticsNodes().isNotEmpty() }
+            // Home is briefly foregrounded before the intervention is attached.
+            // No Compose root during that transition is expected, not a failure.
+            compose.waitUntil(15000) {
+                compose.onAllNodesWithText("${app.appName} is paused.")
+                    .fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty()
+            }
             screenshot(context, "intervention")
             org.junit.Assert.assertTrue(runBlocking { db.blockLogDao().getAllLogs().first().any { log -> log.packageName == app.packageName && log.timestamp >= since } })
             compose.onNodeWithText("Back to home screen").performClick()

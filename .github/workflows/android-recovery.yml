@@ -54,7 +54,7 @@ jobs:
           profile: pixel_6_pro
           disable-animations: true
           script: |
-            ./gradlew connectedDebugAndroidTest --stacktrace; result=$?; mkdir -p app/build/screenshots; adb exec-out run-as com.focusblock.app tar -C files/screenshots -cf - . | tar -xf - -C app/build/screenshots; exit "$result"
+            result=0; ./gradlew connectedDebugAndroidTest --stacktrace || result=$?; mkdir -p app/build/screenshots; adb exec-out run-as com.focusblock.app tar -C files/screenshots -cf - . | tar -xf - -C app/build/screenshots; exit "$result"
 
       - name: Upload test evidence
         if: always()

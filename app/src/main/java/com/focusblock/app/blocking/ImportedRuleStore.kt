@@ -1,14 +1,12 @@
 package com.focusblock.app.blocking
 
-import android.content.Context
-import android.app.usage.UsageEvents
-import android.app.usage.UsageStatsManager
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.Schedule
 import java.util.Calendar
 
-/** Read-through adapter for rules created by the existing v13–15 Claude branch.
- * The original rows, notes, counters and lock hashes are retained unchanged. */
+/** Read-through adapter for rules created by the earlier v13–15 redesign branch.
+ * The original rows, notes, counters and lock hashes are retained unchanged. Enforcement of these
+ * rules goes through [com.focusblock.app.core.PolicyRepository] and the policy engine. */
 object ImportedRuleStore {
     data class Rule(val id: Long, val name: String, val packages: String, val enabled: Boolean,
         val manual: Boolean, val manualActive: Boolean, val until: Long?, val timed: Boolean,
@@ -47,31 +45,6 @@ object ImportedRuleStore {
         if (!exists(db, "protection_lock")) return false
         return db.openHelper.readableDatabase.query("SELECT lockedUntil, level FROM protection_lock WHERE id=1").use { c ->
             c.moveToFirst() && c.getLong(0) > System.currentTimeMillis() && c.getString(1) != "OFF"
-        }
-    }
-    private fun start(now: Long, hourly: Boolean): Long = Calendar.getInstance().apply {
-        timeInMillis = now; if (!hourly) set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-    }.timeInMillis
-    fun blocks(context: Context, db: FocusBlockDatabase, pkg: String): Boolean {
-        val now = System.currentTimeMillis()
-        return rules(db).any { r ->
-            if (!r.enabled || pkg !in QuickBlockPolicy.packages(r.packages) || !r.inWindow(now)) return@any false
-            if (exists(db, "rule_overrides")) {
-                val override = db.openHelper.readableDatabase.query("SELECT id FROM rule_overrides WHERE ruleId=? AND expiresAt>? LIMIT 1", arrayOf(r.id, now)).use { it.moveToFirst() }
-                if (override) return@any false
-            }
-            val packages = QuickBlockPolicy.packages(r.packages)
-            if (r.usage) {
-                val usage = UsageWindowReader.read(context, start(now, r.hourly), now) ?: return@any false
-                if (usage.filterKeys { it in packages }.values.sum() < r.minutes * 60000L) return@any false
-            }
-            if (r.launches) {
-                val events = (context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager).queryEvents(start(now, r.launchHourly), now) ?: return@any false
-                val e = UsageEvents.Event(); var count = 0; var last = ""
-                while (events.hasNextEvent()) { events.getNextEvent(e); if (e.eventType == UsageEvents.Event.ACTIVITY_RESUMED) { if (e.packageName in packages && e.packageName != last) count++; last = e.packageName.orEmpty() } }
-                if (count < r.launchLimit) return@any false
-            }
-            true
         }
     }
     fun save(db: FocusBlockDatabase, rule: Rule) {

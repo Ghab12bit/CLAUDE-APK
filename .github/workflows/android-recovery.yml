@@ -45,14 +45,16 @@ jobs:
       - name: Android lint
         run: ./gradlew lintDebug --stacktrace
 
-      - name: Print exported Room schemas
+      - name: Print new Room schemas (not yet committed)
         if: always()
         run: |
           for f in $(find app/schemas -name '*.json' 2>/dev/null | sort); do
-            echo "=== SCHEMA $f"
-            cat "$f"
-            echo
-            echo "=== END SCHEMA $f"
+            if ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+              echo "=== SCHEMA $f"
+              cat "$f"
+              echo
+              echo "=== END SCHEMA $f"
+            fi
           done
 
       - name: Upload reports

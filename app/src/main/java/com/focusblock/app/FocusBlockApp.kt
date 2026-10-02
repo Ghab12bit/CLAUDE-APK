@@ -8,10 +8,8 @@ import android.content.IntentFilter
 import androidx.core.content.ContextCompat
 import com.focusblock.app.core.AppGraph
 import com.focusblock.app.worker.DailySummaryWorker
-import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.launch
 
-@HiltAndroidApp
 class FocusBlockApp : Application() {
 
     override fun onCreate() {
@@ -41,10 +39,5 @@ class FocusBlockApp : Application() {
                 graph.policy.invalidate()
             }
         }, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
-    }
-
-    companion object {
-        // Legacy channel id, kept only until the old Home screen is removed.
-        const val CHANNEL_MINDFUL_REMINDER = "fb_reminders"
     }
 }

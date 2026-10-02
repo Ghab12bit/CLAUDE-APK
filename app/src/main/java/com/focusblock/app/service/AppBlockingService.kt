@@ -114,8 +114,5 @@ class AppBlockingService : Service() {
         fun stop(context: Context) {
             runCatching { context.stopService(Intent(context, AppBlockingService::class.java)) }
         }
-
-        /** Legacy entry point kept until the old screens are removed; refreshes the shared graph. */
-        fun update(context: Context) = AppGraph.get(context).requestRefresh()
     }
 }

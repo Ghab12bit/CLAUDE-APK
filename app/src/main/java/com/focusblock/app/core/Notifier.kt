@@ -57,6 +57,7 @@ class Notifier(private val context: Context, private val db: FocusBlockDatabase,
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
+    @android.annotation.SuppressLint("MissingPermission") // POST_NOTIFICATIONS is checked by canPost() first.
     private fun post(id: Int, notification: android.app.Notification) {
         if (!canPost()) return
         runCatching { manager.notify(id, notification) }

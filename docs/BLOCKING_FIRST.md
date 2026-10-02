@@ -1,3 +1,6 @@
+> **Superseded (2026-10-02).** This describes the recovery branch's interim design. The current
+> architecture, decisions and evidence are in [implementation-log.md](implementation-log.md).
+
 # FocusBlock blocking-first implementation
 
 ## Design source

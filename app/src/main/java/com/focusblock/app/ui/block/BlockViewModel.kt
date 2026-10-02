@@ -1,201 +1,281 @@
 package com.focusblock.app.ui.block
 
-import android.app.Application
-import android.app.usage.UsageEvents
-import android.app.usage.UsageStatsManager
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.room.withTransaction
-import com.focusblock.app.blocking.*
-import com.focusblock.app.database.FocusBlockDatabase
-import com.focusblock.app.database.entity.*
-import com.focusblock.app.service.AppBlockingService
-import com.focusblock.app.utils.AppUtils
-import com.focusblock.app.utils.PermissionUtils
-import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
-import org.json.JSONObject
-import java.util.Calendar
-import javax.inject.Inject
+import com.focusblock.app.core.AppGraph
+import com.focusblock.app.core.BlockSetup
+import com.focusblock.app.core.EndResult
+import com.focusblock.app.core.HealthState
+import com.focusblock.app.core.PermissionHealth
+import com.focusblock.app.core.Reject
+import com.focusblock.app.core.Requirement
+import com.focusblock.app.core.StartRequest
+import com.focusblock.app.core.StartResult
+import com.focusblock.app.database.PrefKeys
+import com.focusblock.app.database.entity.BlockSessionEntity
+import com.focusblock.app.policy.BlockPolicyEngine
+import com.focusblock.app.policy.BlockReason
+import com.focusblock.app.policy.PolicyTime
+import com.focusblock.app.policy.ReasonType
+import com.focusblock.app.policy.SessionClock
+import com.focusblock.app.policy.SessionInput
+import com.focusblock.app.policy.SessionOutcome
+import com.focusblock.app.policy.SessionType
+import com.focusblock.app.policy.Strength
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
-data class BlockSetup(val packages: List<String> = emptyList(), val mode: String = "timed",
-    val minutes: Int = 45, val rest: Int = 5, val rounds: Int = 4, val strict: Boolean = false, val budget: Int = 1) {
-    fun json(): String = JSONObject().put("apps", packages.joinToString(",")).put("mode", mode)
-        .put("minutes", minutes).put("rest", rest).put("rounds", rounds).put("strict", strict).put("budget", budget).toString()
-    companion object {
-        fun parse(s: String?): BlockSetup = runCatching {
-            val j = JSONObject(s ?: "{}")
-            BlockSetup(QuickBlockPolicy.packages(j.optString("apps")).toList(), j.optString("mode", "timed"),
-                j.optInt("minutes", 45), j.optInt("rest", 5), j.optInt("rounds", 4), j.optBoolean("strict"), j.optInt("budget", 1))
-        }.getOrDefault(BlockSetup())
-    }
+/** The setup being edited on the Block tab. Saved in [SavedStateHandle] so it survives process death. */
+data class Draft(
+    val packages: List<String> = emptyList(),
+    val type: SessionType = SessionType.TIMED,
+    val minutes: Int = 45,
+    val focus: Int = 25,
+    val rest: Int = 5,
+    val rounds: Int = 4,
+    val strict: Boolean = false,
+    val intention: String = "",
+) {
+    fun toSetup() = BlockSetup(packages, type, minutes, focus, rest, rounds, if (strict && type != SessionType.INDEFINITE) Strength.STRICT else Strength.NORMAL)
 }
 
-data class BlockUiState(
-    val loading: Boolean = true, val apps: List<AppUtils.AppInfo> = emptyList(),
-    val essential: Set<String> = emptySet(), val session: QuickBlockSession? = null,
-    val metadata: BlockSessionMetadata = BlockSessionMetadata(), val last: BlockSetup = BlockSetup(),
-    val schedules: List<Schedule> = emptyList(), val limits: List<AppTimeLimit> = emptyList(),
-    val logs: List<BlockLog> = emptyList(), val sessions: List<QuickBlockSession> = emptyList(),
-    val usage: Map<String, Long>? = null, val yesterday: Map<String, Long>? = null,
-    val ready: Boolean = false, val now: Long = System.currentTimeMillis(),
-    val reminder: String = "", val busy: Boolean = false, val error: String? = null,
-    val importedRules: List<ImportedRuleStore.Rule> = emptyList(), val configurationLocked: Boolean = false,
-    val savedSelection: List<String> = emptyList()
+data class NextRule(val name: String, val at: Long)
+
+data class BlockUi(
+    val loading: Boolean = true,
+    val draft: Draft = Draft(),
+    val last: BlockSetup? = null,
+    val session: BlockSessionEntity? = null,
+    val input: SessionInput? = null,
+    val awaitingOutcome: BlockSessionEntity? = null,
+    val labels: Map<String, String> = emptyMap(),
+    val essentials: Set<String> = emptySet(),
+    val missing: Requirement? = null,
+    val accessibility: HealthState = HealthState.OK,
+    val activeRule: BlockReason? = null,
+    val nextRule: NextRule? = null,
+    val alsoBlockedBy: List<String> = emptyList(),
+    val blockedOpenings: Int = 0,
+    val busy: Boolean = false,
+    val message: Int? = null,
 )
 
-@HiltViewModel
-class BlockViewModel @Inject constructor(private val app: Application) : AndroidViewModel(app) {
-    private val db = FocusBlockDatabase.getDatabase(app)
-    private val mutable = MutableStateFlow(BlockUiState())
-    val state = mutable.asStateFlow()
+class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateHandle) : ViewModel() {
+    private val mutable = MutableStateFlow(BlockUi())
+    val state: StateFlow<BlockUi> = mutable.asStateFlow()
 
     init {
-        observe { db.quickBlockSessionDao().getActiveSession().collect { s -> mutable.update { it.copy(session = s) } } }
-        observe { db.quickBlockSessionDao().getAllSessions().collect { s -> mutable.update { it.copy(sessions = s) } } }
-        observe { db.scheduleDao().getAllSchedules().collect { s -> mutable.update { it.copy(schedules = s) } } }
-        observe { db.appTimeLimitDao().getAllTimeLimits().collect { s -> mutable.update { it.copy(limits = s) } } }
-        observe { db.blockLogDao().getAllLogs().collect { s -> mutable.update { it.copy(logs = s) } } }
-        observe { db.settingsDao().getValueFlow(BlockSessionStore.KEY).collect { s -> mutable.update { it.copy(metadata = BlockSessionMetadata.parse(s)) } } }
-        observe { db.settingsDao().getValueFlow(BlockSessionStore.LAST).collect { s ->
-            val saved = if (s == null) BlockSetup(packages = QuickBlockPolicy.packages(db.settingsDao().getValue(AppSettings.KEY_QUICK_BLOCK_SAVED_APPS).orEmpty()).toList()) else BlockSetup.parse(s)
-            mutable.update { it.copy(last = saved) }
-        } }
-        observe { db.settingsDao().getValueFlow(BlockSessionStore.REMINDER).collect { s -> mutable.update { it.copy(reminder = s.orEmpty()) } } }
-        observe {
-            val apps = AppUtils.getInstalledApps(app, true)
-            val essentials = BlockSessionStore.requiredPackages(app) + db.essentialAppWhitelistDao().getWhitelistedPackageNames() +
-                db.blockedAppDao().getAllowlistApps().first().map { it.packageName }
-            val savedSelection = QuickBlockPolicy.packages(db.settingsDao().getValue(AppSettings.KEY_QUICK_BLOCK_SAVED_APPS).orEmpty()).toList()
-            val last = BlockSetup.parse(db.settingsDao().getValue(BlockSessionStore.LAST))
-            mutable.update { it.copy(apps = apps, essential = essentials, loading = false, savedSelection = savedSelection, last = last) }
+        // Restore an in-progress draft after process death; otherwise start from the last setup.
+        restoreDraft()?.let { d -> mutable.update { it.copy(draft = d) } }
+        viewModelScope.launch {
+            combine(graph.sessions.activeFlow(), graph.sessions.awaitingOutcomeFlow(), graph.sessions.lastSetupFlow(), graph.essentials.flow()) { a, w, l, e ->
+                Quad(a, w, l, e)
+            }.collect { (active, awaiting, last, essentials) ->
+                val hadDraft = saved.contains(KEY_DRAFT)
+                mutable.update { s ->
+                    s.copy(
+                        loading = false,
+                        session = active,
+                        input = active?.let(graph.sessions::toInput),
+                        awaitingOutcome = awaiting,
+                        last = last,
+                        essentials = essentials,
+                        draft = if (!hadDraft && last != null && s.draft.packages.isEmpty()) draftFrom(last, s.draft) else s.draft,
+                    )
+                }
+                refreshDerived()
+            }
         }
-        observe {
-            var ticks = 0
+        viewModelScope.launch {
             while (isActive) {
-                val now = System.currentTimeMillis()
-                val ready = PermissionUtils.hasAccessibilityServiceEnabled(app) && PermissionUtils.hasUsageStatsPermission(app) && PermissionUtils.hasOverlayPermission(app)
-                val imported = ImportedRuleStore.rules(db)
-                val locked = ImportedRuleStore.configurationLocked(db)
-                mutable.update { it.copy(now = now, ready = ready, importedRules = imported, configurationLocked = locked) }
-                val s = db.quickBlockSessionDao().getActiveSessionSync()
-                if (s != null && QuickBlockPolicy.isExpired(s.endTime, now)) db.quickBlockSessionDao().deactivate(s.id)
-                if (ticks++ % 30 == 0) refreshUsage(now)
-                delay(1000)
+                delay(15_000)
+                graph.sessions.reconcile()
+                refreshDerived()
+            }
+        }
+        viewModelScope.launch { applyDefaults() }
+    }
+
+    private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
+
+    private suspend fun applyDefaults() {
+        if (saved.contains(KEY_DRAFT) || mutable.value.last != null) return
+        val s = graph.db.settingsDao()
+        val type = SessionType.values().firstOrNull { it.name == s.getValue(PrefKeys.DEFAULT_TYPE) } ?: SessionType.TIMED
+        val strict = s.getValue(PrefKeys.DEFAULT_STRENGTH) == Strength.STRICT.name
+        val minutes = s.getValue(PrefKeys.DEFAULT_MINUTES)?.toIntOrNull() ?: 45
+        val selection = graph.sessions.savedSelection()
+        mutable.update { it.copy(draft = it.draft.copy(type = type, strict = strict, minutes = minutes, packages = if (it.draft.packages.isEmpty()) selection else it.draft.packages)) }
+    }
+
+    private fun draftFrom(last: BlockSetup, current: Draft) = current.copy(
+        packages = last.packages, type = last.type, minutes = last.minutes, focus = last.focusMinutes,
+        rest = last.breakMinutes, rounds = last.rounds.coerceAtLeast(2), strict = last.strength == Strength.STRICT,
+    )
+
+    /** Status line, next rule, overlap rows and health; recomputed on changes and every 15 s. */
+    fun refreshDerived() {
+        viewModelScope.launch {
+            val ctx = graph.context
+            val snap = graph.policy.snapshot()
+            val now = graph.clock.now()
+            val zone = graph.clock.zone()
+            val active = BlockPolicyEngine.activeRuleReasons(snap, now, zone).firstOrNull()
+            val next = buildList {
+                snap.routines.filter { it.enabled && it.window != null && !it.imported }.forEach { r ->
+                    r.window!!.nextStartAfter(now, zone)?.let { add(NextRule(r.name, it)) }
+                }
+                snap.bedtime?.takeIf { it.enabled }?.window?.nextStartAfter(now, zone)?.let { add(NextRule("", it)) }
+            }.minByOrNull { it.at }
+            val session = mutable.value.input
+            val also = if (session != null) overlapping(session, now) else emptyList()
+            val openings = mutable.value.session?.let { graph.db.attemptDao().since(it.startedAt).count { log -> log.sessionId == it.id } } ?: 0
+            val labels = HashMap(mutable.value.labels)
+            (mutable.value.draft.packages + (session?.packages ?: emptySet()) + (mutable.value.last?.packages ?: emptyList()))
+                .forEach { if (it !in labels) labels[it] = graph.apps.label(it) }
+            mutable.update {
+                it.copy(
+                    missing = PermissionHealth.missingRequired(ctx),
+                    accessibility = PermissionHealth.accessibilityState(ctx),
+                    activeRule = active,
+                    nextRule = next,
+                    alsoBlockedBy = also,
+                    blockedOpenings = openings,
+                    labels = labels,
+                )
             }
         }
     }
 
-    private fun observe(block: suspend CoroutineScope.() -> Unit) = viewModelScope.launch(Dispatchers.IO) {
-        try { block() } catch (e: CancellationException) { throw e } catch (e: Exception) {
-            mutable.update { it.copy(loading = false, error = "Could not read saved state. ${e.localizedMessage.orEmpty()}") }
+    /** Rules that also cover the block's apps during the block (spec 4.3 "Also blocked by"). */
+    private suspend fun overlapping(session: SessionInput, now: Long): List<String> {
+        val snap = graph.policy.snapshot()
+        val zone = graph.clock.zone()
+        val end = session.plannedEndAt ?: (now + 12 * 3_600_000L)
+        val out = ArrayList<String>()
+        snap.routines.filter { it.enabled && it.packages.any { p -> p in session.packages } }.forEach { r ->
+            val w = r.window ?: return@forEach
+            val start = if (w.isActive(now, zone)) now else w.nextStartAfter(now, zone)
+            if (start != null && start < end) out += "${r.name}|$start"
         }
+        snap.bedtime?.takeIf { it.enabled }?.window?.let { w ->
+            val start = if (w.isActive(now, zone)) now else w.nextStartAfter(now, zone)
+            if (start != null && start < end) out += "|$start"
+        }
+        return out
     }
-    private fun mutate(block: suspend () -> Unit) {
+
+    // ---- Draft edits ------------------------------------------------------------------------
+
+    private fun edit(block: (Draft) -> Draft) {
+        mutable.update { it.copy(draft = block(it.draft), message = null) }
+        persistDraft()
+    }
+
+    fun setPackages(packages: List<String>) {
+        edit { it.copy(packages = packages) }
+        refreshDerived()
+        viewModelScope.launch { graph.sessions.saveSelection(packages) }
+    }
+    fun setType(type: SessionType) = edit { it.copy(type = type, strict = if (type == SessionType.INDEFINITE) false else it.strict) }
+    fun setMinutes(minutes: Int) = edit { it.copy(minutes = minutes.coerceIn(1, 720)) }
+    fun setFocus(minutes: Int) = edit { it.copy(focus = minutes.coerceIn(5, 120)) }
+    fun setRest(minutes: Int) = edit { it.copy(rest = minutes.coerceIn(1, 30)) }
+    fun setRounds(rounds: Int) = edit { it.copy(rounds = rounds.coerceIn(2, 8)) }
+    fun setStrict(strict: Boolean) = edit { it.copy(strict = strict && it.type != SessionType.INDEFINITE) }
+    fun setIntention(text: String) = edit { it.copy(intention = text.take(80)) }
+    fun clearMessage() = mutable.update { it.copy(message = null) }
+
+    // ---- Actions ----------------------------------------------------------------------------
+
+    fun start() = run(mutable.value.draft.toSetup(), mutable.value.draft.intention)
+
+    fun repeatLast() {
+        val last = mutable.value.last ?: return
+        run(last, mutable.value.draft.intention)
+    }
+
+    private fun run(setup: BlockSetup, intention: String) {
         if (mutable.value.busy) return
-        mutable.update { it.copy(busy = true, error = null) }
-        viewModelScope.launch(Dispatchers.IO) {
-            try { block(); AppBlockingService.update(app) }
-            catch (e: CancellationException) { throw e }
-            catch (e: Exception) { mutable.update { it.copy(error = e.localizedMessage ?: "Could not save. Please try again.") } }
-            finally { mutable.update { it.copy(busy = false) } }
+        mutable.update { it.copy(busy = true, message = null) }
+        viewModelScope.launch {
+            val result = graph.sessions.start(StartRequest(setup, intention))
+            mutable.update {
+                it.copy(
+                    busy = false,
+                    message = when (result) {
+                        is StartResult.Started -> null
+                        is StartResult.Rejected -> when (result.reason) {
+                            Reject.NO_APPS -> com.focusblock.app.R.string.start_no_apps
+                            Reject.ALREADY_RUNNING -> com.focusblock.app.R.string.already_running
+                            Reject.STRICT_NEEDS_END -> com.focusblock.app.R.string.strict_lock_needs_end
+                            Reject.INVALID_LENGTH -> com.focusblock.app.R.string.error_minutes
+                        }
+                    },
+                )
+            }
+            if (result is StartResult.Started) {
+                // The intention belongs to the block that just started; the next one starts empty.
+                edit { it.copy(intention = "") }
+                graph.notifier.cancelEnded()
+            }
         }
     }
-    fun clearError() { mutable.update { it.copy(error = null) } }
-    fun toggleImported(rule: ImportedRuleStore.Rule) = mutate { ImportedRuleStore.toggle(db, rule) }
-    fun saveImported(rule: ImportedRuleStore.Rule) = mutate {
-        db.withTransaction { ImportedRuleStore.save(db, rule.copy(packages = QuickBlockPolicy.packages(rule.packages).filter { it !in state.value.essential }.joinToString(","))) }
-    }
-    fun start(setup: BlockSetup) = mutate {
-        check(state.value.ready) { "Restore accessibility, usage access and overlay permissions first." }
-        require(setup.minutes in 1..720 && setup.rest in 1..30 && setup.rounds in 2..8) { "Check the duration and cycle settings." }
-        require(setup.mode in setOf("timed", "cycles", "manual"))
-        require(!(setup.mode == "manual" && setup.strict)) { "Strict Lock needs a timed end." }
-        val installed = state.value.apps.map { it.packageName }.toSet()
-        val packages = QuickBlockPolicy.sanitizePackages(setup.packages).filter { it in installed && it !in state.value.essential }
-        require(packages.isNotEmpty()) { "Select at least one installed, non-essential app." }
-        db.withTransaction {
-            check(db.quickBlockSessionDao().getActiveSessionSync() == null) { "A block is already running." }
-            val now = System.currentTimeMillis()
-            val total = if (setup.mode == "cycles") setup.minutes * setup.rounds + setup.rest * (setup.rounds - 1) else setup.minutes
-            val id = db.quickBlockSessionDao().insert(QuickBlockSession(startTime = now,
-                endTime = if (setup.mode == "manual") null else now + total * 60000L,
-                blockedPackages = packages.joinToString(","), previouslyBlockedPackages = db.blockedAppDao().getBlockedPackageNames().joinToString(",")))
-            val meta = BlockSessionMetadata(id, setup.strict, if (setup.mode == "cycles") setup.minutes else 0,
-                setup.rest, if (setup.mode == "cycles") setup.rounds else 1, setup.budget.coerceIn(0, 1))
-            db.settingsDao().insert(AppSettings(BlockSessionStore.KEY, meta.json()))
-            db.settingsDao().insert(AppSettings(BlockSessionStore.LAST, setup.copy(packages = packages).json()))
-            db.settingsDao().insert(AppSettings(AppSettings.KEY_QUICK_BLOCK_SAVED_APPS, packages.joinToString(",")))
+
+    fun end() {
+        viewModelScope.launch {
+            if (graph.sessions.end() == EndResult.STRICT_LOCKED) mutable.update { it.copy(message = com.focusblock.app.R.string.strict_cannot_end) }
         }
     }
-    fun stop() = mutate {
-        db.withTransaction {
-            check(!BlockSessionStore.isLocked(db)) { "This block cannot be ended before its timer." }
-            check(!ImportedRuleStore.configurationLocked(db)) { "Your existing configuration lock is active." }
-            check((db.settingsDao().getValue(AppSettings.KEY_STRICT_MODE_END_TIME)?.toLongOrNull() ?: 0) <= System.currentTimeMillis()) { "Existing Strict Mode is still active." }
-            check(db.settingsDao().getValue(AppSettings.KEY_HARD_MODE_ENABLED) != "true") { "Use the existing Hard Mode unlock in advanced controls." }
-            val s = db.quickBlockSessionDao().getActiveSessionSync() ?: return@withTransaction
-            db.quickBlockSessionDao().update(s.copy(isActive = false, endTime = System.currentTimeMillis()))
+
+    fun extend() { viewModelScope.launch { graph.sessions.extend() } }
+
+    fun outcome(outcome: SessionOutcome) {
+        val id = mutable.value.awaitingOutcome?.id ?: return
+        viewModelScope.launch {
+            if (outcome == SessionOutcome.EXTENDED) graph.sessions.extendFinished(id) else graph.sessions.recordOutcome(id, outcome)
+            graph.notifier.cancelEnded()
         }
     }
-    fun extend() = mutate {
-        db.withTransaction {
-            val s = db.quickBlockSessionDao().getActiveSessionSync() ?: return@withTransaction
-            val end = s.endTime ?: return@withTransaction
-            check(end > System.currentTimeMillis()) { "This block has already ended." }
-            db.quickBlockSessionDao().update(s.copy(endTime = end + 15 * 60000L))
-        }
+
+    fun startOfToday(): Long = PolicyTime.startOfDay(graph.clock.now(), graph.clock.zone())
+
+    fun label(pkg: String): String = mutable.value.labels[pkg] ?: graph.apps.label(pkg)
+
+    fun isEssential(pkg: String) = pkg in mutable.value.essentials
+
+    // ---- Saved state ---------------------------------------------------------------------------
+
+    private fun persistDraft() {
+        val d = mutable.value.draft
+        saved[KEY_DRAFT] = arrayListOf(d.packages.joinToString(","), d.type.name, d.minutes.toString(), d.focus.toString(), d.rest.toString(), d.rounds.toString(), d.strict.toString(), d.intention)
     }
-    fun saveSelection(packages: List<String>) = mutate {
-        db.settingsDao().insert(AppSettings(AppSettings.KEY_QUICK_BLOCK_SAVED_APPS, packages.joinToString(",")))
-        mutable.update { it.copy(savedSelection = packages) }
+
+    private fun restoreDraft(): Draft? {
+        val v = saved.get<ArrayList<String>>(KEY_DRAFT) ?: return null
+        if (v.size < 8) return null
+        return Draft(
+            packages = v[0].split(',').filter { it.isNotBlank() },
+            type = SessionType.values().firstOrNull { it.name == v[1] } ?: SessionType.TIMED,
+            minutes = v[2].toIntOrNull() ?: 45, focus = v[3].toIntOrNull() ?: 25, rest = v[4].toIntOrNull() ?: 5,
+            rounds = v[5].toIntOrNull() ?: 4, strict = v[6].toBoolean(), intention = v[7],
+        )
     }
-    private fun ruleLocked(s: Schedule): Boolean {
-        val c = Calendar.getInstance()
-        val day = (c.get(Calendar.DAY_OF_WEEK) + 5) % 7 + 1
-        return s.isStrictMode && SchedulePolicy.isActive(s, c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE), day)
-    }
-    fun saveRule(rule: Schedule) = mutate {
-        check(!ImportedRuleStore.configurationLocked(db)) { "Your existing configuration lock is active." }
-        require(rule.name.isNotBlank() && rule.blockedPackages.isNotBlank()) { "Name the rule and choose apps." }
-        require(rule.startTimeMinutes in 0..1439 && rule.endTimeMinutes in 0..1439 && rule.startTimeMinutes != rule.endTimeMinutes && rule.daysOfWeek.isNotBlank()) { "Choose different start/end times and repeat days." }
-        db.withTransaction {
-            val old = db.scheduleDao().getSchedule(rule.id)
-            check(old == null || !ruleLocked(old)) { "This rule is locked until its active window ends." }
-            db.scheduleDao().insert(rule.copy(blockedPackages = QuickBlockPolicy.packages(rule.blockedPackages).filter { it !in state.value.essential }.joinToString(",")))
-        }
-    }
-    fun toggleRule(rule: Schedule, enabled: Boolean) = saveRule(rule.copy(isEnabled = enabled))
-    fun saveLimit(limit: AppTimeLimit) = mutate {
-        check(!ImportedRuleStore.configurationLocked(db)) { "Your existing configuration lock is active." }
-        require(limit.dailyLimitMinutes in 1..720 && limit.packageName !in state.value.essential) { "Choose a non-essential app and 1–720 minutes." }
-        db.appTimeLimitDao().insert(limit.copy(updatedAt = System.currentTimeMillis()))
-    }
-    fun reminder(value: String) = mutate { db.settingsDao().insert(AppSettings(BlockSessionStore.REMINDER, value)) }
-    fun essentials(packages: Set<String>) = mutate {
-        check(!BlockSessionStore.isLocked(db)) { "Essentials cannot change during Strict Lock." }
-        check(!ImportedRuleStore.configurationLocked(db) && state.value.schedules.none(::ruleLocked)) { "An active rule locks this configuration." }
-        val required = BlockSessionStore.requiredPackages(app)
-        val old = db.blockedAppDao().getAllowlistApps().first()
-        old.filter { it.packageName !in packages && it.packageName !in required }.forEach { db.blockedAppDao().update(it.copy(isInAllowlist = false)) }
-        packages.filter { it !in required }.forEach { pkg ->
-            val existing = db.blockedAppDao().getBlockedApp(pkg)
-            db.blockedAppDao().insert(existing?.copy(isInAllowlist = true) ?: BlockedApp(pkg, AppUtils.getAppName(app, pkg), isBlocked = false, isInAllowlist = true))
-        }
-        // Existing whitelist entries are kept; removing those requires the legacy settings editor.
-        val preserved = db.essentialAppWhitelistDao().getWhitelistedPackageNames()
-        mutable.update { it.copy(essential = required + packages + preserved) }
-    }
-    private suspend fun refreshUsage(now: Long) {
-        if (!PermissionUtils.hasUsageStatsPermission(app)) { mutable.update { it.copy(usage = null, yesterday = null) }; return }
-        val c = Calendar.getInstance().apply { timeInMillis = now }
-        val priorNow = (c.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -1) }.timeInMillis
-        c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0)
-        val midnight = c.timeInMillis
-        c.add(Calendar.DAY_OF_YEAR, -1)
-        val today = UsageWindowReader.read(app, midnight, now)
-        val yesterday = UsageWindowReader.read(app, c.timeInMillis, priorNow)
-        mutable.update { it.copy(usage = today, yesterday = yesterday) }
+
+    companion object {
+        private const val KEY_DRAFT = "draft"
+        val PRESETS = listOf(25, 45, 60)
     }
 }
+
+/** Phase of an active session for display. */
+fun SessionInput.displayState(now: Long): SessionClock.State = SessionClock.state(this, now)
+
+fun ReasonType.isRule() = this == ReasonType.ROUTINE || this == ReasonType.BEDTIME

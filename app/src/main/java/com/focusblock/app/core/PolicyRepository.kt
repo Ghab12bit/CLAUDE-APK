@@ -67,7 +67,9 @@ class PolicyRepository(
 
     fun invalidate() { dirty = true }
 
-    private suspend fun static(): Static = mutex.withLock {
+    private suspend fun static(): Static = withContext(Dispatchers.IO) { staticLocked() }
+
+    private suspend fun staticLocked(): Static = mutex.withLock {
         val now = clock.now()
         val current = cached
         // Imported v13–15 rules live outside Room's invalidation tracker: refresh them every 15 s.

@@ -161,12 +161,5 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
     companion object {
         val isRunning: Boolean get() = ServiceHeartbeat.connected
-
-        // Legacy broadcast names, kept only so code awaiting removal still compiles. Nothing listens.
-        const val ACTION_REFRESH_STRICT_MODE_CACHE = "com.focusblock.app.legacy.REFRESH_STRICT"
-        const val ACTION_REFRESH_GLOBAL_LIMIT_CACHE = "com.focusblock.app.legacy.REFRESH_GLOBAL"
-        const val ACTION_REFRESH_FOCUS_CYCLE_CACHE = "com.focusblock.app.legacy.REFRESH_CYCLE"
-        const val ACTION_ACTIVATE_EMERGENCY_UNLOCK = "com.focusblock.app.legacy.EMERGENCY"
-        const val ACTION_EXTEND_APP_TIMER = "com.focusblock.app.legacy.EXTEND_APP_TIMER"
     }
 }

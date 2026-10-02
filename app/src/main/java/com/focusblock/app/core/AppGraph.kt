@@ -62,6 +62,7 @@ class AppGraph private constructor(appContext: Context) {
     val enforcer = Enforcer(db, clock, policy, apps)
     val overrides = OverrideManager(db, clock, enforcer, apps) { requestRefresh() }
     val focusCycles = FocusCycleTracker(db, clock, policy)
+    val recommendations = RecommendationRepository(context, db, clock, usage, policy, apps)
 
     private val refreshMutex = Mutex()
     private var pendingRefresh: Job? = null

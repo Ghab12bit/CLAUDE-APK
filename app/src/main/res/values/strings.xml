@@ -143,6 +143,7 @@
     <string name="picker_no_results">No apps match “%s”</string>
     <string name="picker_loading">Loading apps…</string>
     <string name="picker_use_set">Use %s</string>
+    <string name="picker_add_set">Add</string>
     <string name="picker_clear">Clear</string>
     <string name="app_selected_cd">%s, selected</string>
     <string name="app_not_selected_cd">%s, not selected</string>

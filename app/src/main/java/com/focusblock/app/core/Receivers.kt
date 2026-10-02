@@ -91,10 +91,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
         graph.scope.launch {
             try {
                 when (intent.action) {
-                    ACTION_END -> {
-                        val result = graph.sessions.end()
-                        if (result == EndResult.STRICT_LOCKED) toast(context, R.string.notif_end_refused)
-                    }
+                    // Older notifications only: ending now goes through the app's end-early sheet.
+                    ACTION_END -> graph.refresh()
                     ACTION_EXTEND -> if (graph.sessions.extend()) toast(context, R.string.notif_extended)
                     ACTION_FINISHED -> { graph.sessions.recordOutcome(id, SessionOutcome.FINISHED); graph.notifier.cancelEnded() }
                     ACTION_NOT_YET -> { graph.sessions.recordOutcome(id, SessionOutcome.NOT_FINISHED); graph.notifier.cancelEnded() }

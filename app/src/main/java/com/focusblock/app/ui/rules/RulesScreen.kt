@@ -158,7 +158,8 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                 state.cycle == null && state.imported.isEmpty()
             SectionGap()
             if (nothing) {
-                EmptyState(stringResource(R.string.rules_empty), actionLabel = stringResource(R.string.add_a_rule), onAction = { addOpen = true })
+                // The Add a rule button below is the one action; no second button here.
+                EmptyState(stringResource(R.string.rules_empty))
             }
 
             // Routines.

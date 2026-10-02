@@ -202,7 +202,8 @@ class EndToEndTest {
             screenshot("07-activity-day-${i + 1}")
         }
         check(device.hasObject(By.text("Blocks")) || device.hasObject(By.text("Distractions")), "Activity sections")
-        scrollToTop()
+        // Back to an unscrolled tab: scrolling up from the top edge would open the notification shade.
+        tap("Rules")
         val settings = device.wait(Until.findObject(By.desc("Settings")), 5_000)
         check(settings != null, "Settings button")
         settings.click()
@@ -233,6 +234,20 @@ class EndToEndTest {
         val deadline = System.currentTimeMillis() + 5_000
         while (runBlocking { graph.sessions.active() } != null && System.currentTimeMillis() < deadline) Thread.sleep(200)
         assertNull("Holding should end the block", runBlocking { graph.sessions.active() })
+    }
+
+    @Test fun notificationAndWidgetEndOpenTheEndEarlySheet() {
+        start(Strength.NORMAL, minutes = 45)
+        // The notification's and widget's "End block early" open the app like this; nothing ends yet.
+        context.startActivity(
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                .putExtra(MainActivity.EXTRA_OPEN, MainActivity.OPEN_END_EARLY),
+        )
+        check(device.wait(Until.hasObject(By.text("Keep blocking")), 15_000), "End-early sheet from the notification")
+        assertNotNull("Opening the sheet must not end the block", runBlocking { graph.sessions.active() })
+        device.findObject(By.text("Keep blocking")).click()
+        check(device.wait(Until.gone(By.text("Keep blocking")), 5_000), "Keep blocking closes the sheet")
+        assertNotNull(runBlocking { graph.sessions.active() })
     }
 
     @Test fun appsCanBeAddedToARunningStrictBlock() {

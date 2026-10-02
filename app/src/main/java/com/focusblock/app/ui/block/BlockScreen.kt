@@ -425,6 +425,12 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
     val st = SessionClock.state(input, now)
     var confirmEnd by rememberSaveable { mutableStateOf(false) }
     var addApps by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.endEarlyRequested) {
+        if (state.endEarlyRequested) {
+            if (input.strength == Strength.NORMAL) confirmEnd = true
+            vm.clearEndEarlyRequest()
+        }
+    }
 
     val title = when {
         input.type == SessionType.INTERVALS && st.phase == SessionClock.Phase.BREAK ->

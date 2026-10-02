@@ -116,6 +116,8 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_OPEN = "open"
         const val OPEN_END_SHEET = "end_sheet"
+        /** From the notification and widget: open the end-early sheet (its wait and hold apply). */
+        const val OPEN_END_EARLY = "end_early"
         const val OPEN_HEALTH = "health"
         const val OPEN_ACTIVITY = "activity"
     }
@@ -166,6 +168,10 @@ private fun MainNav(open: String?, onOpened: () -> Unit) {
             MainActivity.OPEN_HEALTH -> nav.navigate(SettingsRoutes.HEALTH)
             MainActivity.OPEN_ACTIVITY -> selectTab(nav, Tabs.ACTIVITY)
             MainActivity.OPEN_END_SHEET -> selectTab(nav, Tabs.BLOCK)
+            MainActivity.OPEN_END_EARLY -> {
+                selectTab(nav, Tabs.BLOCK)
+                blockVm.requestEndEarly()
+            }
         }
         if (open != null) onOpened()
     }

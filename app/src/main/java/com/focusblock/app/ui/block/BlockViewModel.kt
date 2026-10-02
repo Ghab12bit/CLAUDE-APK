@@ -65,6 +65,8 @@ data class BlockUi(
     val blockedOpenings: Int = 0,
     val busy: Boolean = false,
     val message: Int? = null,
+    /** Set when the notification or widget asked to end the block; the screen opens the end-early sheet. */
+    val endEarlyRequested: Boolean = false,
 )
 
 class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateHandle) : ViewModel() {
@@ -236,6 +238,9 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
     }
 
     fun extend() { viewModelScope.launch { graph.sessions.extend() } }
+
+    fun requestEndEarly() = mutable.update { it.copy(endEarlyRequested = true) }
+    fun clearEndEarlyRequest() = mutable.update { it.copy(endEarlyRequested = false) }
 
     /** Adds apps to the running block (allowed in Strict Lock too: it only makes the block stricter). */
     fun addApps(packages: List<String>) {

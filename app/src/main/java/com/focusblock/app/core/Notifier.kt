@@ -110,7 +110,8 @@ class Notifier(private val context: Context, private val db: FocusBlockDatabase,
             builder.setWhen(end).setUsesChronometer(true).setChronometerCountDown(true).setShowWhen(true)
         }
         if (input.strength == Strength.NORMAL) {
-            builder.addAction(0, context.getString(R.string.action_end_block), action(NotificationActionReceiver.ACTION_END, session.id, 10))
+            // Opens the end-early sheet; ending from the notification would skip its wait and hold.
+            builder.addAction(0, context.getString(R.string.end_early_link), openApp(MainActivity.OPEN_END_EARLY, 10))
         }
         if (input.plannedEndAt != null) {
             builder.addAction(0, context.getString(R.string.action_add_15), action(NotificationActionReceiver.ACTION_EXTEND, session.id, 11))

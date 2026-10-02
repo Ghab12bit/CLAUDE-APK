@@ -43,7 +43,8 @@ class FocusBlockWidget : AppWidgetProvider() {
             try {
                 val active = graph.sessions.active()
                 if (active != null && !SessionClock.state(graph.sessions.toInput(active), graph.clock.now()).ended) {
-                    graph.sessions.end() // Refused for Strict Lock inside SessionManager.
+                    // Ending early goes through the app's sheet (wait and hold); Strict Lock shows its lock there.
+                    openApp(context, MainActivity.OPEN_END_EARLY)
                 } else if (PermissionHealth.missingRequired(context) != null) {
                     openApp(context)
                 } else {
@@ -70,8 +71,11 @@ class FocusBlockWidget : AppWidgetProvider() {
         )
     }
 
-    private fun openApp(context: Context) {
-        context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    private fun openApp(context: Context, open: String? = null) {
+        context.startActivity(
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .apply { open?.let { putExtra(MainActivity.EXTRA_OPEN, it) } },
+        )
     }
 
     companion object {
@@ -113,6 +117,12 @@ class FocusBlockWidget : AppWidgetProvider() {
             val strictRunning = running && input!!.strength == Strength.STRICT
             val click = if (strictRunning) {
                 PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE)
+            } else if (running) {
+                // "End early…" opens the app's end-early sheet (wait and hold) instead of ending here.
+                PendingIntent.getActivity(context, 2,
+                    Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        .putExtra(MainActivity.EXTRA_OPEN, MainActivity.OPEN_END_EARLY),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             } else {
                 PendingIntent.getBroadcast(context, 0, Intent(context, FocusBlockWidget::class.java).setAction(ACTION_TOGGLE), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             }

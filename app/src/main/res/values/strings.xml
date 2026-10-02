@@ -509,7 +509,7 @@
     <string name="widget_active">Blocking until %s</string>
     <string name="widget_active_open">Blocking until you end it</string>
     <string name="widget_start">Start</string>
-    <string name="widget_end">End</string>
+    <string name="widget_end">End early…</string>
     <string name="widget_strict">Strict Lock</string>
     <string name="widget_setup">Open FocusBlock</string>
     <string name="widget_needs_setup">Blocking needs setup</string>

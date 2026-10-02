@@ -112,7 +112,7 @@ jobs:
           profile: pixel_6_pro
           disable-animations: true
           script: |
-            ./gradlew connectedDebugAndroidTest --stacktrace; result=$?; mkdir -p app/build/screenshots; adb pull /sdcard/Android/data/com.focusblock.app/files/screenshots/. app/build/screenshots/ || true; ls app/build/screenshots || true; exit "$result"
+            ./gradlew connectedDebugAndroidTest --stacktrace; result=$?; mkdir -p app/build/screenshots; adb pull /data/local/tmp/focusblock-screens/. app/build/screenshots/ || true; ls app/build/screenshots || true; exit "$result"
 
       - name: Publish screenshots for review
         if: always() && github.ref == 'refs/heads/claude/new-session-hf7zu9'

@@ -43,6 +43,11 @@ import java.io.File
  */
 @RunWith(AndroidJUnit4::class)
 class EndToEndTest {
+    companion object {
+        /** Readable by `adb pull` after the run; the app's own folders are removed when it is uninstalled. */
+        const val SHOTS = "/data/local/tmp/focusblock-screens"
+    }
+
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val device: UiDevice = run {
@@ -176,30 +181,31 @@ class EndToEndTest {
         check(device.wait(Until.hasObject(By.text("+15 min")), 5_000), "+15 min")
         check(device.hasObject(By.text("End block early")), "End block early link")
         screenshot("02-block-active-actions")
-        device.findObject(By.text("Rules")).click()
+        tap("Rules")
         check(device.wait(Until.hasObject(By.text("What runs automatically")), 10_000), "Rules tab")
         screenshot("05-rules")
-        device.findObject(By.text("Activity")).click()
+        scrollDown()
+        screenshot("05-rules-2")
+        tap("Activity")
         check(device.wait(Until.hasObject(By.text("SCREEN TIME")), 15_000), "Activity tab")
         screenshot("06-activity-day")
+        tap("Week")
+        check(device.wait(Until.hasObject(By.text("LAST 7 DAYS")), 10_000), "Week view")
+        screenshot("08-activity-week")
+        tap("Trend")
+        check(device.wait(Until.hasObject(By.text("LAST 4 WEEKS")), 10_000), "Trend view")
+        screenshot("09-activity-trend")
+        tap("Day")
+        check(device.wait(Until.hasObject(By.text("TODAY")), 10_000), "Day view")
         repeat(4) { i ->
             scrollDown()
             screenshot("07-activity-day-${i + 1}")
         }
         check(device.hasObject(By.text("Blocks")) || device.hasObject(By.text("Distractions")), "Activity sections")
-        device.findObject(By.text("Week"))?.let {
-            scrollToTop()
-            device.findObject(By.text("Week")).click()
-            device.wait(Until.hasObject(By.text("LAST 7 DAYS")), 10_000)
-            screenshot("08-activity-week")
-        }
-        device.findObject(By.text("Trend"))?.let {
-            it.click()
-            device.wait(Until.hasObject(By.text("LAST 4 WEEKS")), 10_000)
-            screenshot("09-activity-trend")
-        }
         scrollToTop()
-        device.findObject(By.desc("Settings")).click()
+        val settings = device.wait(Until.findObject(By.desc("Settings")), 5_000)
+        check(settings != null, "Settings button")
+        settings.click()
         check(device.wait(Until.hasObject(By.text("Blocking health")), 10_000), "Settings")
         screenshot("10-settings")
     }
@@ -287,6 +293,14 @@ class EndToEndTest {
         device.waitForIdle()
     }
 
+    /** Waits for [text] and taps it; fails with the screen contents when it never appears. */
+    private fun tap(text: String) {
+        val o = device.wait(Until.findObject(By.text(text)), 5_000)
+        check(o != null, "Tap target \"$text\"")
+        o.click()
+        device.waitForIdle()
+    }
+
     private fun scrollTo(text: String) {
         repeat(5) {
             if (device.hasObject(By.text(text))) return
@@ -302,10 +316,8 @@ class EndToEndTest {
     private fun screenshot(name: String) {
         runCatching {
             device.waitForIdle()
-            val bitmap = instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).takeScreenshot() ?: return
-            val file = File(context.getExternalFilesDir("screenshots"), "$name.png")
-            file.parentFile?.mkdirs()
-            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            shell("mkdir -p $SHOTS")
+            shell("screencap -p $SHOTS/$name.png")
         }
     }
 }

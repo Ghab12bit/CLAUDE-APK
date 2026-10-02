@@ -26,7 +26,7 @@ class BlockingFirstUiTest {
     @get:Rule val compose = createEmptyComposeRule()
     @Before fun prepare() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         listOf("appops set com.focusblock.app GET_USAGE_STATS allow", "appops set com.focusblock.app SYSTEM_ALERT_WINDOW allow",
             "pm grant com.focusblock.app android.permission.POST_NOTIFICATIONS",
             "settings put secure enabled_accessibility_services com.focusblock.app/com.focusblock.app.service.FocusBlockAccessibilityService",
@@ -105,7 +105,7 @@ class BlockingFirstUiTest {
         compose.waitForIdle()
         val file = File(context.filesDir, "screenshots/$name.png")
         file.parentFile?.mkdirs()
-        val bitmap = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        val bitmap = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).takeScreenshot()
         checkNotNull(bitmap) { "Android did not return a screen capture" }
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }

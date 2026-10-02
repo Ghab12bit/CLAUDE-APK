@@ -172,8 +172,10 @@ class EndToEndTest {
         check(device.wait(Until.hasObject(By.textStartsWith("Blocking until")), 15_000), "Active block title")
         check(device.hasObject(By.text("“Finish the Q3 report”")), "Intention line")
         // The actions sit below the fold on a phone-sized screen.
-        device.findObject(By.scrollable(true).pkg(context.packageName))
-            ?.scrollUntil(Direction.DOWN, Until.findObject(By.text("Add 15 minutes")))
+        repeat(5) {
+            if (device.hasObject(By.text("Add 15 minutes"))) return@repeat
+            device.findObject(By.scrollable(true).pkg(context.packageName))?.scroll(Direction.DOWN, 0.8f)
+        }
         check(device.wait(Until.hasObject(By.text("Add 15 minutes")), 5_000), "Add 15 minutes")
         screenshot("block-active")
         device.findObject(By.text("Rules")).click()

@@ -60,6 +60,8 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
     val s by vm.state.collectAsState()
     val context = LocalContext.current
     var tab by rememberSaveable { mutableStateOf(0) }
+    val mainScroll = rememberScrollState()
+    LaunchedEffect(tab, s.session?.id) { mainScroll.scrollTo(0) }
     var sheet by rememberSaveable { mutableStateOf<String?>(null) }
     var setup by remember { mutableStateOf(BlockSetup()) }
     var initialized by remember { mutableStateOf(false) }
@@ -100,7 +102,7 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
             }
         } } }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 22.dp).padding(bottom = 28.dp)) {
+        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(mainScroll).padding(horizontal = 22.dp).padding(bottom = 28.dp)) {
             if (s.loading) { CircularProgressIndicator(Modifier.padding(24.dp)); Muted("Loading saved protection…") }
             else when (tab) {
                 0 -> {

@@ -439,7 +439,8 @@ Bugs found by the emulator run and fixed:
 - The accessibility service pressed HOME and then started the block screen. Android handles HOME
   asynchronously, so the launcher could land on top and hide the block screen: the blocked app
   closed, but without the reason or any choices. The service now starts the block screen directly
-  over the blocked app, like the fallback service, and uses HOME only if that start fails.
+  over the blocked app, like the fallback service. It presses HOME only if that start fails, or if
+  the blocked app is still in front 1.5 s later (Android can refuse a background start silently).
 - UiAutomator's default connection suspends every other accessibility service. The tests now keep
   FocusBlock's service running, so they exercise the real enforcement path throughout.
 

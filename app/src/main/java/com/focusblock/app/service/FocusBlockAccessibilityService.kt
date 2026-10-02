@@ -101,7 +101,15 @@ class FocusBlockAccessibilityService : AccessibilityService() {
      */
     private fun showIntervention(pkg: String, blocked: Enforcer.Blocked) {
         val shown = runCatching { startActivity(InterventionActivity.intent(this, pkg, blocked.logId, blocked.attempt)) }.isSuccess
-        if (!shown) performGlobalAction(GLOBAL_ACTION_HOME)
+        if (!shown) {
+            performGlobalAction(GLOBAL_ACTION_HOME)
+            return
+        }
+        // Android can refuse a background start without an error. If the blocked app is still in
+        // front once the block screen should be up, leave it anyway.
+        // Compare the start time too, so an app reopened through Open anyway is left alone.
+        val since = foregroundSince
+        handler.postDelayed({ if (foreground == pkg && foregroundSince == since) performGlobalAction(GLOBAL_ACTION_HOME) }, INTERVENTION_GRACE_MS)
     }
 
     /** Next re-check: the earliest policy change, or when an open app's limit or cycle runs out. */
@@ -169,6 +177,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     companion object {
+        private const val INTERVENTION_GRACE_MS = 1_500L
         val isRunning: Boolean get() = ServiceHeartbeat.connected
     }
 }

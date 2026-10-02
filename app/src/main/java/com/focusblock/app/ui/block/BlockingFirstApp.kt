@@ -83,7 +83,10 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
     }
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         topBar = { Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 22.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Pause, null, tint = MaterialTheme.colorScheme.primary)
+            Row(Modifier.size(21.dp, 20.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
+                Box(Modifier.size(6.dp, 20.dp).background(MaterialTheme.colorScheme.onBackground, RoundedCornerShape(2.dp)))
+                Box(Modifier.size(6.dp, 13.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)))
+            }
             Text("FocusBlock", fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f).padding(start = 8.dp))
             IconButton(onClick = { sheet = "settings" }) { Icon(Icons.Outlined.Tune, "Settings and permissions") }
         } },
@@ -116,7 +119,7 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
                         }
                         Line(); Section("Apps to block (${setup.packages.size})", "Edit selection") { picker("session", setup.packages) }
                         AppStrip(s, setup.packages) { picker("session", setup.packages) }
-                        Gap(); ChoiceRow(listOf("Timed", "Cycles", "Until stopped"), listOf("timed", "cycles", "manual").indexOf(setup.mode)) { i ->
+                        Gap(); ModeRow(listOf("Timed", "Cycles", "Until stopped"), listOf("timed", "cycles", "manual").indexOf(setup.mode)) { i ->
                             setup = setup.copy(mode = listOf("timed", "cycles", "manual")[i], strict = if (i == 2) false else setup.strict)
                         }
                         Row(Modifier.padding(top = 21.dp, bottom = 13.dp), verticalAlignment = Alignment.Bottom) {
@@ -150,6 +153,9 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
                         }
                         if (!phase.blocking) { Gap(); Muted("Session apps open during this break. Other schedules and limits still apply.") }
                         Section("Session apps"); AppStrip(s, QuickBlockPolicy.packages(session.blockedPackages).toList()) {}
+                        if (m.exceptionUntil > s.now && m.exceptionPackage.isNotBlank()) {
+                            Gap(12); Muted("${s.apps.find { it.packageName == m.exceptionPackage }?.appName ?: "One session app"} is temporarily allowed for ${formatRemaining(m.exceptionUntil - s.now)}. This allowance cannot be extended.")
+                        }
                         Gap(); Detail("Blocked openings", s.logs.count { it.timestamp >= session.startTime && it.blockedBy == BlockedByType.QUICK_BLOCK }.toString())
                         Detail("Temporary access", "${(m.budget - m.used).coerceAtLeast(0)} left this session")
                         TextButton(onClick = { sheet = "essentials" }) { Text("Essential apps · always available") }
@@ -168,7 +174,11 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
                         Column(Modifier.weight(1f).clickable { rule = r; sheet = "rule" }) {
                             Text(r.name); Muted("${formatScheduleTime(r.startTimeMinutes)} – ${formatScheduleTime(r.endTimeMinutes)}")
                             Muted("${r.daysOfWeek.split(',').size} days/week · ${if (r.isStrictMode) "Locked while active" else "Editable"}")
-                            Gap(8); AppStrip(s, QuickBlockPolicy.packages(r.blockedPackages).take(4)) { rule = r; sheet = "rule" }
+                            Gap(8); Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                QuickBlockPolicy.packages(r.blockedPackages).take(4).forEach { p ->
+                                    val app = s.apps.find { it.packageName == p }; InstalledAppIcon(app?.icon, app?.appName ?: p, 25.dp)
+                                }
+                            }
                         }; Switch(r.isEnabled, { vm.toggleRule(r, it) }, enabled = !s.busy)
                     }; Line() }
                     Section("BY USAGE")
@@ -337,6 +347,16 @@ fun BlockingFirstOnboarding(onComplete: () -> Unit) = BlockingFirstTheme {
 @Composable internal fun Detail(label: String, value: String) { Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.SpaceBetween) { Muted(label); Text(value, fontSize = 14.sp) }; Line() }
 @Composable internal fun SheetRow(title: String, subtitle: String, action: () -> Unit) { Row(Modifier.fillMaxWidth().clickable(onClick = action).padding(vertical = 17.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(title); Muted(subtitle) }; Icon(Icons.Outlined.ChevronRight, null) }; Line() }
 @Composable internal fun ChoiceRow(labels: List<String>, selected: Int, choose: (Int) -> Unit) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) { labels.forEachIndexed { i, label -> OutlinedButton(onClick = { choose(i) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 3.dp), shape = RoundedCornerShape(7.dp), colors = ButtonDefaults.outlinedButtonColors(containerColor = if (i == selected) MaterialTheme.colorScheme.onBackground else Color.Transparent, contentColor = if (i == selected) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onBackground)) { Text(label, fontSize = 12.sp) } } } }
+@Composable private fun ModeRow(labels: List<String>, selected: Int, choose: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth()) {
+        labels.forEachIndexed { i, label ->
+            Column(Modifier.weight(1f).clickable { choose(i) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.heightIn(min = 48.dp).padding(horizontal = 4.dp), contentAlignment = Alignment.Center) { Text(label, fontSize = 13.sp, color = if(i == selected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant) }
+                Box(Modifier.fillMaxWidth().height(2.dp).background(if(i == selected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline))
+            }
+        }
+    }
+}
 @Composable internal fun NumberField(label: String, value: String, change: (String) -> Unit) { OutlinedTextField(value, change, label = { Text(label) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp)) }
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun AppStrip(s: BlockUiState, packages: List<String>, click: () -> Unit) {
@@ -368,24 +388,33 @@ internal fun usageText(ms: Long): String { val minutes = ms / 60000; return if (
 @Composable private fun ActivityContent(s: BlockUiState, chosen: List<String>, onLimit: (String) -> Unit, onPermissions: () -> Unit) {
     var all by rememberSaveable { mutableStateOf(false) }
     Heading("Your usage, clearly."); Muted("Today")
-    Gap(); ChoiceRow(listOf("Chosen apps", "All apps"), if (all) 1 else 0) { all = it == 1 }
+    Gap(); ModeRow(listOf("Chosen apps", "All apps"), if (all) 1 else 0) { all = it == 1 }
     if (s.usage == null) { Gap(); Muted("Usage data is unavailable, not zero."); Action("Review permissions", onClick = onPermissions); return }
     val usage = s.usage.filterKeys { all || it in chosen }
     val prior = s.yesterday?.filterKeys { all || it in chosen }
-    Gap(); Text(usageText(usage.values.sum()), fontSize = 40.sp)
-    Muted("Yesterday at this time: ${prior?.values?.sum()?.let(::usageText) ?: "Unavailable"}")
+    Gap(); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+        Column(Modifier.weight(1f)) { Muted(if(all) "All recorded apps" else "${chosen.size} apps you chose"); Text(usageText(usage.values.sum()), fontSize = 40.sp) }
+        Column { Muted("Yesterday at this time"); Text(prior?.values?.sum()?.let(::usageText) ?: "Unavailable", fontSize = 14.sp) }
+    }
     Gap(); Line(); Gap(12); Muted("Same app selection and time window. Necessary use is not labelled wasted time.")
     val midnight = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis
     val completed = s.sessions.filter { !it.isActive && it.endTime != null && it.endTime <= s.now && it.endTime > midnight }
-    Detail("Completed block time", usageText(completed.sumOf { ((it.endTime ?: it.startTime) - maxOf(it.startTime, midnight)).coerceAtLeast(0) }))
-    Detail("Blocked app openings", s.logs.count { it.timestamp >= midnight }.toString())
+    Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) { Text(usageText(completed.sumOf { ((it.endTime ?: it.startTime) - maxOf(it.startTime, midnight)).coerceAtLeast(0) })); Muted("Completed block time") }
+        Box(Modifier.width(1.dp).height(40.dp).background(MaterialTheme.colorScheme.outline))
+        Column(Modifier.weight(1f).padding(start = 20.dp)) { Text("${s.logs.count { it.timestamp >= midnight }} attempts"); Muted("Blocked app openings") }
+    }; Line()
     Section("Most used apps", "Tap to set a limit")
     if (usage.isEmpty()) Muted("No recorded usage in this selection.")
     usage.entries.sortedByDescending { it.value }.take(10).forEach { (pkg, time) ->
         val app = s.apps.find { it.packageName == pkg }
         Row(Modifier.fillMaxWidth().clickable(enabled = pkg !in s.essential) { onLimit(pkg) }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             InstalledAppIcon(app?.icon, app?.appName ?: pkg, 36.dp)
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text(app?.appName ?: pkg, maxLines = 1, overflow = TextOverflow.Ellipsis); if (pkg in s.essential) Muted("Always available") }; Text(usageText(time))
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(app?.appName ?: pkg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                LinearProgressIndicator(progress = (time.toFloat() / (usage.values.maxOrNull() ?: 1).coerceAtLeast(1)).coerceIn(0f, 1f), modifier = Modifier.fillMaxWidth().padding(top = 7.dp).height(4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, trackColor = MaterialTheme.colorScheme.surfaceVariant)
+                if (pkg in s.essential) Muted("Always available")
+            }; Text(usageText(time))
         }; Line()
     }
     val candidate = usage.entries.filter { it.key in chosen && it.key !in s.essential && s.limits.none { l -> l.packageName == it.key } }.maxByOrNull { it.value }

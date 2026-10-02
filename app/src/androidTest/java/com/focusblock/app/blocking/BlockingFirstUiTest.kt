@@ -78,7 +78,7 @@ class BlockingFirstUiTest {
             compose.onNodeWithText("Search apps").assertExists()
             screenshot(context, "app-picker")
             compose.onNodeWithText("Search apps").performTextInput("Calendar")
-            compose.onNodeWithText("Calendar").performClick()
+            compose.onNode(hasText("Calendar") and !hasSetTextAction()).performClick()
             compose.onNodeWithText("Use 1 apps").performClick()
             compose.onNodeWithText("Apps to block (1)").assertExists()
             compose.onNodeWithText("Rules", useUnmergedTree = true).performClick()

@@ -479,6 +479,17 @@ The user installed the first release on their phone and asked for these changes.
 | No way to add apps once a block is running | "Add apps" on the running block (a link and a button). It works in Strict Lock too, because adding apps only makes a block stricter. Apps already in the block are shown fixed in the picker; essential and safety apps are skipped. |
 | Ending a block is too easy, and the big End block button invites it | Ending a Normal block is now a small "End block early" link at the bottom. It opens a sheet where "Keep blocking" is the main button; ending needs a 10-second wait and then a 3-second press and hold. It is still recorded as ended early. Making a block longer (+15 min) or stricter (Add apps) are the visible actions. |
 
+Found while reviewing the emulator screenshots and fixed:
+- The ongoing notification and the home-screen widget each had an End button that ended a Normal
+  block at once, skipping the new wait and hold. Both now open the app on the end-early sheet
+  ("End early…" on the widget). Strict Lock still shows only its lock there.
+- An empty Rules tab showed two "Add a rule" buttons; now one. Settings uses a card like the rest.
+
+Verification: GitHub Actions run 37035033211 (commit `a7ac993`) passed build, 75 unit tests, lint
+and all 12 emulator tests, including the new ones for the end-early wait and hold, the notification
+and widget path, adding apps to a Strict Lock block, and the first-run test block. Emulator
+screenshots of every screen are published on the `focusblock-screens` prerelease.
+
 Decisions to confirm:
 - **Awake hours** for Balance and Longest focus are fixed at 07:00–23:00 (16 h). They could become a setting.
 - **Default categories** come from a short list of well-known apps and the developer's declared category. WhatsApp and other messengers default to Distracting, matching the reference; any app can be changed.

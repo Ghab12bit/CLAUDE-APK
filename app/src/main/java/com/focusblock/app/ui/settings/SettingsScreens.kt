@@ -43,6 +43,7 @@ import com.focusblock.app.ui.components.BackHeader
 import com.focusblock.app.ui.components.ChipKind
 import com.focusblock.app.ui.components.DividerRow
 import com.focusblock.app.ui.components.EmptyState
+import com.focusblock.app.ui.components.FbCard
 import com.focusblock.app.ui.components.FbDivider
 import com.focusblock.app.ui.components.FbSwitch
 import com.focusblock.app.ui.components.LabeledField
@@ -112,7 +113,8 @@ fun SettingsHome(state: SettingsUi, vm: SettingsViewModel, onBack: () -> Unit, o
     val problems = state.health.filter { it.requirement.required && it.state != HealthState.OK } +
         state.health.filter { !it.requirement.required && it.state != HealthState.OK && it.requirement != Requirement.OVERLAY }
     Page(stringResource(R.string.settings), onBack) {
-        FbDivider()
+        Spacer(Modifier.height(8.dp))
+        FbCard(contentPadding = 0.dp) {
         DividerRow(
             title = stringResource(R.string.settings_blocking_health),
             subtitle = if (problems.isEmpty()) stringResource(R.string.health_all_ok)
@@ -135,7 +137,7 @@ fun SettingsHome(state: SettingsUi, vm: SettingsViewModel, onBack: () -> Unit, o
         DividerRow(title = stringResource(R.string.settings_troubleshooting), onClick = { onOpen(SettingsRoutes.TROUBLESHOOTING) })
         FbDivider()
         DividerRow(title = stringResource(R.string.settings_about), value = stringResource(R.string.about_version, BuildConfig.VERSION_NAME))
-        FbDivider()
+        }
     }
 }
 

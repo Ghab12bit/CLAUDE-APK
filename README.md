@@ -15,12 +15,14 @@ also runs routines and limits on its own and keeps calls and essential apps avai
 - **Rules**: everything that runs automatically. That covers routines, app limits, a daily limit,
   bedtime (only essential apps open), Focus Cycles and essential apps. A 24-hour strip shows when
   blocking is on.
-- **Activity**: what affected your focus, from your own data.
+- **Activity**: what affected your focus, from your own data. Day, Week and Trend views with
+  history beyond the ~7–10 days Android keeps (FocusBlock saves each day itself, for about a year).
+  Apps such as a clock used as a stopwatch can be left out of screen time.
   - Screen time compared with your own 2-week average, blocked attempts by hour, apps, unlocks and
     rules that get bypassed.
   - One evidence-based suggestion. Nothing changes until you tap Apply.
 - **Block screen**: opening a blocked app shows which rule blocked it and until when.
-  - In Normal blocks, "Open anyway" gets slower with each try.
+  - In Normal blocks, "Open anyway" covers one visit and gets slower with each try.
   - Emergency access needs a reason and a 10-minute wait, opens one app for 5 minutes, and is
     logged.
 

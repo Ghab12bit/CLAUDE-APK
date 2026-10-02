@@ -466,3 +466,21 @@ Bugs found by the emulator runs and fixed:
   rebooted can end a Strict block early.
 - **Usage-based numbers depend on Android.** When Usage access is missing they show as unavailable,
   never as zero.
+
+## Round 2: feedback from the first device install (2026-10-02)
+
+The user installed the first release on their phone and asked for these changes.
+
+| Feedback | Change |
+|---|---|
+| "I want the Activity page to be this detailed" (a reference screenshot of a screen-time app) | Activity now has Day / Week / Trend views with history arrows, a big screen-time number compared with your usual, an hourly (or daily) chart stacked by Distracting / Neutral / Productive, most used apps with a category pill and More, and Habits (Balance, Peak time, Usage split), Focus (Longest focus, Continuous use) and Distractions (Pickups, Blocked attempts, unlocks) cards, plus block outcomes, rules and the suggestion. Tapping an app shows opens and attempts and lets you change its category. Formulas are in `docs/metrics.md`; the arithmetic is in `policy/Insights.kt` with `InsightsTest`. |
+| "The UI of the app is too dull" | New palette: near-black navy, vivid blue and violet, green and coral accents (all pairs still checked for WCAG AA in `TokensContrastTest`). Gradient primary buttons, pill tabs, filled chips, cards, a bottom bar with a highlighted tab, and a gradient progress ring for the running block. The icon, widget and logo use the new colours. |
+| The first-run apps were asked for again after the test block | The 1-minute test block overwrote "Repeat last block" and the saved selection with just one app. It is now started as a test: it never changes them, it is discarded when you leave the step, it never asks "Did you finish?" and it is not counted in Activity (`endReason = TEST`). |
+| No way to add apps once a block is running | "Add apps" on the running block (a link and a button). It works in Strict Lock too, because adding apps only makes a block stricter. Apps already in the block are shown fixed in the picker; essential and safety apps are skipped. |
+| Ending a block is too easy, and the big End block button invites it | Ending a Normal block is now a small "End block early" link at the bottom. It opens a sheet where "Keep blocking" is the main button; ending needs a 10-second wait and then a 3-second press and hold. It is still recorded as ended early. Making a block longer (+15 min) or stricter (Add apps) are the visible actions. |
+
+Decisions to confirm:
+- **Awake hours** for Balance and Longest focus are fixed at 07:00–23:00 (16 h). They could become a setting.
+- **Default categories** come from a short list of well-known apps and the developer's declared category. WhatsApp and other messengers default to Distracting, matching the reference; any app can be changed.
+- **End-early friction**: 10 s wait + 3 s hold, the same for every block. It could grow with each early end, like Open anyway.
+- **Mood check-in** from the reference screenshot is not built: it needs a decision on what is asked and how it is used.

@@ -10,6 +10,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.UiScrollable
+import androidx.test.uiautomator.UiSelector
 import androidx.test.uiautomator.Until
 import com.focusblock.app.core.AppGraph
 import com.focusblock.app.core.BlockSetup
@@ -164,6 +166,8 @@ class EndToEndTest {
         context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         check(device.wait(Until.hasObject(By.textStartsWith("Blocking until")), 15_000), "Active block title")
         check(device.hasObject(By.text("“Finish the Q3 report”")), "Intention line")
+        // The actions sit below the fold on a phone-sized screen.
+        runCatching { UiScrollable(UiSelector().scrollable(true)).scrollTextIntoView("Add 15 minutes") }
         check(device.wait(Until.hasObject(By.text("Add 15 minutes")), 5_000), "Add 15 minutes")
         screenshot("block-active")
         device.findObject(By.text("Rules")).click()

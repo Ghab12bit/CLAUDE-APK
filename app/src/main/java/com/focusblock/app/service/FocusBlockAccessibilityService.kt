@@ -49,6 +49,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
             notificationTimeout = 50
         }
+        ServiceHeartbeat.owner = this
         ServiceHeartbeat.connected = true
         ServiceHeartbeat.connectedAt = System.currentTimeMillis()
         ServiceHeartbeat.recheck = { handler.post { handler.removeCallbacks(recheckRunnable); scope.launch { recheck(fresh = false) } } }
@@ -147,10 +148,12 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     private fun disconnect() {
-        if (!ServiceHeartbeat.connected) return
+        handler.removeCallbacksAndMessages(null)
+        // Only the instance that is currently connected may report the service as gone.
+        if (ServiceHeartbeat.owner !== this || !ServiceHeartbeat.connected) return
+        ServiceHeartbeat.owner = null
         ServiceHeartbeat.connected = false
         ServiceHeartbeat.recheck = null
-        handler.removeCallbacksAndMessages(null)
         if (::graph.isInitialized) {
             graph.scope.launch {
                 graph.diagnostics.log("SERVICE_DISCONNECTED")

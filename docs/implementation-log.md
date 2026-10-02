@@ -432,6 +432,10 @@ Bugs found by the emulator run and fixed:
   composition. All inline-layout early returns were removed.
 - Tests re-applied the accessibility setting before each test. Android then re-bound the service
   partway through the test, and window events were lost.
+- When Android re-binds the accessibility service, the old instance can be destroyed after the new
+  one connects. The old instance then marked the service as disconnected, which showed a false
+  "Accessibility is off" banner and started the fallback service. Only the connected instance can
+  now report a disconnect.
 
 ### Known limitations (not verified, or by design)
 

@@ -18,6 +18,8 @@ import com.focusblock.app.utils.PermissionUtils
 /** Liveness of the accessibility service (spec 9.1: detect "granted but not running"). */
 object ServiceHeartbeat {
     @Volatile var connected: Boolean = false
+    /** The service instance that reported [connected]. A re-bind can destroy an old instance after the new one connects. */
+    @Volatile var owner: Any? = null
     @Volatile var connectedAt: Long = 0L
     @Volatile var lastEventAt: Long = 0L
     /** Set by the running service; asks it to re-check the app on screen now. */

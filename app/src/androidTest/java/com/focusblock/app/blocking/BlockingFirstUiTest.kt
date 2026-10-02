@@ -119,10 +119,11 @@ class BlockingFirstUiTest {
     }
     private fun screenshot(context: Context, name: String) {
         compose.waitForIdle()
-        val file = File(context.filesDir, "screenshots/$name.png")
-        file.parentFile?.mkdirs()
-        val bitmap = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).takeScreenshot()
-        checkNotNull(bitmap) { "Android did not return a screen capture" }
-        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        // AGP may uninstall the test application after instrumentation. Keep
+        // emulator-only evidence outside private app data so CI can retrieve it.
+        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
+        automation.executeShellCommand("mkdir -p /sdcard/Download/focusblock-screenshots && screencap -p /sdcard/Download/focusblock-screenshots/$name.png").use {
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes()
+        }
     }
 }

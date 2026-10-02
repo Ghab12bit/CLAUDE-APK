@@ -54,7 +54,7 @@ jobs:
           profile: pixel_6_pro
           disable-animations: true
           script: |
-            result=0; ./gradlew connectedDebugAndroidTest --stacktrace || result=$?; mkdir -p app/build/screenshots; adb exec-out run-as com.focusblock.app tar -C files/screenshots -cf - . | tar -xf - -C app/build/screenshots; exit "$result"
+            result=0; ./gradlew connectedDebugAndroidTest --stacktrace || result=$?; adb pull /sdcard/Download/focusblock-screenshots app/build/ || result=1; exit "$result"
 
       - name: Upload test evidence
         if: always()
@@ -64,7 +64,7 @@ jobs:
           path: |
             app/build/reports
             app/build/outputs/androidTest-results
-            app/build/screenshots
+            app/build/focusblock-screenshots
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

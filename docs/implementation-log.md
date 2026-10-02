@@ -436,6 +436,10 @@ Bugs found by the emulator run and fixed:
   one connects. The old instance then marked the service as disconnected, which showed a false
   "Accessibility is off" banner and started the fallback service. Only the connected instance can
   now report a disconnect.
+- The accessibility service pressed HOME and then started the block screen. Android handles HOME
+  asynchronously, so the launcher could land on top and hide the block screen: the blocked app
+  closed, but without the reason or any choices. The service now starts the block screen directly
+  over the blocked app, like the fallback service, and uses HOME only if that start fails.
 - UiAutomator's default connection suspends every other accessibility service. The tests now keep
   FocusBlock's service running, so they exercise the real enforcement path throughout.
 

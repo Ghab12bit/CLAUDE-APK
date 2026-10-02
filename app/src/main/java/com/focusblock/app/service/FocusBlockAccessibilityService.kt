@@ -93,9 +93,15 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         handle(pkg, pkg, fresh)
     }
 
+    /**
+     * Covers the blocked app with the block screen. No HOME action first: Android handles it
+     * asynchronously, so the launcher could land on top of the block screen and hide it. The
+     * block screen's own "Back to home screen" leaves the app. HOME is only the fallback when the
+     * block screen cannot be started.
+     */
     private fun showIntervention(pkg: String, blocked: Enforcer.Blocked) {
-        performGlobalAction(GLOBAL_ACTION_HOME)
-        startActivity(InterventionActivity.intent(this, pkg, blocked.logId, blocked.attempt))
+        val shown = runCatching { startActivity(InterventionActivity.intent(this, pkg, blocked.logId, blocked.attempt)) }.isSuccess
+        if (!shown) performGlobalAction(GLOBAL_ACTION_HOME)
     }
 
     /** Next re-check: the earliest policy change, or when an open app's limit or cycle runs out. */

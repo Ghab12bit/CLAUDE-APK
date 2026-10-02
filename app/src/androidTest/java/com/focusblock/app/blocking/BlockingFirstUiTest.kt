@@ -122,8 +122,10 @@ class BlockingFirstUiTest {
         // AGP may uninstall the test application after instrumentation. Keep
         // emulator-only evidence outside private app data so CI can retrieve it.
         val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
-        automation.executeShellCommand("mkdir -p /sdcard/Download/focusblock-screenshots && screencap -p /sdcard/Download/focusblock-screenshots/$name.png").use {
-            android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes()
+        listOf("mkdir -p /sdcard/Download/focusblock-screenshots", "screencap -p /sdcard/Download/focusblock-screenshots/$name.png").forEach { command ->
+            automation.executeShellCommand(command).use {
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(it).readBytes()
+            }
         }
     }
 }

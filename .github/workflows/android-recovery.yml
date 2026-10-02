@@ -79,6 +79,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      contents: write
 
     steps:
       - name: Check out source
@@ -110,7 +112,21 @@ jobs:
           profile: pixel_6_pro
           disable-animations: true
           script: |
-            ./gradlew connectedDebugAndroidTest --stacktrace; result=$?; mkdir -p app/build/screenshots; adb exec-out run-as com.focusblock.app tar -C files/screenshots -cf - . | tar -xf - -C app/build/screenshots || true; exit "$result"
+            ./gradlew connectedDebugAndroidTest --stacktrace; result=$?; mkdir -p app/build/screenshots; adb pull /sdcard/Android/data/com.focusblock.app/files/screenshots/. app/build/screenshots/ || true; ls app/build/screenshots || true; exit "$result"
+
+      - name: Publish screenshots for review
+        if: always() && github.ref == 'refs/heads/claude/new-session-hf7zu9'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          shopt -s nullglob
+          files=(app/build/screenshots/*.png)
+          if [ ${#files[@]} -eq 0 ]; then echo "No screenshots"; exit 0; fi
+          gh release delete focusblock-screens --cleanup-tag --yes || true
+          gh release create focusblock-screens "${files[@]}" --target "${GITHUB_SHA}" --prerelease \
+            --title "FocusBlock screenshots (${GITHUB_SHA::7})" \
+            --notes "Emulator screenshots from the end-to-end tests for ${GITHUB_SHA}. Not an app release."
 
       - name: Upload test evidence
         if: always()

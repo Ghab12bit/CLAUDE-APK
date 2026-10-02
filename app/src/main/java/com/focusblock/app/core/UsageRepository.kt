@@ -38,6 +38,8 @@ class UsageRepository(private val context: Context, private val clock: AppClock)
                 STOPPED -> UsageCalculator.Type.STOPPED
                 SCREEN_OFF, KEYGUARD_SHOWN -> UsageCalculator.Type.SCREEN_OFF
                 SHUTDOWN -> UsageCalculator.Type.SHUTDOWN
+                SCREEN_ON -> UsageCalculator.Type.SCREEN_ON
+                KEYGUARD_HIDDEN -> UsageCalculator.Type.UNLOCK
                 else -> null
             } ?: continue
             out += UsageCalculator.Event(e.timeStamp, e.packageName, type)
@@ -92,6 +94,14 @@ class UsageRepository(private val context: Context, private val clock: AppClock)
         return UsageCalculator.dailyTotals(UsageCalculator.intervals(events, now), dates, zone, cutoffMinute)
     } }
 
+    /**
+     * Raw events for the Activity tab: the last [days] days plus today (cached for five minutes),
+     * and the time they were read. Null without Usage access.
+     */
+    suspend fun insightEvents(days: Int = INSIGHT_DAYS): Pair<Long, List<UsageCalculator.Event>>? { mutex.withLock {
+        return recentEvents(days, 5 * 60_000)
+    } }
+
     /** Earliest day with any usage event in the last [days] days (for recommendation eligibility). */
     suspend fun firstDataDay(days: Int = 14): LocalDate? { mutex.withLock {
         val (_, events) = recentEvents(days, 5 * 60_000) ?: return null
@@ -101,6 +111,7 @@ class UsageRepository(private val context: Context, private val clock: AppClock)
     fun invalidate() { todayCache = null; eventsCache = null }
 
     companion object {
+        const val INSIGHT_DAYS = 27
         private const val HOUR = 3_600_000L
         private const val DAY = 24 * HOUR
         // UsageEvents.Event constants, inlined so they read on API 26 (they are compile-time ints).
@@ -108,6 +119,8 @@ class UsageRepository(private val context: Context, private val clock: AppClock)
         private const val PAUSED = 2 // ACTIVITY_PAUSED / MOVE_TO_BACKGROUND
         private const val SCREEN_OFF = 16 // SCREEN_NON_INTERACTIVE
         private const val KEYGUARD_SHOWN = 17
+        private const val SCREEN_ON = 15 // SCREEN_INTERACTIVE
+        private const val KEYGUARD_HIDDEN = 18
         private const val STOPPED = 23 // ACTIVITY_STOPPED
         private const val SHUTDOWN = 26 // DEVICE_SHUTDOWN
     }

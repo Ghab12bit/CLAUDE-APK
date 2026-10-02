@@ -237,6 +237,14 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
 
     fun extend() { viewModelScope.launch { graph.sessions.extend() } }
 
+    /** Adds apps to the running block (allowed in Strict Lock too: it only makes the block stricter). */
+    fun addApps(packages: List<String>) {
+        viewModelScope.launch {
+            graph.sessions.addApps(packages)
+            refreshDerived()
+        }
+    }
+
     fun outcome(outcome: SessionOutcome) {
         val id = mutable.value.awaitingOutcome?.id ?: return
         viewModelScope.launch {

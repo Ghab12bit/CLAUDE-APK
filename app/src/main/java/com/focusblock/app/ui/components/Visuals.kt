@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -35,7 +36,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -46,6 +53,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
@@ -96,7 +104,7 @@ fun AppIcon(pkg: String, label: String?, size: Dp = 40.dp, modifier: Modifier = 
 /** Up to [max] icons with labels, then "+n" (spec 4.1). */
 @Composable
 fun AppIconRow(packages: List<String>, label: (String) -> String, modifier: Modifier = Modifier, max: Int = 5, onMore: (() -> Unit)? = null) {
-    Row(modifier.fillMaxWidth().padding(horizontal = Fb.gutter), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(modifier.fillMaxWidth().padding(horizontal = LocalRowInset.current), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         packages.take(max).forEach { pkg ->
             Column(Modifier.widthIn(max = 64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 AppIcon(pkg, null, 44.dp)
@@ -106,7 +114,7 @@ fun AppIconRow(packages: List<String>, label: (String) -> String, modifier: Modi
         }
         if (packages.size > max) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(Fb.track), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(Fb.surfaceHigh), contentAlignment = Alignment.Center) {
                     Text(stringResource(R.string.apps_more, packages.size - max), style = FbType.label)
                 }
             }
@@ -117,9 +125,9 @@ fun AppIconRow(packages: List<String>, label: (String) -> String, modifier: Modi
 enum class VisualState { IDLE, STARTING, ACTIVE, ENDING_SOON, BREAK, COMPLETE }
 
 /**
- * Signature active-block visual (spec 5.3): the brand mark's two bars. The tall bar fills as the
- * block progresses; the short accent bar is full during focus and empties during a break. Motion is
- * used only when the state changes, and is skipped when animations are turned off.
+ * Running-block visual: a progress ring in the brand gradient (blue to violet; green during a
+ * break, coral in the last five minutes) with the time left in the middle. Motion only follows
+ * progress and is skipped when animations are turned off.
  */
 @Composable
 fun ActiveBlockVisual(
@@ -128,6 +136,7 @@ fun ActiveBlockVisual(
     headline: String,
     caption: String?,
     modifier: Modifier = Modifier,
+    footer: String? = null,
 ) {
     val context = LocalContext.current
     val still = remember { reducedMotion(context) }
@@ -137,38 +146,115 @@ fun ActiveBlockVisual(
         else -> progress ?: 1f
     }
     val fill by animateFloatAsState(target, if (still) snap() else tween(600), label = "fill")
-    val accentTarget = when (state) { VisualState.BREAK, VisualState.IDLE -> 0.15f; else -> 1f }
-    val accent by animateFloatAsState(accentTarget, if (still) snap() else tween(400), label = "accent")
-    ElevatedSurface(modifier.semantics(mergeDescendants = true) {}, color = Fb.surfaceActive) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Canvas(Modifier.size(width = 56.dp, height = 88.dp).clearAndSetSemantics {}) {
-                val barW = size.width * 0.36f
-                val gap = size.width * 0.16f
-                val r = CornerRadius(barW * 0.22f)
-                val tallH = size.height
-                val shortH = size.height * 0.55f
-                val track = Fb.track
-                // Tall bar: track, then fill from the bottom.
-                drawRoundRect(track, Offset(0f, 0f), Size(barW, tallH), r)
-                val filled = tallH * fill.coerceIn(0f, 1f)
-                drawRoundRect(Fb.textPrimary, Offset(0f, tallH - filled), Size(barW, filled), r)
-                // Short accent bar.
-                val x2 = barW + gap
-                drawRoundRect(track, Offset(x2, tallH - shortH), Size(barW, shortH), r)
-                val accentH = shortH * accent
-                val color = if (state == VisualState.ENDING_SOON) Fb.textPrimary else Fb.accent
-                drawRoundRect(color, Offset(x2, tallH - accentH), Size(barW, accentH), r)
+    val colors = when (state) {
+        VisualState.BREAK -> listOf(Fb.success, Fb.success)
+        VisualState.ENDING_SOON -> listOf(Fb.warning, Fb.accentAlt)
+        else -> listOf(Fb.accent, Fb.accentAlt, Fb.accent)
+    }
+    Box(
+        modifier.fillMaxWidth().padding(horizontal = Fb.gutter).clip(RoundedCornerShape(Fb.cardRadius))
+            .background(Brush.verticalGradient(listOf(Fb.surfaceActive, Fb.surface))).padding(vertical = 24.dp)
+            .semantics(mergeDescendants = true) {},
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(232.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.matchParentSize().clearAndSetSemantics {}) {
+                val stroke = 16.dp.toPx()
+                val inset = stroke / 2f
+                val arcSize = Size(size.width - stroke, size.height - stroke)
+                drawArc(Fb.track, 0f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
+                val sweep = 360f * fill.coerceIn(0f, 1f)
+                if (sweep > 0f) {
+                    rotate(-90f) {
+                        drawArc(Brush.sweepGradient(colors), 0f, sweep, false, Offset(inset, inset), arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
+                    }
+                }
             }
-            Spacer(Modifier.width(20.dp))
-            Column(Modifier.weight(1f)) {
-                Text(headline, style = FbType.display.copy(fontSize = FbType.title.fontSize, lineHeight = FbType.title.lineHeight))
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 28.dp)) {
+                Text(headline, style = FbType.display.copy(fontSize = FbType.title.fontSize * 1.15f, lineHeight = FbType.title.lineHeight * 1.15f), textAlign = TextAlign.Center, maxLines = 2)
                 if (caption != null) {
                     Spacer(Modifier.height(4.dp))
-                    Text(caption, style = FbType.label.copy(color = Fb.textSecondary))
+                    Text(caption, style = FbType.label.copy(color = Fb.textSecondary), textAlign = TextAlign.Center)
+                }
+                if (footer != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(footer, style = FbType.overline, textAlign = TextAlign.Center)
                 }
             }
         }
     }
+}
+
+/**
+ * Stacked bar chart for usage: one bar per bucket (hour or day), stacked by category, with time
+ * gridlines. [highlight] draws one bar in [highlightColor] (used for the peak hour).
+ */
+@Composable
+fun StackedBarChart(
+    values: List<LongArray>,
+    colors: List<Color>,
+    xLabel: (Int) -> String?,
+    yLabel: (Long) -> String,
+    description: String,
+    modifier: Modifier = Modifier,
+    height: Dp = 190.dp,
+    average: Long? = null,
+    highlight: Int? = null,
+    highlightColor: Color = Fb.peak,
+    showAxis: Boolean = true,
+    showYAxis: Boolean = true,
+) {
+    val measurer = rememberTextMeasurer()
+    val max = values.maxOfOrNull { it.sum() } ?: 0L
+    val top = niceTimeCeiling(maxOf(max, average ?: 0L))
+    Canvas(modifier.fillMaxWidth().height(height).semantics { contentDescription = description }) {
+        val small = FbType.caption.copy(fontSize = FbType.caption.fontSize * 0.92f)
+        val labelH = if (showAxis) 18.dp.toPx() else 0f
+        val axisW = if (showAxis && showYAxis) 34.dp.toPx() else 0f
+        val chartH = size.height - labelH - 6.dp.toPx()
+        val chartW = size.width - axisW
+        val y0 = 6.dp.toPx()
+        if (showAxis && showYAxis) {
+            listOf(0L, top / 2, top).forEach { v ->
+                val y = y0 + chartH - chartH * v / top
+                drawLine(Fb.divider, Offset(0f, y), Offset(chartW, y), strokeWidth = 1.dp.toPx())
+                val t = measurer.measure(yLabel(v), small)
+                drawText(t, topLeft = Offset(chartW + 6.dp.toPx(), y - t.size.height / 2f))
+            }
+        }
+        val n = values.size.coerceAtLeast(1)
+        val slot = chartW / n
+        val barW = (slot * 0.62f).coerceAtMost(28.dp.toPx())
+        val radius = CornerRadius(minOf(barW / 2f, 4.dp.toPx()))
+        values.forEachIndexed { i, cats ->
+            val x = slot * i + (slot - barW) / 2f
+            // Empty track so the shape of the day stays readable.
+            drawRoundRect(Fb.track.copy(alpha = 0.06f), Offset(x, y0), Size(barW, chartH), radius)
+            var yTop = y0 + chartH
+            cats.forEachIndexed { c, v ->
+                if (v <= 0) return@forEachIndexed
+                val h = chartH * v / top
+                val color = if (highlight == i) highlightColor else colors[c % colors.size]
+                drawRoundRect(color, Offset(x, yTop - h), Size(barW, h), radius)
+                yTop -= h
+            }
+            xLabel(i)?.let { label ->
+                val t = measurer.measure(label, small)
+                drawText(t, topLeft = Offset((x + barW / 2f - t.size.width / 2f).coerceIn(0f, chartW - t.size.width), size.height - labelH + 2.dp.toPx()))
+            }
+        }
+        average?.takeIf { it > 0 }?.let { avg ->
+            val y = y0 + chartH - chartH * avg / top
+            drawLine(Fb.textSecondary, Offset(0f, y), Offset(chartW, y), strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f)))
+        }
+    }
+}
+
+/** 0 → 30 min, then whole halves of an hour, then whole hours. */
+private fun niceTimeCeiling(ms: Long): Long {
+    val min = 60_000L
+    val steps = listOf(10 * min, 20 * min, 30 * min, 60 * min, 2 * 60 * min, 3 * 60 * min, 4 * 60 * min, 6 * 60 * min, 8 * 60 * min, 12 * 60 * min, 16 * 60 * min, 24 * 60 * min)
+    return steps.firstOrNull { ms <= it } ?: (((ms / (60 * min)) + 1) * 60 * min)
 }
 
 /** Plain bar chart: axis, gridlines and value labels, no stylised forms (spec 4.8, 5.4). */
@@ -178,7 +264,7 @@ fun HourBarChart(values: IntArray, hourLabel: (Int) -> String, description: Stri
     val max = (values.maxOrNull() ?: 0).coerceAtLeast(1)
     val top = niceCeiling(max)
     Canvas(
-        modifier.fillMaxWidth().height(180.dp).padding(horizontal = Fb.gutter).semantics { contentDescription = description },
+        modifier.fillMaxWidth().height(180.dp).padding(horizontal = LocalRowInset.current).semantics { contentDescription = description },
     ) {
         val labelH = 18.dp.toPx()
         val valueH = 14.dp.toPx()
@@ -200,7 +286,7 @@ fun HourBarChart(values: IntArray, hourLabel: (Int) -> String, description: Stri
             val x = axisW + slot * hour + (slot - barW) / 2f
             if (v > 0) {
                 val h = chartH * v / top
-                drawRoundRect(Fb.accent, Offset(x, valueH + chartH - h), Size(barW, h), CornerRadius(2.dp.toPx()))
+                drawRoundRect(Brush.verticalGradient(listOf(Fb.accentAlt, Fb.accent), startY = valueH + chartH - h, endY = valueH + chartH), Offset(x, valueH + chartH - h), Size(barW, h), CornerRadius(3.dp.toPx()))
                 val t = measurer.measure(v.toString(), small)
                 drawText(t, topLeft = Offset(x + barW / 2f - t.size.width / 2f, valueH + chartH - h - t.size.height))
             }
@@ -233,7 +319,7 @@ fun CoverageStrip(
 ) {
     val measurer = rememberTextMeasurer()
     Canvas(
-        modifier.fillMaxWidth().height(56.dp).padding(horizontal = Fb.gutter)
+        modifier.fillMaxWidth().height(56.dp).padding(horizontal = LocalRowInset.current)
             .semantics { contentDescription = description }
             .pointerInput(segments) {
                 detectTapGestures { offset ->
@@ -247,7 +333,7 @@ fun CoverageStrip(
         segments.forEach { s ->
             val x = size.width * s.startMinute / 1440f
             val w = size.width * (s.endMinute - s.startMinute) / 1440f
-            drawRect(Fb.accent, Offset(x, 0f), Size(w, barH))
+            drawRect(Brush.horizontalGradient(listOf(Fb.accent, Fb.accentAlt), startX = x, endX = x + w), Offset(x, 0f), Size(w, barH))
         }
         val nowX = size.width * nowMinute / 1440f
         drawLine(Fb.textPrimary, Offset(nowX, -2.dp.toPx()), Offset(nowX, barH + 2.dp.toPx()), strokeWidth = 2.dp.toPx())
@@ -271,7 +357,7 @@ fun FbSheet(onDismiss: () -> Unit, content: @Composable () -> Unit) {
         containerColor = Fb.surface,
         contentColor = Fb.textPrimary,
         dragHandle = {
-            Box(Modifier.padding(vertical = 10.dp).size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(2.dp)).background(Fb.track))
+            Box(Modifier.padding(vertical = 10.dp).size(width = 40.dp, height = 4.dp).clip(RoundedCornerShape(2.dp)).background(Fb.textSecondary.copy(alpha = 0.4f)))
         },
     ) { content() }
 }

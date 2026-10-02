@@ -28,16 +28,36 @@ phone. Each one is listed here with its formula and source (spec 4.8). There is 
 
 ## Activity tab
 
+The tab has three views. **Day** shows one day; the arrows step back up to 27 days. **Week** shows
+7 days ending today; the arrows step back up to 3 weeks. **Trend** shows the last 4 weeks. Every
+number below covers the range on screen. The arithmetic is in `policy/Insights.kt` and
+`policy/UsageCalculator.kt`, and is unit-tested in `InsightsTest`.
+
+### App categories
+
+Every app counts as **Distracting**, **Neutral** or **Productive**. The category you choose (tap an
+app under Most used apps) always wins. Otherwise FocusBlock uses a short list of well-known apps,
+then the category the developer declared in the Play Store listing (`ApplicationInfo.category`):
+games, video, social and news are Distracting; productivity is Productive; everything else is
+Neutral. Categories only change how time is shown. They never block anything.
+
 | Metric | Formula | Source |
 |---|---|---|
-| Screen time (Today) | Sum of foreground time from local midnight to now, across all apps except FocusBlock, home-screen launchers, System UI and apps excluded from reports | UsageStats |
-| 2-week average (Today) | Mean, over the previous 14 days that have usage data, of each day's screen time **up to the same time of day**. Shown only when at least 3 such days exist. | UsageStats |
-| "25 min below / above your 2-week average" | Today's screen time − the 2-week average. Differences under 5 minutes read "about your 2-week average". | Derived |
-| Screen time (This week) | Sum over today and the 6 days before it, using the same exclusions | UsageStats |
-| "a day on average" (This week) | This week's screen time ÷ 7 | Derived |
-| Blocks: Finished / Not yet / Extended / Unanswered / Ended early | Count of `block_sessions` started in the period, grouped by `outcome`. Active blocks and history migrated from older versions (`endReason = LEGACY`) are not counted. | `block_sessions` |
+| Screen time (hero number) | Foreground time in the range, across counted apps (all apps except FocusBlock, home-screen launchers, System UI and apps excluded from reports). Trend shows the average per day over days with data instead. | UsageStats |
+| "x less / more than your usual" (Day) | The day's screen time compared with the mean of the previous 14 days that have data (at least 3). For today, each day only counts up to the current time of day. Differences under 5 minutes read "about your usual". | UsageStats |
+| "x a day · y% less than the week before" (Week) | Screen time ÷ days in the range so far; change = (this range − the 7 days before it) ÷ the 7 days before it | UsageStats |
+| Chart (Day) | Foreground time per local hour, stacked by category. On daylight-saving days the 23 or 25 hours are folded into 24 by hour of day. | UsageStats |
+| Chart (Week, Trend) | Foreground time per day, stacked by category. The dashed line is the average per day over days with data. | UsageStats |
+| Most used apps | Apps with at least 1 minute in the range, by foreground time; the bar is the app's share of the range's screen time. Five are shown, More shows up to 20. Each row also shows blocked attempts; the app sheet shows opens (separate openings, see `launches`) and blocked attempts. | UsageStats, `block_logs` |
+| Balance | Screen time ÷ (16 awake hours × days in the range), as a percentage. Awake hours are fixed at 07:00–23:00. | UsageStats |
+| Peak time | The local hour of day with the most counted foreground time in the range (ties go to the earlier hour) | UsageStats |
+| Usage split | Each category's share of counted foreground time, in whole percent that add up to 100 (largest remainder) | UsageStats |
+| Longest focus | The longest time without using the phone while awake (07:00–23:00) between two stretches of use. On today, the time since the last use counts up to now. Time before the first use of the day is not counted. Week and Trend show the longest single day. | UsageStats |
+| Continuous use | The longest stretch of phone use. Foreground intervals of every app, including the launcher, are merged when the gap between them is at most 1 minute. | UsageStats |
+| Pickups | Unlocks (`KEYGUARD_HIDDEN`) in the range. Phones that never report an unlock (no lock screen) count screen-on events (`SCREEN_INTERACTIVE`) instead. | UsageStats |
+| Week by week (Trend) | Each 7-day week's total, its average per day over days with data, and its change from the week before | UsageStats |
+| Blocks: Finished / Not yet / Extended / Unanswered / Ended early | Count of `block_sessions` started in the period, grouped by `outcome`. Active blocks, history migrated from older versions (`endReason = LEGACY`) and the first-run test block (`endReason = TEST`) are not counted. | `block_sessions` |
 | Blocked attempts by hour | Count of `block_logs` rows in the period, grouped by the local hour of `timestamp` | `block_logs` |
-| Most used apps | Top 8 apps by foreground time in the period, plus up to 4 apps with the most blocked attempts; each row shows minutes and attempt count | UsageStats, `block_logs` |
 | Emergency and Open anyway unlocks | `unlock_events` requested in the period whose status is not `CANCELLED`, newest first | `unlock_events` |
 | Rules working / bypassed | For each rule: attempts = `block_logs` rows in the period with that reason and rule id; bypasses = `GRANTED` `unlock_events` with the same reason type and rule id. A rule is **often bypassed** when it has 3 or more bypasses **and** bypasses ≥ ⅓ of its attempts. | `block_logs`, `unlock_events` |
 
@@ -76,6 +96,7 @@ Common rules:
 
 ## Not shown, on purpose
 
-- **Focus score, productivity score or streaks.** Spec 12.1.
+- **Focus score, productivity score or streaks.** Spec 12.1. Longest focus is a measured duration,
+  not a score.
 - **Time saved.** There is no defensible counterfactual for how long an app would have been used.
 - **Comparisons to other people.** The only baseline is the user's own trailing average.

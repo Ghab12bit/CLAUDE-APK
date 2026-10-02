@@ -39,6 +39,11 @@ class TokensContrastTest {
             "warning/surface" to ratio(Fb.warning, Fb.surface),
             "success/bg" to ratio(Fb.success, Fb.bg),
             "buttonText/buttonBg" to ratio(Fb.buttonPrimaryText, Fb.buttonPrimaryBg),
+            "buttonText/buttonBgEnd" to ratio(Fb.buttonPrimaryText, Fb.buttonPrimaryBgEnd),
+            "textPrimary/surfaceHigh" to ratio(Fb.textPrimary, Fb.surfaceHigh),
+            "textSecondary/surfaceHigh" to ratio(Fb.textSecondary, Fb.surfaceHigh),
+            "accentAlt/surface" to ratio(Fb.accentAlt, Fb.surface),
+            "success/surface" to ratio(Fb.success, Fb.surface),
         )
         pairs.forEach { (name, r) -> assertTrue("$name contrast is %.2f, needs 4.5".format(r), r >= 4.5) }
     }

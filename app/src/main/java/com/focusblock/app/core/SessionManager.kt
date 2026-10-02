@@ -62,6 +62,8 @@ data class BlockSetup(
 data class StartRequest(
     val setup: BlockSetup,
     val intention: String? = null,
+    /** The 1-minute test from first-run setup: it does not become "Repeat last block" or the saved selection. */
+    val test: Boolean = false,
 )
 
 sealed class StartResult {
@@ -145,8 +147,10 @@ class SessionManager(
             )
             // Starting a new block means an earlier "Did you finish?" went unanswered.
             dao.markOlderUnanswered(keepId = -1, now = now)
-            db.settingsDao().insert(AppSettings(PrefKeys.LAST_SETUP, s.copy(packages = packages).toJson()))
-            db.settingsDao().insert(AppSettings(PrefKeys.SAVED_APPS, packages.joinToString(",")))
+            if (!request.test) {
+                db.settingsDao().insert(AppSettings(PrefKeys.LAST_SETUP, s.copy(packages = packages).toJson()))
+                db.settingsDao().insert(AppSettings(PrefKeys.SAVED_APPS, packages.joinToString(",")))
+            }
             StartResult.Started(id)
         }
         if (result is StartResult.Started) onChanged()
@@ -175,6 +179,37 @@ class SessionManager(
         }
         if (result == EndResult.ENDED) onChanged()
         result
+    }
+
+    /**
+     * Adds apps to the running block. Allowed in both strengths, because it only makes the block
+     * stricter; apps already in it, essential and safety apps are skipped. Returns how many were added.
+     */
+    suspend fun addApps(packages: List<String>): Int = withContext(Dispatchers.IO) {
+        val skip = exempt()
+        val added = db.withTransaction {
+            val e = dao.active() ?: return@withTransaction 0
+            if (SessionClock.state(toInput(e), clock.now()).ended) return@withTransaction 0
+            val current = csv(e.packages)
+            val extra = packages.map { it.trim() }.filter { it.isNotEmpty() && it !in skip && it !in current }.distinct()
+            if (extra.isEmpty()) return@withTransaction 0
+            dao.update(e.copy(packages = (current + extra).joinToString(",")))
+            extra.size
+        }
+        if (added > 0) onChanged()
+        added
+    }
+
+    /**
+     * Ends the first-run test block wherever it is (running or already over) without asking "Did you
+     * finish?" and without counting it in Activity.
+     */
+    suspend fun discardTest(id: Long) = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val e = dao.get(id) ?: return@withTransaction
+            dao.update(e.copy(isActive = false, endedAt = e.endedAt ?: clock.now(), endReason = TEST))
+        }
+        onChanged()
     }
 
     /** "Add 15 minutes". Allowed in both strengths; impossible for Until I stop. */
@@ -250,6 +285,7 @@ class SessionManager(
     companion object {
         const val COMPLETED = "COMPLETED"
         const val END_EARLY = "ENDED_EARLY"
+        const val TEST = "TEST"
         const val MAX_INTENTION = 80
     }
 }

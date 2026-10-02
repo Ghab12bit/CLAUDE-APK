@@ -75,7 +75,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Where the picker was opened from; decides its title (spec 3.2) and what can be selected. */
-enum class PickerContext { BLOCK, RULE, APP_LIMIT, DAILY_LIMIT, ESSENTIALS, SET, ONBOARDING }
+enum class PickerContext { BLOCK, BLOCK_ADD, RULE, APP_LIMIT, DAILY_LIMIT, ESSENTIALS, SET, ONBOARDING }
 
 data class PickerData(
     val loaded: Boolean = false,
@@ -147,6 +147,8 @@ fun AppPickerSheet(
     onDismiss: () -> Unit,
     onDone: (List<String>) -> Unit,
     ruleName: String? = null,
+    /** Apps that stay selected and cannot be removed (apps already in a running block). */
+    fixed: Set<String> = emptySet(),
 ) {
     val vm = pickerViewModel()
     LaunchedEffect(Unit) { vm.load() }
@@ -159,12 +161,13 @@ fun AppPickerSheet(
     val essentialsSelectable = context == PickerContext.ESSENTIALS
     fun locked(pkg: String) = pkg in data.safety || (!essentialsSelectable && pkg in data.essentials)
     fun toggle(pkg: String) {
-        if (locked(pkg)) return
+        if (locked(pkg) || pkg in fixed) return
         val next = if (pkg in selected) selected - pkg else selected + pkg
         selectedCsv = next.joinToString(",")
     }
     val title = when (context) {
         PickerContext.BLOCK -> stringResource(R.string.picker_title_block)
+        PickerContext.BLOCK_ADD -> stringResource(R.string.picker_title_block_add)
         PickerContext.RULE -> stringResource(R.string.picker_title_rule, ruleName ?: stringResource(R.string.type_routine))
         PickerContext.APP_LIMIT -> stringResource(R.string.picker_title_app_limit)
         PickerContext.DAILY_LIMIT -> stringResource(R.string.picker_title_daily_limit)
@@ -193,7 +196,7 @@ fun AppPickerSheet(
                             val recent = data.recent.mapNotNull(byPkg::get)
                             if (recent.isNotEmpty() && context != PickerContext.ESSENTIALS) {
                                 item(key = "h_recent") { SectionLabel(stringResource(R.string.picker_recent)) }
-                                items(recent, key = { "r_" + it.packageName }) { app -> AppRow(app, app.packageName in selected, locked(app.packageName), app.packageName in data.safety) { toggle(app.packageName) } }
+                                items(recent, key = { "r_" + it.packageName }) { app -> AppRow(app, app.packageName in selected || app.packageName in fixed, locked(app.packageName), app.packageName in data.safety, app.packageName in fixed) { toggle(app.packageName) } }
                             }
                             if (showSets && data.sets.isNotEmpty()) {
                                 item(key = "h_sets") { SectionLabel(stringResource(R.string.picker_saved_sets)) }
@@ -207,27 +210,30 @@ fun AppPickerSheet(
                             val often = data.often.mapNotNull(byPkg::get)
                             if (often.isNotEmpty() && context != PickerContext.ESSENTIALS) {
                                 item(key = "h_often") { SectionLabel(stringResource(R.string.picker_often_blocked)) }
-                                items(often, key = { "o_" + it.packageName }) { app -> AppRow(app, app.packageName in selected, locked(app.packageName), app.packageName in data.safety) { toggle(app.packageName) } }
+                                items(often, key = { "o_" + it.packageName }) { app -> AppRow(app, app.packageName in selected || app.packageName in fixed, locked(app.packageName), app.packageName in data.safety, app.packageName in fixed) { toggle(app.packageName) } }
                             }
                             item(key = "h_all") { SectionLabel(stringResource(R.string.picker_all_apps)) }
                         }
                         if (matches.isEmpty()) {
                             item(key = "empty") { Text(stringResource(R.string.picker_no_results, query), style = FbType.body.copy(color = Fb.textSecondary), modifier = Modifier.padding(Fb.gutter)) }
                         }
-                        items(matches, key = { "a_" + it.packageName }) { app -> AppRow(app, app.packageName in selected, locked(app.packageName), app.packageName in data.safety) { toggle(app.packageName) } }
+                        items(matches, key = { "a_" + it.packageName }) { app -> AppRow(app, app.packageName in selected || app.packageName in fixed, locked(app.packageName), app.packageName in data.safety, app.packageName in fixed) { toggle(app.packageName) } }
                     }
                 }
             }
             FbDivider(inset = 0.dp)
             Row(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter, vertical = 10.dp).navigationBarsPadding(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(pluralRes(R.plurals.apps_selected, selected.size), style = FbType.label)
+                    Text(pluralRes(R.plurals.apps_selected, (selected + fixed).size), style = FbType.label)
                     if (context == PickerContext.BLOCK || context == PickerContext.RULE || context == PickerContext.APP_LIMIT) {
                         TextLink(stringResource(R.string.picker_save_set), { savingSet = true }, enabled = selected.isNotEmpty(), accent = true, modifier = Modifier.padding(start = 0.dp))
                     }
                 }
                 Box(Modifier.width(140.dp)) {
-                    PrimaryButton(stringResource(R.string.action_done), { onDone(data.apps.map { it.packageName }.filter { it in selected } + selected.filter { s -> data.apps.none { it.packageName == s } }) })
+                    PrimaryButton(stringResource(R.string.action_done), {
+                        val all = selected + fixed
+                        onDone(data.apps.map { it.packageName }.filter { it in all } + all.filter { s -> data.apps.none { it.packageName == s } })
+                    })
                 }
             }
         }
@@ -251,11 +257,11 @@ fun AppPickerSheet(
 }
 
 @Composable
-private fun AppRow(app: InstalledApps.App, selected: Boolean, locked: Boolean, safety: Boolean, onToggle: () -> Unit) {
+private fun AppRow(app: InstalledApps.App, selected: Boolean, locked: Boolean, safety: Boolean, fixed: Boolean = false, onToggle: () -> Unit) {
     val description = stringResource(if (selected) R.string.app_selected_cd else R.string.app_not_selected_cd, app.label)
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp)
-            .clickable(enabled = !locked, role = Role.Checkbox, onClick = onToggle)
+            .clickable(enabled = !locked && !fixed, role = Role.Checkbox, onClick = onToggle)
             .semantics(mergeDescendants = true) { contentDescription = description }
             .padding(horizontal = Fb.gutter, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -265,14 +271,15 @@ private fun AppRow(app: InstalledApps.App, selected: Boolean, locked: Boolean, s
         Column(Modifier.weight(1f)) {
             Text(app.label, style = FbType.body.copy(color = if (locked) Fb.textSecondary else Fb.textPrimary), maxLines = 1)
             if (locked) Text(stringResource(R.string.picker_always_available), style = FbType.caption)
+            else if (fixed) Text(stringResource(R.string.picker_in_this_block), style = FbType.caption)
         }
         if (!locked) {
             Box(
                 Modifier.size(24.dp).clip(RoundedCornerShape(6.dp))
-                    .background(if (selected) Fb.accent else Color.Transparent)
-                    .border(1.5.dp, if (selected) Fb.accent else Fb.textSecondary, RoundedCornerShape(6.dp)),
+                    .background(if (selected) (if (fixed) Fb.textSecondary else Fb.buttonPrimaryBg) else Color.Transparent)
+                    .border(1.5.dp, if (selected) (if (fixed) Fb.textSecondary else Fb.buttonPrimaryBg) else Fb.textSecondary, RoundedCornerShape(6.dp)),
                 contentAlignment = Alignment.Center,
-            ) { if (selected) Icon(Icons.Outlined.Check, null, tint = Fb.bg, modifier = Modifier.size(16.dp)) }
+            ) { if (selected) Icon(Icons.Outlined.Check, null, tint = Fb.buttonPrimaryText, modifier = Modifier.size(16.dp)) }
         }
     }
 }

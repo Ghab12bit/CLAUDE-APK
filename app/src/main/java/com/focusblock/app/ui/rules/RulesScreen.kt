@@ -1,6 +1,11 @@
 package com.focusblock.app.ui.rules
 
 import androidx.compose.foundation.clickable
+import com.focusblock.app.ui.components.SectionHeader
+import com.focusblock.app.ui.components.FbCard
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -108,11 +113,12 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
 
             // Coverage line + 24-hour strip (spec 4.6).
             val nowMinute = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+            FbCard {
             Text(
                 if (state.coveredMinutes > 0) stringResource(R.string.coverage_line, Fmt.minutes(context, state.coveredMinutes)) else stringResource(R.string.coverage_none),
-                style = FbType.body, modifier = Modifier.padding(horizontal = Fb.gutter),
+                style = FbType.heading,
             )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
             val stripDescription = state.segments.joinToString("; ") { s ->
                 val name = if (s.type == com.focusblock.app.policy.ReasonType.BEDTIME) context.getString(R.string.name_bedtime) else s.name
                 "$name ${context.getString(R.string.time_range, Fmt.minuteOfDay(context, s.startMinute), Fmt.minuteOfDay(context, s.endMinute % 1440))}"
@@ -133,6 +139,7 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                     }
                 },
             )
+            }
 
             // Gap line, only when evidence supports it.
             (state.gap?.proposal as? RecommendationEngine.Proposal.AddRoutine)?.let { p ->
@@ -156,9 +163,9 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
 
             // Routines.
             if (state.schedules.isNotEmpty()) {
-                SectionLabel(stringResource(R.string.section_routines))
+                SectionHeader(stringResource(R.string.section_routines))
                 state.schedules.forEach { s ->
-                    FbDivider()
+                    Spacer(Modifier.height(10.dp))
                     val window = TimeWindow.parseDays(s.daysOfWeek).takeIf { it.isNotEmpty() }?.let { TimeWindow(s.startTimeMinutes, s.endTimeMinutes, it) }
                     val broken = when {
                         csv(s.blockedPackages).isEmpty() -> context.getString(R.string.cause_no_apps)
@@ -179,26 +186,26 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                         onDelete = if (locked) null else ({ deleted(s.name, vm.deleteRoutine(s)) }),
                     )
                 }
-                FbDivider()
+                Spacer(Modifier.height(10.dp))
                 SectionGap()
             }
 
             // Imported rules from the previous version.
             if (state.imported.isNotEmpty()) {
-                SectionLabel(stringResource(R.string.section_imported))
+                SectionHeader(stringResource(R.string.section_imported))
                 state.imported.forEach { r ->
-                    FbDivider()
+                    Spacer(Modifier.height(10.dp))
                     ImportedRow(r, state, vm, onEdit)
                 }
-                FbDivider()
+                Spacer(Modifier.height(10.dp))
                 SectionGap()
             }
 
             // Limits.
             if (state.limits.isNotEmpty() || state.daily != null) {
-                SectionLabel(stringResource(R.string.section_limits))
+                SectionHeader(stringResource(R.string.section_limits))
                 state.limits.forEach { l ->
-                    FbDivider()
+                    Spacer(Modifier.height(10.dp))
                     val packages = csv(l.packages)
                     val used = state.usageToday?.let { u -> packages.sumOf { u[it] ?: 0L } }
                     RuleRow(
@@ -212,7 +219,7 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                     )
                 }
                 state.daily?.let { d ->
-                    FbDivider()
+                    Spacer(Modifier.height(10.dp))
                     val counted = state.snapshot?.dailyLimit
                     val lockedUntil = vm.dailyLockedUntil(d)
                     RuleRow(
@@ -227,14 +234,14 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                         onClick = { onEdit(EditorRequest(RuleKind.DAILY_LIMIT)) },
                     )
                 }
-                FbDivider()
+                Spacer(Modifier.height(10.dp))
                 SectionGap()
             }
 
             // Bedtime.
             state.bedtime?.let { b ->
-                SectionLabel(stringResource(R.string.section_bedtime))
-                FbDivider()
+                SectionHeader(stringResource(R.string.section_bedtime))
+                Spacer(Modifier.height(10.dp))
                 val window = state.snapshot?.bedtime?.window
                 val locked = vm.bedtimeLocked(b)
                 RuleRow(
@@ -247,14 +254,14 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                     onToggle = { vm.setBedtimeEnabled(b, it) },
                     onClick = { onEdit(EditorRequest(RuleKind.BEDTIME)) },
                 )
-                FbDivider()
+                Spacer(Modifier.height(10.dp))
                 SectionGap()
             }
 
             // Focus Cycles (separate until the merge decision).
             state.cycle?.let { c ->
-                SectionLabel(stringResource(R.string.section_focus_cycles))
-                FbDivider()
+                SectionHeader(stringResource(R.string.section_focus_cycles))
+                Spacer(Modifier.height(10.dp))
                 val packages = state.snapshot?.focusCycles?.firstOrNull()?.packages ?: csv(c.selectedPackages).toSet()
                 val breakEnds = state.snapshot?.focusCycles?.firstOrNull()?.breakEndsAt
                 val chip = when {
@@ -270,19 +277,21 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                     onToggle = { vm.setCycleEnabled(c, it) },
                     onClick = { onEdit(EditorRequest(RuleKind.FOCUS_CYCLE, c.id)) },
                 )
-                FbDivider()
+                Spacer(Modifier.height(10.dp))
                 SectionGap()
             }
 
             // Essential apps.
-            SectionLabel(stringResource(R.string.section_essentials))
-            FbDivider()
-            DividerRow(
-                title = stringResource(R.string.section_essentials),
-                subtitle = pluralRes(R.plurals.essentials_count, state.essentialsCount),
-                onClick = onEssentials,
-            )
-            FbDivider()
+            SectionHeader(stringResource(R.string.section_essentials))
+            Spacer(Modifier.height(10.dp))
+            FbCard(contentPadding = 0.dp) {
+                DividerRow(
+                    title = stringResource(R.string.section_essentials),
+                    subtitle = pluralRes(R.plurals.essentials_count, state.essentialsCount),
+                    onClick = onEssentials,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
 
             Spacer(Modifier.height(24.dp))
             Column(Modifier.padding(horizontal = Fb.gutter)) {
@@ -351,11 +360,12 @@ fun RuleRow(
 ) {
     var menu by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).heightIn(min = 72.dp).padding(start = Fb.gutter, end = 4.dp, top = 12.dp, bottom = 12.dp),
+        Modifier.fillMaxWidth().padding(horizontal = Fb.gutter).clip(RoundedCornerShape(Fb.cardRadius)).background(Fb.surface)
+            .clickable(role = Role.Button, onClick = onClick).heightIn(min = 72.dp).padding(start = 16.dp, end = 4.dp, top = 14.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(name, style = FbType.body)
+            Text(name, style = FbType.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold))
             Spacer(Modifier.height(2.dp))
             Text(summary, style = FbType.caption.copy(fontSize = FbType.label.fontSize, lineHeight = FbType.label.lineHeight))
             Spacer(Modifier.height(6.dp))

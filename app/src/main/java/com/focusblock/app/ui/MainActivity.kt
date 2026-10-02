@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
@@ -251,9 +252,8 @@ private fun selectTab(nav: NavHostController, route: String) {
 /** Three text + icon items; selected = accent text + small indicator line, no pill (spec 5.4). */
 @Composable
 private fun BottomBar(route: String?, onSelect: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().background(Fb.bg).navigationBarsPadding()) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Fb.divider))
-        Row(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxWidth().background(Fb.surface).navigationBarsPadding()) {
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
             TabItem(stringResource(R.string.tab_block), painterResource(R.drawable.ic_notification), route == Tabs.BLOCK) { onSelect(Tabs.BLOCK) }
             TabItem(stringResource(R.string.tab_rules), rememberVectorPainter(Icons.Outlined.Schedule), route == Tabs.RULES) { onSelect(Tabs.RULES) }
             TabItem(stringResource(R.string.tab_activity), rememberVectorPainter(Icons.Outlined.BarChart), route == Tabs.ACTIVITY) { onSelect(Tabs.ACTIVITY) }
@@ -268,11 +268,15 @@ private fun androidx.compose.foundation.layout.RowScope.TabItem(label: String, i
         Modifier.weight(1f).heightIn(min = 64.dp).clickable(role = Role.Tab, onClick = onClick).semantics { this.selected = selected },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(Modifier.width(48.dp).height(2.dp).background(if (selected) Fb.accent else androidx.compose.ui.graphics.Color.Transparent))
-        Spacer(Modifier.height(8.dp))
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
         Spacer(Modifier.height(4.dp))
-        Text(label, style = FbType.caption.copy(color = color))
+        // Selected tab: the icon sits in a soft accent pill.
+        Box(
+            Modifier.width(60.dp).height(30.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(15.dp))
+                .background(if (selected) Fb.accent.copy(alpha = 0.18f) else androidx.compose.ui.graphics.Color.Transparent),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp)) }
+        Spacer(Modifier.height(4.dp))
+        Text(label, style = FbType.caption.copy(color = color, fontWeight = if (selected) androidx.compose.ui.text.font.FontWeight.SemiBold else null))
         Spacer(Modifier.height(8.dp))
     }
 }

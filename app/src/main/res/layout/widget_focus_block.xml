@@ -20,7 +20,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
         android:maxLines="2"
-        android:textColor="#F2EEE4"
+        android:textColor="#F4F6FB"
         android:textSize="15sp" />
 
     <TextView
@@ -41,6 +41,6 @@
         android:minWidth="88dp"
         android:paddingHorizontal="16dp"
         android:textAllCaps="false"
-        android:textColor="#151411"
+        android:textColor="#FFFFFF"
         android:textSize="13sp" />
 </LinearLayout>

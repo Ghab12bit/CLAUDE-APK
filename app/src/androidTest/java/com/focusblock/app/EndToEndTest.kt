@@ -118,7 +118,7 @@ class EndToEndTest {
 
     private fun waitForBlockScreen() {
         val shown = device.wait(Until.hasObject(By.textContains("is blocked until")), 20_000)
-        screenshot("intervention-${System.nanoTime()}")
+        screenshot("intervention-$target-${System.currentTimeMillis() % 100000}")
         check(shown, "Block screen did not appear for $target")
     }
 
@@ -168,43 +168,142 @@ class EndToEndTest {
 
     @Test fun tabsRenderFromPersistedState() {
         start(Strength.NORMAL, minutes = 45)
-        context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        openMain()
         check(device.wait(Until.hasObject(By.textStartsWith("Blocking until")), 15_000), "Active block title")
         check(device.hasObject(By.text("“Finish the Q3 report”")), "Intention line")
-        // The actions sit below the fold on a phone-sized screen.
-        repeat(5) {
-            if (device.hasObject(By.text("Add 15 minutes"))) return@repeat
-            device.findObject(By.scrollable(true).pkg(context.packageName))?.scroll(Direction.DOWN, 0.8f)
-        }
-        check(device.wait(Until.hasObject(By.text("Add 15 minutes")), 5_000), "Add 15 minutes")
-        screenshot("block-active")
+        screenshot("01-block-active")
+        scrollTo("End block early")
+        check(device.wait(Until.hasObject(By.text("+15 min")), 5_000), "+15 min")
+        check(device.hasObject(By.text("End block early")), "End block early link")
+        screenshot("02-block-active-actions")
         device.findObject(By.text("Rules")).click()
         check(device.wait(Until.hasObject(By.text("What runs automatically")), 10_000), "Rules tab")
-        screenshot("rules")
+        screenshot("05-rules")
         device.findObject(By.text("Activity")).click()
-        check(device.wait(Until.hasObject(By.text("What affected your focus")), 10_000), "Activity tab")
-        screenshot("activity")
+        check(device.wait(Until.hasObject(By.text("SCREEN TIME")), 15_000), "Activity tab")
+        screenshot("06-activity-day")
+        repeat(4) { i ->
+            scrollDown()
+            screenshot("07-activity-day-${i + 1}")
+        }
+        check(device.hasObject(By.text("Blocks")) || device.hasObject(By.text("Distractions")), "Activity sections")
+        device.findObject(By.text("Week"))?.let {
+            scrollToTop()
+            device.findObject(By.text("Week")).click()
+            device.wait(Until.hasObject(By.text("LAST 7 DAYS")), 10_000)
+            screenshot("08-activity-week")
+        }
+        device.findObject(By.text("Trend"))?.let {
+            it.click()
+            device.wait(Until.hasObject(By.text("LAST 4 WEEKS")), 10_000)
+            screenshot("09-activity-trend")
+        }
+        scrollToTop()
         device.findObject(By.desc("Settings")).click()
         check(device.wait(Until.hasObject(By.text("Blocking health")), 10_000), "Settings")
-        screenshot("settings")
+        screenshot("10-settings")
+    }
+
+    @Test fun endingANormalBlockEarlyNeedsAWaitAndAHold() {
+        start(Strength.NORMAL, minutes = 45)
+        openMain()
+        check(device.wait(Until.hasObject(By.textStartsWith("Blocking until")), 15_000), "Active block title")
+        scrollTo("End block early")
+        check(device.wait(Until.hasObject(By.text("End block early")), 5_000), "End block early link")
+        device.findObject(By.text("End block early")).click()
+        check(device.wait(Until.hasObject(By.text("Keep blocking")), 5_000), "End sheet")
+        check(device.hasObject(By.textStartsWith("You can end it in")), "Wait before ending")
+        assertNull("Ending must not be offered straight away", device.findObject(By.text("Hold to end block")))
+        screenshot("03-end-early-wait")
+        check(device.wait(Until.hasObject(By.text("Hold to end block")), 15_000), "Hold button after the wait")
+        screenshot("04-end-early-hold")
+        // A quick tap does nothing.
+        device.findObject(By.text("Hold to end block")).click()
+        Thread.sleep(500)
+        assertNotNull("A tap must not end the block", runBlocking { graph.sessions.active() })
+        // Holding for 3.5 s ends it (swipe in place: 700 steps of ~5 ms).
+        val hold = device.findObject(By.text("Hold to end block")).visibleCenter
+        device.swipe(hold.x, hold.y, hold.x, hold.y, 700)
+        val deadline = System.currentTimeMillis() + 5_000
+        while (runBlocking { graph.sessions.active() } != null && System.currentTimeMillis() < deadline) Thread.sleep(200)
+        assertNull("Holding should end the block", runBlocking { graph.sessions.active() })
+    }
+
+    @Test fun appsCanBeAddedToARunningStrictBlock() {
+        start(Strength.STRICT)
+        val other = runBlocking {
+            val exempt = graph.policy.exempt()
+            graph.apps.all().map { it.packageName }.first { it != target && it !in exempt }
+        }
+        val added = runBlocking { graph.sessions.addApps(listOf(other, target)) }
+        assertEquals(1, added)
+        val packages = runBlocking { graph.sessions.active()!!.packages }
+        assertTrue(packages.contains(target) && packages.contains(other))
+        val decision = runBlocking { graph.enforcer.decide(other).first }
+        assertTrue("A newly added app is blocked at once", decision.blocked)
+        openMain()
+        check(device.wait(Until.hasObject(By.textStartsWith("Blocking until")), 15_000), "Active block title")
+        device.findObject(By.text("Add apps"))?.click()
+        check(device.wait(Until.hasObject(By.text("Add apps to this block")), 5_000), "Add apps picker")
+        screenshot("11-add-apps-picker")
+    }
+
+    @Test fun theFirstRunTestBlockLeavesTheChosenAppsAlone() {
+        val chosen = runBlocking {
+            val exempt = graph.policy.exempt()
+            graph.apps.all().map { it.packageName }.filter { it !in exempt }.take(3)
+        }
+        runBlocking {
+            graph.sessions.saveSelection(chosen)
+            val r = graph.sessions.start(StartRequest(BlockSetup(listOf(chosen.first()), SessionType.TIMED, 1), test = true))
+            assertTrue(r is StartResult.Started)
+            assertEquals(chosen, graph.sessions.lastSetup()!!.packages)
+            graph.sessions.discardTest((r as StartResult.Started).id)
+            assertNull(graph.sessions.active())
+            assertNull("The test block never asks Did you finish?", graph.db.blockSessionDao().awaitingOutcome())
+            assertEquals(chosen, graph.sessions.savedSelection())
+        }
     }
 
     @Test fun idleBlockTabShowsSetupWithoutGiantNumber() {
         runBlocking { graph.sessions.saveSelection(listOf(target)) }
-        context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        openMain()
         check(device.wait(Until.hasObject(By.text("Block distractions")), 15_000), "Idle Block tab")
         assertNotNull(device.findObject(By.text("What are you working on?")))
         assertNotNull(device.findObject(By.text("Intervals")))
         assertNotNull(device.findObject(By.text("Until I stop")))
         assertNull(device.findObject(By.text("Cycles")))
-        screenshot("block-idle")
+        screenshot("00-block-idle")
+        scrollDown()
+        screenshot("00-block-idle-2")
+    }
+
+    private fun openMain() {
+        context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+    }
+
+    private fun scrollDown() {
+        device.findObject(By.scrollable(true).pkg(context.packageName))?.scroll(Direction.DOWN, 0.8f)
+        device.waitForIdle()
+    }
+
+    private fun scrollTo(text: String) {
+        repeat(5) {
+            if (device.hasObject(By.text(text))) return
+            scrollDown()
+        }
+    }
+
+    private fun scrollToTop() {
+        repeat(6) { device.findObject(By.scrollable(true).pkg(context.packageName))?.scroll(Direction.UP, 1f) }
+        device.waitForIdle()
     }
 
     private fun screenshot(name: String) {
         runCatching {
             device.waitForIdle()
             val bitmap = instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).takeScreenshot() ?: return
-            val file = File(context.filesDir, "screenshots/$name.png")
+            val file = File(context.getExternalFilesDir("screenshots"), "$name.png")
             file.parentFile?.mkdirs()
             file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }

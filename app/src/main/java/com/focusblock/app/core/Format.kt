@@ -31,6 +31,23 @@ object Fmt {
         return time(context, millis, zone)
     }
 
+    /** Short hour label for chart axes: "6" in 24-hour format, otherwise "6 AM". */
+    fun hourShort(context: Context, hour: Int): String =
+        if (android.text.format.DateFormat.is24HourFormat(context)) hour.toString()
+        else context.getString(if (hour < 12) R.string.hour_am else R.string.hour_pm, if (hour % 12 == 0) 12 else hour % 12)
+
+    /** "Mon, 29 Sep" in the device language. */
+    fun dateShort(date: LocalDate): String =
+        date.format(java.time.format.DateTimeFormatter.ofPattern("EEE, d MMM", java.util.Locale.getDefault()))
+
+    /** "29 Sep". */
+    fun dayMonth(date: LocalDate): String =
+        date.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.getDefault()))
+
+    /** One-letter or short weekday for chart labels ("Mon"). */
+    fun weekdayShort(date: LocalDate): String =
+        date.format(java.time.format.DateTimeFormatter.ofPattern("EEE", java.util.Locale.getDefault()))
+
     /** "45 min", "3 h", "3 h 40 min". Rounds down to whole minutes; under a minute shows "0 min". */
     fun duration(context: Context, millis: Long): String {
         val minutes = (millis.coerceAtLeast(0) / SessionClock.MINUTE).toInt()

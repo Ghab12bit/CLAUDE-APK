@@ -53,6 +53,7 @@ class AppGraph private constructor(appContext: Context) {
     val apps = InstalledApps(context)
     val safety = SafetyApps(context)
     val usage = UsageRepository(context, clock)
+    val categories = AppCategories(context, db)
     val diagnostics = Diagnostics(db, clock)
     val notifier = Notifier(context, db, clock, apps)
     val alarms = AlarmScheduler(context)

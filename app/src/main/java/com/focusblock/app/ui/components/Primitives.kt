@@ -41,11 +41,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -59,6 +61,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -67,6 +70,12 @@ import com.focusblock.app.R
 import com.focusblock.app.policy.Strength
 import com.focusblock.app.ui.theme.Fb
 import com.focusblock.app.ui.theme.FbType
+
+/**
+ * Horizontal inset for rows and controls. Screen-level content uses the gutter; inside an
+ * [FbCard] the card's own padding takes over.
+ */
+val LocalRowInset = androidx.compose.runtime.staticCompositionLocalOf { Fb.gutter }
 
 @Composable
 fun pluralRes(@PluralsRes id: Int, count: Int): String =
@@ -119,21 +128,21 @@ fun ScreenTitle(text: String, modifier: Modifier = Modifier, subtitle: String? =
 
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier, trailing: (@Composable () -> Unit)? = null) {
-    Row(modifier.fillMaxWidth().heightIn(min = 40.dp).padding(horizontal = Fb.gutter), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().heightIn(min = 40.dp).padding(horizontal = LocalRowInset.current), verticalAlignment = Alignment.CenterVertically) {
         Text(text, style = FbType.label.copy(color = Fb.textSecondary), modifier = Modifier.weight(1f).semantics { heading() })
         trailing?.invoke()
     }
 }
 
 @Composable
-fun FbDivider(modifier: Modifier = Modifier, inset: Dp = Fb.gutter) {
+fun FbDivider(modifier: Modifier = Modifier, inset: Dp = LocalRowInset.current) {
     Box(modifier.fillMaxWidth().padding(horizontal = inset).height(1.dp).background(Fb.divider))
 }
 
 @Composable
 fun SectionGap() = Spacer(Modifier.height(Fb.sectionGap))
 
-/** A full-width row separated by dividers, never a card (spec 5.4). */
+/** A full-width row; inside an [FbCard] it lines up with the card padding. */
 @Composable
 fun DividerRow(
     title: String,
@@ -147,7 +156,7 @@ fun DividerRow(
 ) {
     val clickable = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
     Row(
-        modifier.fillMaxWidth().then(clickable).heightIn(min = 56.dp).padding(horizontal = Fb.gutter, vertical = 10.dp),
+        modifier.fillMaxWidth().then(clickable).heightIn(min = 56.dp).padding(horizontal = LocalRowInset.current, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (leading != null) { leading(); Spacer(Modifier.width(14.dp)) }
@@ -168,29 +177,32 @@ fun DividerRow(
 
 @Composable
 fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, leadingIcon: ImageVector? = null, trailingIcon: ImageVector? = null) {
-    val bg = if (enabled) Fb.buttonPrimaryBg else Fb.track
     val fg = if (enabled) Fb.buttonPrimaryText else Fb.disabled
+    val bg = if (enabled) Modifier.background(Brush.horizontalGradient(listOf(Fb.buttonPrimaryBg, Fb.buttonPrimaryBgEnd))) else Modifier.background(Fb.track)
     Row(
-        modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(Fb.radius)).background(bg)
+        modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(Fb.radius)).then(bg)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (leadingIcon != null) { Icon(leadingIcon, null, tint = fg, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(10.dp)) }
-        Text(text, style = FbType.body.copy(color = fg))
+        Text(text, style = FbType.body.copy(color = fg, fontWeight = FontWeight.SemiBold))
         if (trailingIcon != null) { Spacer(Modifier.width(10.dp)); Icon(trailingIcon, null, tint = fg, modifier = Modifier.size(18.dp)) }
     }
 }
 
 @Composable
-fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, leadingIcon: ImageVector? = null) {
     val fg = if (enabled) Fb.textPrimary else Fb.disabled
-    Box(
-        modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(Fb.radius))
-            .border(BorderStroke(1.dp, if (enabled) Fb.textPrimary.copy(alpha = 0.32f) else Fb.track), RoundedCornerShape(Fb.radius))
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp),
-        contentAlignment = Alignment.Center,
-    ) { Text(text, style = FbType.body.copy(color = fg)) }
+    Row(
+        modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(Fb.radius)).background(Fb.surfaceHigh)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (leadingIcon != null) { Icon(leadingIcon, null, tint = Fb.accent, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)) }
+        Text(text, style = FbType.body.copy(color = fg, fontWeight = FontWeight.Medium), maxLines = 1)
+    }
 }
 
 /** Low-emphasis text link. [accent] uses the single accent colour (links, selected state). */
@@ -209,7 +221,7 @@ enum class StatusKind { OK, WARN, INFO }
 @Composable
 fun StatusLine(text: String, kind: StatusKind, modifier: Modifier = Modifier, actionLabel: String? = null, onAction: (() -> Unit)? = null) {
     val color = when (kind) { StatusKind.OK -> Fb.success; StatusKind.WARN -> Fb.warning; StatusKind.INFO -> Fb.textSecondary }
-    Row(modifier.fillMaxWidth().heightIn(min = 32.dp).padding(horizontal = Fb.gutter), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().heightIn(min = 32.dp).padding(horizontal = LocalRowInset.current), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(color))
         Spacer(Modifier.width(10.dp))
         Text(text, style = FbType.label.copy(color = if (kind == StatusKind.WARN) Fb.textPrimary else Fb.textSecondary), modifier = Modifier.weight(1f, fill = false))
@@ -253,7 +265,7 @@ fun StateChip(text: String, kind: ChipKind, modifier: Modifier = Modifier) {
 
 @Composable
 fun EmptyState(text: String, modifier: Modifier = Modifier, actionLabel: String? = null, onAction: (() -> Unit)? = null) {
-    Column(modifier.fillMaxWidth().padding(horizontal = Fb.gutter, vertical = 16.dp)) {
+    Column(modifier.fillMaxWidth().padding(horizontal = LocalRowInset.current, vertical = 16.dp)) {
         Text(text, style = FbType.body.copy(color = Fb.textSecondary))
         if (actionLabel != null && onAction != null) {
             Spacer(Modifier.height(12.dp))
@@ -266,8 +278,9 @@ fun EmptyState(text: String, modifier: Modifier = Modifier, actionLabel: String?
 @Composable
 fun ProblemBanner(text: String, actionLabel: String, onAction: () -> Unit, modifier: Modifier = Modifier) {
     Row(
-        modifier.fillMaxWidth().padding(horizontal = Fb.gutter).clip(RoundedCornerShape(Fb.radius))
-            .border(BorderStroke(1.dp, Fb.warning.copy(alpha = 0.6f)), RoundedCornerShape(Fb.radius)).padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+        modifier.fillMaxWidth().padding(horizontal = LocalRowInset.current).clip(RoundedCornerShape(Fb.radius))
+            .background(Fb.warning.copy(alpha = 0.12f))
+            .border(BorderStroke(1.dp, Fb.warning.copy(alpha = 0.5f)), RoundedCornerShape(Fb.radius)).padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Outlined.ErrorOutline, null, tint = Fb.warning, modifier = Modifier.size(18.dp))
@@ -285,11 +298,11 @@ fun FbSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, enabled: B
         enabled = enabled,
         modifier = if (contentDescription != null) Modifier.semantics { this.contentDescription = contentDescription } else Modifier,
         colors = SwitchDefaults.colors(
-            checkedThumbColor = Fb.bg,
-            checkedTrackColor = Fb.accent,
-            checkedBorderColor = Fb.accent,
+            checkedThumbColor = Fb.buttonPrimaryText,
+            checkedTrackColor = Fb.buttonPrimaryBg,
+            checkedBorderColor = Fb.buttonPrimaryBg,
             uncheckedThumbColor = Fb.textSecondary,
-            uncheckedTrackColor = Fb.bg,
+            uncheckedTrackColor = Fb.surfaceHigh,
             uncheckedBorderColor = Fb.textSecondary.copy(alpha = 0.6f),
             disabledCheckedTrackColor = Fb.accent.copy(alpha = 0.38f),
             disabledUncheckedTrackColor = Fb.bg,
@@ -298,48 +311,48 @@ fun FbSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, enabled: B
 }
 
 /**
- * Segmented control: text tabs with an accent underline on the selected one, no pill.
+ * Segmented control: a pill track with the selected option filled.
  * Used for Timed / Intervals / Until I stop and Today / This week.
  */
 @Composable
-fun <T> SegmentedControl(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
-    Column(modifier.fillMaxWidth().padding(horizontal = Fb.gutter)) {
-        Row(Modifier.fillMaxWidth()) {
-            options.forEach { (value, label) ->
-                val isSelected = value == selected
-                Column(
-                    Modifier.weight(1f).heightIn(min = Fb.touch)
-                        .clickable(enabled = enabled, role = Role.Tab) { onSelect(value) }
-                        .semantics { stateDescription = if (isSelected) "Selected" else "" },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Spacer(Modifier.height(12.dp))
-                    Text(label, style = FbType.body.copy(color = if (isSelected) Fb.textPrimary else Fb.textSecondary), maxLines = 1)
-                    Spacer(Modifier.height(10.dp))
-                    Box(Modifier.fillMaxWidth().height(2.dp).background(if (isSelected) Fb.accent else Color.Transparent))
-                }
+fun <T> SegmentedControl(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, trackColor: Color = Fb.surface) {
+    Row(
+        modifier.fillMaxWidth().padding(horizontal = LocalRowInset.current).clip(RoundedCornerShape(26.dp)).background(trackColor).padding(4.dp),
+    ) {
+        options.forEach { (value, label) ->
+            val isSelected = value == selected
+            Box(
+                Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp))
+                    .then(if (isSelected) Modifier.background(Brush.horizontalGradient(listOf(Fb.buttonPrimaryBg, Fb.buttonPrimaryBgEnd))) else Modifier)
+                    .clickable(enabled = enabled, role = Role.Tab) { onSelect(value) }
+                    .semantics { stateDescription = if (isSelected) "Selected" else "" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    style = FbType.label.copy(color = if (isSelected) Fb.buttonPrimaryText else Fb.textSecondary, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium),
+                    maxLines = 1,
+                )
             }
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Fb.divider))
     }
 }
 
 /** Choice chips such as 25 · 45 · 60 · Custom. Selected is filled; all are 48 dp tall. */
 @Composable
 fun ChoiceChips(options: List<String>, selectedIndex: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
-    Row(modifier.fillMaxWidth().padding(horizontal = Fb.gutter), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(modifier.fillMaxWidth().padding(horizontal = LocalRowInset.current), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         options.forEachIndexed { i, label ->
             val selected = i == selectedIndex
             Box(
-                Modifier.weight(1f).heightIn(min = Fb.touch).clip(RoundedCornerShape(10.dp))
-                    .background(if (selected) Fb.buttonPrimaryBg else Color.Transparent)
-                    .border(BorderStroke(1.dp, if (selected) Fb.buttonPrimaryBg else Fb.textPrimary.copy(alpha = 0.2f)), RoundedCornerShape(10.dp))
+                Modifier.weight(1f).heightIn(min = Fb.touch).clip(RoundedCornerShape(14.dp))
+                    .background(if (selected) Fb.accent.copy(alpha = 0.22f) else Fb.surfaceHigh)
+                    .border(BorderStroke(1.5.dp, if (selected) Fb.accent else Color.Transparent), RoundedCornerShape(14.dp))
                     .clickable(enabled = enabled, role = Role.RadioButton) { onSelect(i) }
                     .semantics { stateDescription = if (selected) "Selected" else "Not selected" },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(label, style = FbType.body.copy(color = if (selected) Fb.buttonPrimaryText else Fb.textPrimary), maxLines = 1)
+                Text(label, style = FbType.body.copy(color = Fb.textPrimary, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal), maxLines = 1)
             }
         }
     }
@@ -357,7 +370,7 @@ fun LabeledField(
     enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
     focusManager: FocusManager = LocalFocusManager.current,
-    horizontalPadding: Dp = Fb.gutter,
+    horizontalPadding: Dp = LocalRowInset.current,
 ) {
     Column(modifier.fillMaxWidth().padding(horizontal = horizontalPadding)) {
         Text(label, style = FbType.label.copy(color = Fb.textSecondary))
@@ -374,11 +387,13 @@ fun LabeledField(
             modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
             decorationBox = { inner ->
                 Column {
-                    Box(Modifier.fillMaxWidth().heightIn(min = 40.dp), contentAlignment = Alignment.CenterStart) {
-                        if (value.isEmpty()) Text(placeholder, style = FbType.body.copy(color = Fb.textSecondary.copy(alpha = 0.7f)))
+                    Box(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp)).background(Fb.surfaceHigh).padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        if (value.isEmpty()) Text(placeholder, style = FbType.body.copy(color = Fb.textSecondary.copy(alpha = 0.8f)))
                         inner()
                     }
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(Fb.textPrimary.copy(alpha = 0.24f)))
                 }
             },
         )
@@ -388,7 +403,91 @@ fun LabeledField(
 /** The one elevated surface on a screen. */
 @Composable
 fun ElevatedSurface(modifier: Modifier = Modifier, color: Color = Fb.surface, content: @Composable ColumnScope.() -> Unit) {
-    Column(modifier.fillMaxWidth().padding(horizontal = Fb.gutter).clip(RoundedCornerShape(16.dp)).background(color).padding(20.dp), content = content)
+    Column(modifier.fillMaxWidth().padding(horizontal = Fb.gutter).clip(RoundedCornerShape(Fb.cardRadius)).background(color).padding(20.dp), content = content)
+}
+
+/**
+ * A card. With the default padding, rows inside line up with the card's padding; with
+ * [contentPadding] 0, rows keep their own inset so their touch area reaches the card edges.
+ */
+@Composable
+fun FbCard(
+    modifier: Modifier = Modifier,
+    color: Color = Fb.surface,
+    brush: Brush? = null,
+    contentPadding: Dp = 16.dp,
+    outerPadding: Dp = Fb.gutter,
+    onClick: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val shape = RoundedCornerShape(Fb.cardRadius)
+    Column(
+        modifier.fillMaxWidth().padding(horizontal = outerPadding).clip(shape)
+            .then(if (brush != null) Modifier.background(brush) else Modifier.background(color))
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .padding(vertical = if (contentPadding == 0.dp) 4.dp else contentPadding, horizontal = contentPadding),
+    ) {
+        CompositionLocalProvider(LocalRowInset provides if (contentPadding == 0.dp) 16.dp else 0.dp) { content() }
+    }
+}
+
+/** Big section heading between cards ("Habits", "Focus"). */
+@Composable
+fun SectionHeader(text: String, modifier: Modifier = Modifier, trailing: (@Composable () -> Unit)? = null) {
+    Row(modifier.fillMaxWidth().padding(start = Fb.gutter, end = Fb.gutter - 8.dp, top = 8.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(text, style = FbType.heading.copy(fontSize = FbType.heading.fontSize * 1.1f), modifier = Modifier.weight(1f).semantics { heading() })
+        trailing?.invoke()
+    }
+}
+
+/** Dot + label pill, for categories and states. */
+@Composable
+fun DotPill(text: String, color: Color, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+    Row(
+        modifier.clip(RoundedCornerShape(12.dp)).background(color.copy(alpha = 0.14f))
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(7.dp).clip(CircleShape).background(color))
+        Spacer(Modifier.width(5.dp))
+        Text(text, style = FbType.caption.copy(color = Fb.textPrimary), maxLines = 1)
+    }
+}
+
+/** Horizontal progress bar with rounded ends. */
+@Composable
+fun FbProgressBar(fraction: Float, color: Color, modifier: Modifier = Modifier, height: Dp = 10.dp, brush: Brush? = null) {
+    Box(modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(height / 2)).background(Fb.track)) {
+        val f = fraction.coerceIn(0f, 1f)
+        if (f > 0f) {
+            Box(
+                Modifier.fillMaxWidth(f).height(height).clip(RoundedCornerShape(height / 2))
+                    .then(if (brush != null) Modifier.background(brush) else Modifier.background(color)),
+            )
+        }
+    }
+}
+
+/** A small stat tile: icon, big value, caption label. */
+@Composable
+fun StatTile(value: String, label: String, icon: ImageVector, tint: Color, modifier: Modifier = Modifier, sub: String? = null) {
+    Column(
+        modifier.clip(RoundedCornerShape(Fb.cardRadius)).background(Fb.surface).padding(16.dp)
+            .semantics(mergeDescendants = true) {},
+    ) {
+        Box(Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(tint.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(value, style = FbType.title.copy(fontSize = FbType.heading.fontSize * 1.3f), maxLines = 1)
+        Spacer(Modifier.height(2.dp))
+        Text(label, style = FbType.overline, maxLines = 2)
+        if (sub != null) {
+            Spacer(Modifier.height(4.dp))
+            Text(sub, style = FbType.caption, maxLines = 2)
+        }
+    }
 }
 
 /** Placeholder shapes for loading states: a skeleton of the real layout, not a spinner (spec 4.11). */
@@ -399,7 +498,7 @@ fun SkeletonLine(widthFraction: Float, height: Dp = 16.dp, modifier: Modifier = 
 
 @Composable
 fun Stepper(label: String, value: String, onMinus: () -> Unit, onPlus: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
-    Row(modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = Fb.gutter), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = LocalRowInset.current), verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = FbType.body, modifier = Modifier.weight(1f))
         StepperButton("−", stringResource(R.string.decrease, label), onMinus, enabled)
         Text(value, style = FbType.body, modifier = Modifier.widthIn(min = 72.dp).padding(horizontal = 8.dp), maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
@@ -410,7 +509,7 @@ fun Stepper(label: String, value: String, onMinus: () -> Unit, onPlus: () -> Uni
 @Composable
 private fun StepperButton(symbol: String, description: String, onClick: () -> Unit, enabled: Boolean) {
     Box(
-        Modifier.size(Fb.touch).clip(CircleShape).border(BorderStroke(1.dp, Fb.textPrimary.copy(alpha = 0.24f)), CircleShape)
+        Modifier.size(Fb.touch).clip(CircleShape).background(Fb.surfaceHigh)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick).semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) { Text(symbol, style = FbType.heading.copy(color = if (enabled) Fb.textPrimary else Fb.disabled)) }

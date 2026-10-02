@@ -1,6 +1,36 @@
 package com.focusblock.app.ui.block
 
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.MoreTime
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.text.font.FontWeight
+import com.focusblock.app.ui.components.FbCard
+import com.focusblock.app.ui.components.StatTile
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -160,87 +190,101 @@ private fun IdleBlock(state: BlockUi, vm: BlockViewModel, onEssentials: () -> Un
     Spacer(Modifier.height(8.dp))
     BlockStatus(state, onHealth)
 
-    // Repeat last block: whole row tappable, play icon at the right edge.
+    // Repeat last block: one tap starts it again.
     state.last?.let { last ->
-        Spacer(Modifier.height(12.dp))
-        FbDivider()
+        Spacer(Modifier.height(16.dp))
         val length = when (last.type) {
             SessionType.TIMED -> Fmt.minutes(context, last.minutes)
             SessionType.INTERVALS -> stringResource(R.string.session_intervals)
             SessionType.INDEFINITE -> stringResource(R.string.session_until_stop)
         }
         val strength = stringResource(if (last.strength == Strength.STRICT) R.string.strength_strict else R.string.strength_normal)
-        DividerRow(
-            title = stringResource(R.string.repeat_last_title),
-            subtitle = stringResource(R.string.summary_dot3, length, pluralRes(R.plurals.apps_count, last.packages.size), strength),
-            leading = { Icon(Icons.Outlined.Replay, null, tint = Fb.textSecondary, modifier = Modifier.size(20.dp)) },
-            trailing = { Icon(Icons.Outlined.PlayArrow, null, tint = Fb.accent, modifier = Modifier.size(24.dp)) },
+        FbCard(
+            contentPadding = 0.dp,
             onClick = if (state.missing == null && !state.busy) vm::repeatLast else null,
-            modifier = Modifier.semantics { contentDescription = context.getString(R.string.repeat_last_start) },
+            modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = context.getString(R.string.repeat_last_start) },
+        ) {
+            DividerRow(
+                title = stringResource(R.string.repeat_last_title),
+                subtitle = stringResource(R.string.summary_dot3, length, pluralRes(R.plurals.apps_count, last.packages.size), strength),
+                leading = { IconWell(Icons.Outlined.Replay, Fb.accent) },
+                trailing = {
+                    Box(
+                        Modifier.size(40.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Fb.buttonPrimaryBg, Fb.buttonPrimaryBgEnd))),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.Outlined.PlayArrow, null, tint = Fb.buttonPrimaryText, modifier = Modifier.size(24.dp)) }
+                },
+            )
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+    FbCard {
+        LabeledField(
+            label = stringResource(R.string.intention_label),
+            value = d.intention,
+            onValueChange = vm::setIntention,
+            placeholder = stringResource(R.string.intention_placeholder),
+            maxLength = 80,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         )
-        FbDivider()
     }
 
-    SectionGap()
-    LabeledField(
-        label = stringResource(R.string.intention_label),
-        value = d.intention,
-        onValueChange = vm::setIntention,
-        placeholder = stringResource(R.string.intention_placeholder),
-        maxLength = 80,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-    )
-
-    SectionGap()
-    SectionLabel(stringResource(R.string.apps_to_block, d.packages.size)) {
-        TextLink(stringResource(R.string.action_edit), { showPicker = true })
-    }
-    if (d.packages.isEmpty()) {
-        DividerRow(title = stringResource(R.string.apps_none_chosen), onClick = { showPicker = true })
-    } else {
-        Spacer(Modifier.height(4.dp))
-        AppIconRow(d.packages, vm::label, onMore = { showPicker = true }, modifier = Modifier.clickable { showPicker = true })
-    }
-
-    SectionGap()
-    SegmentedControl(
-        options = listOf(
-            SessionType.TIMED to stringResource(R.string.session_timed),
-            SessionType.INTERVALS to stringResource(R.string.session_intervals),
-            SessionType.INDEFINITE to stringResource(R.string.session_until_stop),
-        ),
-        selected = d.type,
-        onSelect = vm::setType,
-    )
-    Spacer(Modifier.height(16.dp))
-    when (d.type) {
-        SessionType.TIMED -> {
-            val presets = BlockViewModel.PRESETS
-            val index = presets.indexOf(d.minutes).let { if (it < 0) 3 else it }
-            val custom = if (index == 3) Fmt.minutes(context, d.minutes) else stringResource(R.string.duration_custom)
-            ChoiceChips(
-                options = presets.map { stringResource(R.string.duration_min, it) } + custom,
-                selectedIndex = index,
-                onSelect = { i -> if (i < 3) vm.setMinutes(presets[i]) else showCustom = true },
-            )
+    Spacer(Modifier.height(12.dp))
+    FbCard {
+        SectionLabel(stringResource(R.string.apps_to_block, d.packages.size)) {
+            TextLink(stringResource(R.string.action_edit), { showPicker = true })
         }
-        SessionType.INTERVALS -> {
-            Stepper(stringResource(R.string.intervals_focus), Fmt.minutes(context, d.focus), { vm.setFocus(d.focus - 5) }, { vm.setFocus(d.focus + 5) })
-            Stepper(stringResource(R.string.intervals_break), Fmt.minutes(context, d.rest), { vm.setRest(d.rest - 1) }, { vm.setRest(d.rest + 1) })
-            Stepper(stringResource(R.string.intervals_rounds), d.rounds.toString(), { vm.setRounds(d.rounds - 1) }, { vm.setRounds(d.rounds + 1) })
-            val total = SessionClock.plannedLengthMinutes(SessionType.INTERVALS, 0, d.focus, d.rest, d.rounds) ?: 0
-            Text(
-                stringResource(R.string.intervals_total, d.rounds, Fmt.time(context, System.currentTimeMillis() + total * SessionClock.MINUTE)),
-                style = FbType.caption, modifier = Modifier.padding(horizontal = Fb.gutter),
-            )
+        if (d.packages.isEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            SecondaryButton(stringResource(R.string.apps_choose), { showPicker = true }, leadingIcon = Icons.Outlined.Add)
+        } else {
+            Spacer(Modifier.height(4.dp))
+            AppIconRow(d.packages, vm::label, onMore = { showPicker = true }, modifier = Modifier.clickable { showPicker = true })
         }
-        SessionType.INDEFINITE -> Unit
     }
 
-    SectionGap()
-    FbDivider()
-    StrictToggle(d, vm)
-    FbDivider()
+    Spacer(Modifier.height(12.dp))
+    FbCard {
+        SegmentedControl(
+            options = listOf(
+                SessionType.TIMED to stringResource(R.string.session_timed),
+                SessionType.INTERVALS to stringResource(R.string.session_intervals),
+                SessionType.INDEFINITE to stringResource(R.string.session_until_stop),
+            ),
+            selected = d.type,
+            onSelect = vm::setType,
+            trackColor = Fb.bg,
+        )
+        when (d.type) {
+            SessionType.TIMED -> {
+                Spacer(Modifier.height(14.dp))
+                val presets = BlockViewModel.PRESETS
+                val index = presets.indexOf(d.minutes).let { if (it < 0) 3 else it }
+                val custom = if (index == 3) Fmt.minutes(context, d.minutes) else stringResource(R.string.duration_custom)
+                ChoiceChips(
+                    options = presets.map { stringResource(R.string.duration_min, it) } + custom,
+                    selectedIndex = index,
+                    onSelect = { i -> if (i < 3) vm.setMinutes(presets[i]) else showCustom = true },
+                )
+            }
+            SessionType.INTERVALS -> {
+                Spacer(Modifier.height(6.dp))
+                Stepper(stringResource(R.string.intervals_focus), Fmt.minutes(context, d.focus), { vm.setFocus(d.focus - 5) }, { vm.setFocus(d.focus + 5) })
+                Stepper(stringResource(R.string.intervals_break), Fmt.minutes(context, d.rest), { vm.setRest(d.rest - 1) }, { vm.setRest(d.rest + 1) })
+                Stepper(stringResource(R.string.intervals_rounds), d.rounds.toString(), { vm.setRounds(d.rounds - 1) }, { vm.setRounds(d.rounds + 1) })
+                val total = SessionClock.plannedLengthMinutes(SessionType.INTERVALS, 0, d.focus, d.rest, d.rounds) ?: 0
+                Text(
+                    stringResource(R.string.intervals_total, d.rounds, Fmt.time(context, System.currentTimeMillis() + total * SessionClock.MINUTE)),
+                    style = FbType.caption,
+                )
+            }
+            SessionType.INDEFINITE -> Unit
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+    FbCard(contentPadding = 0.dp) { StrictToggle(d, vm) }
 
     Spacer(Modifier.height(20.dp))
     val startLabel = when (d.type) {
@@ -265,16 +309,17 @@ private fun IdleBlock(state: BlockUi, vm: BlockViewModel, onEssentials: () -> Un
         Modifier.fillMaxWidth().heightIn(min = Fb.touch).clickable(role = Role.Button, onClick = onEssentials).padding(horizontal = Fb.gutter),
         horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Outlined.Call, null, tint = Fb.textSecondary, modifier = Modifier.size(16.dp))
+        Icon(Icons.Outlined.Call, null, tint = Fb.success, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(8.dp))
         Text(stringResource(R.string.footnote_essentials), style = FbType.caption)
     }
 
     state.nextRule?.let { next ->
         Spacer(Modifier.height(8.dp))
-        FbDivider()
         val name = next.name.ifBlank { stringResource(R.string.name_bedtime) }
-        DividerRow(title = nextRuleText(name, next.at))
+        FbCard(contentPadding = 0.dp) {
+            DividerRow(title = nextRuleText(name, next.at), leading = { IconWell(Icons.Outlined.Schedule, Fb.accentAlt) })
+        }
     }
 
     if (showPicker) {
@@ -287,6 +332,14 @@ private fun IdleBlock(state: BlockUi, vm: BlockViewModel, onEssentials: () -> Un
     }
     if (showCustom) {
         CustomMinutesDialog(d.minutes, onDismiss = { showCustom = false }, onDone = { vm.setMinutes(it); showCustom = false })
+    }
+}
+
+/** Tinted rounded square behind an icon. */
+@Composable
+private fun IconWell(icon: ImageVector, tint: Color) {
+    Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(tint.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -324,10 +377,10 @@ private fun StrictToggle(d: Draft, vm: BlockViewModel) {
     val allowed = d.type != SessionType.INDEFINITE
     Row(
         Modifier.fillMaxWidth().clickable(enabled = allowed, role = Role.Switch) { vm.setStrict(!d.strict) }
-            .heightIn(min = 72.dp).padding(horizontal = Fb.gutter, vertical = 12.dp),
+            .heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Outlined.Lock, null, tint = if (d.strict) Fb.accent else Fb.textSecondary, modifier = Modifier.size(20.dp))
+        IconWell(Icons.Outlined.Lock, if (d.strict) Fb.accentAlt else Fb.textSecondary)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(stringResource(R.string.strength_strict), style = FbType.body)
@@ -371,6 +424,7 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
     val input = state.input ?: return
     val st = SessionClock.state(input, now)
     var confirmEnd by rememberSaveable { mutableStateOf(false) }
+    var addApps by rememberSaveable { mutableStateOf(false) }
 
     val title = when {
         input.type == SessionType.INTERVALS && st.phase == SessionClock.Phase.BREAK ->
@@ -386,13 +440,9 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
         ProblemBanner(stringResource(R.string.degraded_banner, cause), stringResource(R.string.action_fix),
             { PermissionHealth.open(context, com.focusblock.app.core.Requirement.ACCESSIBILITY) })
     }
-    input.intention?.let {
-        Spacer(Modifier.height(6.dp))
-        Text(stringResource(R.string.intention_quoted, it), style = FbType.body.copy(color = Fb.textSecondary), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = Fb.gutter))
-    }
-    Spacer(Modifier.height(20.dp))
+    Spacer(Modifier.height(16.dp))
 
-    // Signature visual: the one elevated element on this screen.
+    // Progress ring: the one hero element on this screen.
     val remaining = input.plannedEndAt?.let { (it - now).coerceAtLeast(0) }
     val total = input.plannedEndAt?.let { it - input.startedAt }
     val progress = if (remaining != null && total != null && total > 0) 1f - remaining.toFloat() / total else null
@@ -410,57 +460,170 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
     val caption = when {
         input.type == SessionType.INTERVALS && st.phase != SessionClock.Phase.BREAK -> stringResource(R.string.phase_focus, st.round, st.totalRounds)
         input.type == SessionType.INTERVALS -> stringResource(R.string.phase_focus, (st.round + 1).coerceAtMost(st.totalRounds), st.totalRounds)
-        else -> null
+        else -> input.intention?.let { stringResource(R.string.intention_quoted, it) }
     }
-    ActiveBlockVisual(visualState, progress, headline, caption)
+    val footer = stringResource(if (input.strength == Strength.STRICT) R.string.overline_strict else R.string.overline_normal)
+    ActiveBlockVisual(visualState, progress, headline, caption, footer = footer)
+    if (input.type == SessionType.INTERVALS) {
+        input.intention?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(stringResource(R.string.intention_quoted, it), style = FbType.body.copy(color = Fb.textSecondary), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = Fb.gutter))
+        }
+    }
 
+    // Two quick stats.
+    Spacer(Modifier.height(12.dp))
+    Row(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        StatTile(state.blockedOpenings.toString(), stringResource(R.string.stat_blocked_openings), Icons.Outlined.Block, Fb.warning, Modifier.weight(1f))
+        StatTile(Fmt.duration(context, (now - input.startedAt).coerceAtLeast(0)), stringResource(R.string.stat_focused_for), Icons.Outlined.Timer, Fb.success, Modifier.weight(1f))
+    }
+
+    // Blocked apps, with Add apps.
+    Spacer(Modifier.height(12.dp))
+    FbCard {
+        SectionLabel(pluralRes(R.plurals.apps_blocked_count, input.packages.size)) {
+            TextLink(stringResource(R.string.action_add_apps), { addApps = true })
+        }
+        Spacer(Modifier.height(4.dp))
+        AppIconRow(input.packages.toList(), vm::label, onMore = { addApps = true })
+        Spacer(Modifier.height(10.dp))
+        Text(stringResource(if (input.strength == Strength.STRICT) R.string.add_apps_note_strict else R.string.add_apps_note), style = FbType.caption)
+    }
+
+    Spacer(Modifier.height(12.dp))
+    FbCard(contentPadding = 0.dp) {
+        DividerRow(
+            title = stringResource(R.string.row_essential_apps), value = stringResource(R.string.row_available), titleMaxLines = 1, onClick = onEssentials,
+            leading = { IconWell(Icons.Outlined.Call, Fb.success) },
+        )
+        if (state.alsoBlockedBy.isNotEmpty()) {
+            FbDivider()
+            val text = state.alsoBlockedBy.joinToString(", ") { entry ->
+                val (name, start) = entry.split('|').let { it[0] to it[1].toLong() }
+                val label = name.ifBlank { context.getString(R.string.name_bedtime) }
+                if (start <= now) label else context.getString(R.string.status_rule_starts, label, Fmt.time(context, start))
+            }
+            DividerRow(title = stringResource(R.string.row_also_blocked_by), subtitle = text, leading = { IconWell(Icons.Outlined.Schedule, Fb.accentAlt) })
+        }
+    }
+
+    // Actions: making the block longer or stricter is easy; ending it early is not.
     Spacer(Modifier.height(16.dp))
-    StrengthLabel(input.strength, Modifier.padding(horizontal = Fb.gutter))
-
-    SectionGap()
-    SectionLabel(pluralRes(R.plurals.apps_blocked_count, input.packages.size)) {
-        if (input.strength == Strength.STRICT) Text(stringResource(R.string.selection_locked), style = FbType.caption)
-    }
-    Spacer(Modifier.height(4.dp))
-    AppIconRow(input.packages.toList(), vm::label)
-
-    SectionGap()
-    FbDivider()
-    DividerRow(title = stringResource(R.string.row_blocked_openings), value = state.blockedOpenings.toString())
-    FbDivider()
-    DividerRow(title = stringResource(R.string.row_essential_apps), value = stringResource(R.string.row_available), titleMaxLines = 1, onClick = onEssentials)
-    if (state.alsoBlockedBy.isNotEmpty()) {
-        FbDivider()
-        val text = state.alsoBlockedBy.joinToString(", ") { entry ->
-            val (name, start) = entry.split('|').let { it[0] to it[1].toLong() }
-            val label = name.ifBlank { context.getString(R.string.name_bedtime) }
-            if (start <= now) label else context.getString(R.string.status_rule_starts, label, Fmt.time(context, start))
-        }
-        DividerRow(title = stringResource(R.string.row_also_blocked_by), subtitle = text)
-    }
-    FbDivider()
-
-    Spacer(Modifier.height(24.dp))
-    Column(Modifier.padding(horizontal = Fb.gutter), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (input.strength == Strength.NORMAL) {
-            PrimaryButton(stringResource(R.string.action_end_block), { confirmEnd = true })
-        }
+    Row(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         if (input.plannedEndAt != null) {
-            SecondaryButton(stringResource(R.string.action_add_15), vm::extend)
+            SecondaryButton(stringResource(R.string.action_add_15_short), vm::extend, Modifier.weight(1f), leadingIcon = Icons.Outlined.MoreTime)
+        }
+        SecondaryButton(stringResource(R.string.action_add_apps), { addApps = true }, Modifier.weight(1f), leadingIcon = Icons.Outlined.Add)
+    }
+    Spacer(Modifier.height(12.dp))
+    if (input.strength == Strength.NORMAL) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            TextLink(stringResource(R.string.end_early_link), { confirmEnd = true }, accent = false, style = FbType.caption.copy(fontWeight = FontWeight.Medium))
+        }
+    } else {
+        Row(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Lock, null, tint = Fb.accentAlt, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(stringResource(R.string.strict_line), style = FbType.caption)
         }
     }
 
     if (confirmEnd) {
-        AlertDialog(
-            onDismissRequest = { confirmEnd = false },
-            containerColor = Fb.surface,
-            title = { Text(stringResource(R.string.end_confirm_title), style = FbType.heading) },
-            text = { Text(stringResource(R.string.end_confirm_body), style = FbType.body) },
-            confirmButton = { TextButton(onClick = { confirmEnd = false; vm.end() }) { Text(stringResource(R.string.action_end_block), color = Fb.textPrimary) } },
-            dismissButton = { TextButton(onClick = { confirmEnd = false }) { Text(stringResource(R.string.action_cancel), color = Fb.accent) } },
+        EndEarlySheet(
+            left = remaining?.let { Fmt.left(context, it) },
+            intention = input.intention,
+            onKeep = { confirmEnd = false },
+            onEnd = { confirmEnd = false; vm.end() },
+        )
+    }
+    if (addApps) {
+        AppPickerSheet(
+            context = PickerContext.BLOCK_ADD,
+            initial = emptyList(),
+            fixed = input.packages,
+            onDismiss = { addApps = false },
+            onDone = { vm.addApps(it); addApps = false },
         )
     }
 }
+
+/**
+ * Ending a Normal block early: "Keep blocking" is the main action. Ending needs a short wait and
+ * then a press-and-hold, so it is a decision rather than a reflex. It is recorded as ended early.
+ */
+@Composable
+private fun EndEarlySheet(left: String?, intention: String?, onKeep: () -> Unit, onEnd: () -> Unit) {
+    var wait by rememberSaveable { mutableIntStateOf(END_EARLY_WAIT_SECONDS) }
+    LaunchedEffect(Unit) {
+        while (wait > 0) { kotlinx.coroutines.delay(1_000); wait-- }
+    }
+    FbSheet(onDismiss = onKeep) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
+            Text(stringResource(R.string.end_early_title), style = FbType.title, modifier = Modifier.padding(horizontal = Fb.gutter))
+            Spacer(Modifier.height(8.dp))
+            val body = when {
+                left != null && intention != null -> stringResource(R.string.end_early_body_both, left, intention)
+                left != null -> stringResource(R.string.end_early_body_left, left)
+                intention != null -> stringResource(R.string.end_early_body_intention, intention)
+                else -> null
+            }
+            body?.let { Text(it, style = FbType.body.copy(color = Fb.textSecondary), modifier = Modifier.padding(horizontal = Fb.gutter)) }
+            Spacer(Modifier.height(4.dp))
+            Text(stringResource(R.string.end_confirm_body), style = FbType.caption, modifier = Modifier.padding(horizontal = Fb.gutter))
+            Spacer(Modifier.height(24.dp))
+            Column(Modifier.padding(horizontal = Fb.gutter), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                PrimaryButton(stringResource(R.string.end_early_keep), onKeep)
+                if (wait > 0) {
+                    Box(
+                        Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(Fb.radius)).background(Fb.surfaceHigh)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                        contentAlignment = Alignment.Center,
+                    ) { Text(stringResource(R.string.end_early_wait, wait), style = FbType.body.copy(color = Fb.textSecondary)) }
+                } else {
+                    HoldToConfirmButton(stringResource(R.string.end_early_hold), END_EARLY_HOLD_MS, onEnd)
+                }
+            }
+        }
+    }
+}
+
+/** A button that only fires after being held for [holdMillis]; releasing early resets it. */
+@Composable
+private fun HoldToConfirmButton(text: String, holdMillis: Int, onConfirmed: () -> Unit) {
+    val progress = remember { Animatable(0f) }
+    var pressing by remember { mutableStateOf(false) }
+    LaunchedEffect(pressing) {
+        if (pressing) {
+            progress.animateTo(1f, tween(((1f - progress.value) * holdMillis).toInt().coerceAtLeast(1), easing = LinearEasing))
+            if (progress.value >= 1f) onConfirmed()
+        } else {
+            progress.animateTo(0f, tween(200))
+        }
+    }
+    val description = stringResource(R.string.end_early_hold_cd)
+    Box(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(Fb.radius)).background(Fb.surfaceHigh)
+            .drawBehind { drawRect(Fb.warning.copy(alpha = 0.35f), size = Size(size.width * progress.value, size.height)) }
+            .border(BorderStroke(1.dp, Fb.warning.copy(alpha = 0.6f)), RoundedCornerShape(Fb.radius))
+            .pointerInput(Unit) {
+                detectTapGestures(onPress = {
+                    pressing = true
+                    tryAwaitRelease()
+                    pressing = false
+                })
+            }
+            // TalkBack: a long press (double-tap and hold) ends the block.
+            .semantics {
+                contentDescription = description
+                role = Role.Button
+                onLongClick(label = text) { onConfirmed(); true }
+            },
+        contentAlignment = Alignment.Center,
+    ) { Text(text, style = FbType.body.copy(color = Fb.warning, fontWeight = FontWeight.SemiBold)) }
+}
+
+private const val END_EARLY_WAIT_SECONDS = 10
+private const val END_EARLY_HOLD_MS = 3_000
 
 /** "Did you finish?" (spec 4.4). Dismissing records UNANSWERED. */
 @Composable

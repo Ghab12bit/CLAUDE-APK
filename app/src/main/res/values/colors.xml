@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Mirrors ui/theme/Tokens.kt for XML surfaces (window background, widget). -->
 <resources>
-    <color name="fb_bg">#151411</color>
-    <color name="fb_surface">#201E19</color>
-    <color name="fb_text_primary">#F2EEE4</color>
-    <color name="fb_text_secondary">#A8A196</color>
-    <color name="fb_accent">#E6A44A</color>
-    <color name="background_dark">#151411</color>
-    <color name="overlay_background">#151411</color>
+    <color name="fb_bg">#0B0D14</color>
+    <color name="fb_surface">#161A26</color>
+    <color name="fb_text_primary">#F4F6FB</color>
+    <color name="fb_text_secondary">#A3ABC2</color>
+    <color name="fb_accent">#6C9BFF</color>
+    <color name="background_dark">#0B0D14</color>
+    <color name="overlay_background">#0B0D14</color>
 </resources>

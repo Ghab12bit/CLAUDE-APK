@@ -26,4 +26,6 @@ object PrefKeys {
     const val MIGRATION_17_REPORT = "migration_17_report"
 
     const val SAVED_APPS = "quick_block_saved_apps"
+    /** JSON {package: DISTRACTING|NEUTRAL|PRODUCTIVE} of categories the user chose on the Activity tab. */
+    const val APP_CATEGORIES = "app_categories_v1"
 }

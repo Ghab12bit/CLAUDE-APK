@@ -72,13 +72,26 @@ fun OnboardingFlow(onDone: () -> Unit) {
     var appsCsv by rememberSaveable { mutableStateOf("") }
     var picker by rememberSaveable { mutableStateOf(false) }
     var testStartedAt by rememberSaveable { mutableLongStateOf(0L) }
+    var testId by rememberSaveable { mutableLongStateOf(0L) }
     var testSeen by rememberSaveable { mutableStateOf(false) }
     var refreshTick by rememberSaveable { mutableIntStateOf(0) }
     RefreshOnResume { refreshTick++ }
 
     val steps = Step.values().filter { it != Step.EXACT_ALARMS || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S }
     val step = steps[stepIndex.coerceIn(0, steps.lastIndex)]
-    fun next() { stepIndex = (stepIndex + 1).coerceAtMost(steps.lastIndex) }
+    fun next() {
+        // Leaving the test step ends the test block quietly: it never asks "Did you finish?" and
+        // never replaces the apps chosen above as the Block tab's selection.
+        if (step == Step.TEST && testId > 0) {
+            val id = testId
+            testId = 0
+            scope.launch {
+                graph.sessions.discardTest(id)
+                graph.notifier.cancelEnded()
+            }
+        }
+        stepIndex = (stepIndex + 1).coerceAtMost(steps.lastIndex)
+    }
     val apps = csv(appsCsv)
 
     // Permission steps advance on their own once granted (checked on every resume).
@@ -171,9 +184,11 @@ fun OnboardingFlow(onDone: () -> Unit) {
                         Actions {
                             PrimaryButton(stringResource(R.string.onb_test_start), {
                                 scope.launch {
-                                    val started = graph.sessions.start(StartRequest(BlockSetup(listOf(app), SessionType.TIMED, 1)))
-                                    if (started is com.focusblock.app.core.StartResult.Started) testStartedAt = System.currentTimeMillis()
-                                    else next()
+                                    val started = graph.sessions.start(StartRequest(BlockSetup(listOf(app), SessionType.TIMED, 1), test = true))
+                                    if (started is com.focusblock.app.core.StartResult.Started) {
+                                        testId = started.id
+                                        testStartedAt = System.currentTimeMillis()
+                                    } else next()
                                 }
                             })
                             TextLink(stringResource(R.string.onb_test_skip), { next() }, accent = false)

@@ -15,7 +15,8 @@ import java.time.ZoneId
  *  - Intervals are clipped to the requested window; open intervals are closed at the window end.
  */
 object UsageCalculator {
-    enum class Type { RESUMED, PAUSED, STOPPED, SCREEN_OFF, SHUTDOWN }
+    /** [SCREEN_ON] and [UNLOCK] do not open or close apps; they count pickups (see [Insights]). */
+    enum class Type { RESUMED, PAUSED, STOPPED, SCREEN_OFF, SHUTDOWN, SCREEN_ON, UNLOCK }
 
     data class Event(val time: Long, val pkg: String?, val type: Type)
     data class Interval(val pkg: String, val start: Long, val end: Long) {
@@ -42,6 +43,7 @@ object UsageCalculator {
                 }
                 Type.PAUSED, Type.STOPPED -> e.pkg?.let { close(it, e.time) }
                 Type.SCREEN_OFF, Type.SHUTDOWN -> closeAll(e.time)
+                Type.SCREEN_ON, Type.UNLOCK -> Unit
             }
         }
         closeAll(end)

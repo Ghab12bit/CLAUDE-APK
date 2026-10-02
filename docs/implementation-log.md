@@ -436,6 +436,8 @@ Bugs found by the emulator run and fixed:
   one connects. The old instance then marked the service as disconnected, which showed a false
   "Accessibility is off" banner and started the fallback service. Only the connected instance can
   now report a disconnect.
+- UiAutomator's default connection suspends every other accessibility service. The tests now keep
+  FocusBlock's service running, so they exercise the real enforcement path throughout.
 
 ### Known limitations (not verified, or by design)
 

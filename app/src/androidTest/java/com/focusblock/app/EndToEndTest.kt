@@ -9,9 +9,9 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Configurator
+import androidx.test.uiautomator.Direction
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.UiScrollable
-import androidx.test.uiautomator.UiSelector
 import androidx.test.uiautomator.Until
 import com.focusblock.app.core.AppGraph
 import com.focusblock.app.core.BlockSetup
@@ -45,7 +45,12 @@ import java.io.File
 class EndToEndTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
-    private val device = UiDevice.getInstance(instrumentation)
+    private val device: UiDevice = run {
+        // UiAutomator's default connection suspends every other accessibility service, which
+        // would switch FocusBlock's own service off mid-test. Keep it running.
+        Configurator.getInstance().setUiAutomationFlags(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
+        UiDevice.getInstance(instrumentation)
+    }
     private val graph = AppGraph.get(context)
     private lateinit var target: String
     private lateinit var targetName: String
@@ -167,7 +172,8 @@ class EndToEndTest {
         check(device.wait(Until.hasObject(By.textStartsWith("Blocking until")), 15_000), "Active block title")
         check(device.hasObject(By.text("“Finish the Q3 report”")), "Intention line")
         // The actions sit below the fold on a phone-sized screen.
-        runCatching { UiScrollable(UiSelector().scrollable(true)).scrollTextIntoView("Add 15 minutes") }
+        device.findObject(By.scrollable(true).pkg(context.packageName))
+            ?.scrollUntil(Direction.DOWN, Until.findObject(By.text("Add 15 minutes")))
         check(device.wait(Until.hasObject(By.text("Add 15 minutes")), 5_000), "Add 15 minutes")
         screenshot("block-active")
         device.findObject(By.text("Rules")).click()

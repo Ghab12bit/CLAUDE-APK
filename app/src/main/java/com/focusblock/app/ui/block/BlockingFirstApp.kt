@@ -212,7 +212,10 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
         }
     }
     if (sheet != null) ModalBottomSheet(onDismissRequest = { sheet = null }, containerColor = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 660.dp).verticalScroll(rememberScrollState()).padding(horizontal = 22.dp).padding(bottom = 28.dp).imePadding()) {
+        val sheetScroll = rememberScrollState()
+        Column(Modifier.fillMaxWidth().heightIn(max = 660.dp)
+            .then(if (sheet == "picker") Modifier else Modifier.verticalScroll(sheetScroll))
+            .padding(horizontal = 22.dp).padding(bottom = 28.dp).imePadding()) {
             when (sheet) {
                 "imported" -> importedRule?.let { r -> ImportedRuleEditor(r, { importedRule = it }, { picker("imported", QuickBlockPolicy.packages(r.packages).toList()) }, { vm.saveImported(r); sheet = null }) }
                 "picker" -> {
@@ -220,7 +223,7 @@ fun BlockingFirstApp(onAdvanced: () -> Unit, vm: BlockViewModel = hiltViewModel(
                     var query by remember { mutableStateOf("") }
                     OutlinedTextField(query, { query = it }, label = { Text("Search apps") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     val apps = s.apps.filter { it.appName.contains(query, true) }
-                    LazyVerticalGrid(GridCells.Adaptive(76.dp), Modifier.fillMaxWidth().height(320.dp).padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    LazyVerticalGrid(GridCells.Adaptive(76.dp), Modifier.fillMaxWidth().weight(1f).padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         items(apps, key = { it.packageName }) { a ->
                             val essential = a.packageName in s.essential
                             val canSelect = !essential || pickerTarget == "essentials"

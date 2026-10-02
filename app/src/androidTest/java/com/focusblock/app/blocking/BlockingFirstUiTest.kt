@@ -79,8 +79,9 @@ class BlockingFirstUiTest {
             screenshot(context, "app-picker")
             compose.onNodeWithText("Search apps").performTextInput("Calendar")
             compose.onNode(hasText("Calendar") and !hasSetTextAction()).performClick()
+            screenshot(context, "picker-filtered")
             compose.onNodeWithText("Use 1 apps").performClick()
-            compose.onNodeWithText("Apps to block (1)").assertExists()
+            compose.waitUntil(5000) { compose.onAllNodesWithText("Apps to block (1)").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("Rules", useUnmergedTree = true).performClick()
             compose.onNodeWithText("Automatic blocking.").assertExists()
             screenshot(context, "rules")

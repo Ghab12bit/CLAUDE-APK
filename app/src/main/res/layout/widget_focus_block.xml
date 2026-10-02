@@ -3,45 +3,44 @@
     android:id="@+id/widget_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="16dp"
     android:background="@drawable/widget_background"
-    android:gravity="center">
+    android:gravity="center_vertical"
+    android:orientation="vertical"
+    android:padding="16dp">
 
     <ImageView
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:src="@drawable/ic_shield"
-        android:contentDescription="FocusBlock" />
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:importantForAccessibility="no"
+        android:src="@drawable/ic_mark" />
 
     <TextView
         android:id="@+id/widget_status"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Not Blocking"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp"
-        android:textStyle="bold" />
+        android:layout_marginTop="10dp"
+        android:maxLines="2"
+        android:textColor="#F2EEE4"
+        android:textSize="15sp" />
 
     <TextView
-        android:id="@+id/widget_apps_count"
-        android:layout_width="wrap_content"
+        android:id="@+id/widget_detail"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="Tap to start"
-        android:textColor="#AAAAAA"
+        android:layout_marginTop="2dp"
+        android:maxLines="1"
+        android:textColor="#A8A196"
         android:textSize="12sp" />
 
     <Button
         android:id="@+id/widget_button"
         android:layout_width="wrap_content"
-        android:layout_height="36dp"
+        android:layout_height="40dp"
         android:layout_marginTop="12dp"
-        android:paddingHorizontal="24dp"
-        android:text="Start"
-        android:textSize="12sp"
-        android:textColor="#FFFFFF"
-        android:background="@drawable/widget_button_background" />
-
+        android:background="@drawable/widget_button_background"
+        android:minWidth="88dp"
+        android:paddingHorizontal="16dp"
+        android:textAllCaps="false"
+        android:textColor="#151411"
+        android:textSize="13sp" />
 </LinearLayout>

@@ -3,153 +3,123 @@ package com.focusblock.app.widget
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
 import com.focusblock.app.R
-import com.focusblock.app.database.FocusBlockDatabase
+import com.focusblock.app.core.AppGraph
+import com.focusblock.app.core.BlockSetup
+import com.focusblock.app.core.Fmt
+import com.focusblock.app.core.PermissionHealth
+import com.focusblock.app.core.StartRequest
+import com.focusblock.app.database.PrefKeys
+import com.focusblock.app.policy.SessionClock
+import com.focusblock.app.policy.SessionType
+import com.focusblock.app.policy.Strength
 import com.focusblock.app.ui.MainActivity
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+/**
+ * Home-screen widget. It reads the same persisted session as the app and starts or ends blocks
+ * through [com.focusblock.app.core.SessionManager], so the two always agree and Strict Lock holds.
+ * Open decision #5 (what the widget starts) is a setting: last block (default) or default block.
+ */
 class FocusBlockWidget : AppWidgetProvider() {
 
-    override fun onUpdate(
-        context: Context,
-        appWidgetManager: AppWidgetManager,
-        appWidgetIds: IntArray
-    ) {
-        for (appWidgetId in appWidgetIds) {
-            updateAppWidget(context, appWidgetManager, appWidgetId)
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        val pending = goAsync()
+        AppGraph.get(context).scope.launch {
+            try { render(context, manager, ids) } finally { pending.finish() }
         }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        when (intent.action) {
-            ACTION_TOGGLE_BLOCKING -> {
-                toggleBlocking(context)
-            }
-            ACTION_REFRESH -> {
-                val appWidgetManager = AppWidgetManager.getInstance(context)
-                val appWidgetIds = intent.getIntArrayExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS)
-                appWidgetIds?.forEach { appWidgetId ->
-                    updateAppWidget(context, appWidgetManager, appWidgetId)
+        if (intent.action != ACTION_TOGGLE) return
+        val pending = goAsync()
+        val graph = AppGraph.get(context)
+        graph.scope.launch {
+            try {
+                val active = graph.sessions.active()
+                if (active != null && !SessionClock.state(graph.sessions.toInput(active), graph.clock.now()).ended) {
+                    graph.sessions.end() // Refused for Strict Lock inside SessionManager.
+                } else if (PermissionHealth.missingRequired(context) != null) {
+                    openApp(context)
+                } else {
+                    val setup = widgetSetup(graph)
+                    if (setup == null) openApp(context) else graph.sessions.start(StartRequest(setup))
                 }
+                updateAll(context)
+            } finally {
+                pending.finish()
             }
         }
     }
 
-    private fun toggleBlocking(context: Context) {
-        val pendingResult = goAsync()
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val db = FocusBlockDatabase.getInstance(context)
-                val dao = db.focusBlockDao()
-                val activeSession = dao.getActiveQuickBlockSessionDirect()
+    private suspend fun widgetSetup(graph: AppGraph): BlockSetup? {
+        val last = graph.sessions.lastSetup() ?: return null
+        if (graph.db.settingsDao().getValue(PrefKeys.WIDGET_ACTION) != "default") return last
+        val s = graph.db.settingsDao()
+        val type = SessionType.values().firstOrNull { it.name == s.getValue(PrefKeys.DEFAULT_TYPE) } ?: last.type
+        val strength = Strength.values().firstOrNull { it.name == s.getValue(PrefKeys.DEFAULT_STRENGTH) } ?: last.strength
+        return last.copy(
+            type = type,
+            minutes = s.getValue(PrefKeys.DEFAULT_MINUTES)?.toIntOrNull() ?: last.minutes,
+            strength = if (type == SessionType.INDEFINITE) Strength.NORMAL else strength,
+        )
+    }
 
-                if (activeSession != null) {
-                    // Widgets must obey the same persisted lock as the app.
-                    if (!com.focusblock.app.blocking.BlockSessionStore.isLocked(db) &&
-                        !com.focusblock.app.blocking.ImportedRuleStore.configurationLocked(db) &&
-                        db.settingsDao().getValue("hard_mode_enabled") != "true" &&
-                        (db.settingsDao().getValue("strict_mode_end_time")?.toLongOrNull() ?: 0) <= System.currentTimeMillis()) {
-                        db.quickBlockSessionDao().update(activeSession.copy(isActive = false, endTime = System.currentTimeMillis()))
-                    }
-                } else {
-                    // Start blocking with default apps
-                    val saved = com.focusblock.app.blocking.QuickBlockPolicy.packages(db.settingsDao().getValue("quick_block_saved_apps").orEmpty())
-                    val packages = saved.filter { !com.focusblock.app.blocking.BlockSessionStore.essential(context, db, it) }.joinToString(",")
-                    if (packages.isNotEmpty()) {
-                        val session = com.focusblock.app.database.entity.QuickBlockSession(
-                            startTime = System.currentTimeMillis(),
-                            endTime = System.currentTimeMillis() + 25 * 60000L,
-                            blockedPackages = packages,
-                            isActive = true
-                        )
-                        dao.insertQuickBlockSession(session)
-                    }
-                }
-
-                com.focusblock.app.service.AppBlockingService.update(context)
-
-                // Refresh widget
-                val appWidgetManager = AppWidgetManager.getInstance(context)
-                val widgetComponent = android.content.ComponentName(context, FocusBlockWidget::class.java)
-                val appWidgetIds = appWidgetManager.getAppWidgetIds(widgetComponent)
-                appWidgetIds.forEach { appWidgetId ->
-                    updateAppWidget(context, appWidgetManager, appWidgetId)
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("FocusBlockWidget", "Could not change blocking", e)
-            } finally {
-                pendingResult.finish()
-            }
-        }
+    private fun openApp(context: Context) {
+        context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     companion object {
-        const val ACTION_TOGGLE_BLOCKING = "com.focusblock.app.widget.TOGGLE_BLOCKING"
-        const val ACTION_REFRESH = "com.focusblock.app.widget.REFRESH"
+        const val ACTION_TOGGLE = "com.focusblock.app.WIDGET_TOGGLE"
 
-        fun updateAppWidget(
-            context: Context,
-            appWidgetManager: AppWidgetManager,
-            appWidgetId: Int
-        ) {
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val db = FocusBlockDatabase.getInstance(context)
-                    val dao = db.focusBlockDao()
-                    val activeSession = dao.getActiveQuickBlockSessionDirect()
-                    val isBlocking = activeSession != null && !com.focusblock.app.blocking.QuickBlockPolicy.isExpired(activeSession.endTime, System.currentTimeMillis())
-                    val locked = com.focusblock.app.blocking.BlockSessionStore.isLocked(db)
-                    val ready = com.focusblock.app.utils.PermissionUtils.hasAccessibilityServiceEnabled(context)
-                    val blockedCount = activeSession?.blockedPackages?.split(",")
-                        ?.filter { it.isNotBlank() }?.size ?: 0
+        fun updateAll(context: Context) {
+            val manager = AppWidgetManager.getInstance(context) ?: return
+            val ids = manager.getAppWidgetIds(ComponentName(context, FocusBlockWidget::class.java))
+            if (ids.isEmpty()) return
+            AppGraph.get(context).scope.launch { render(context, manager, ids) }
+        }
 
-                    val views = RemoteViews(context.packageName, R.layout.widget_focus_block)
-
-                    // Update status
-                    views.setTextViewText(
-                        R.id.widget_status,
-                        if (!ready) "Check permissions" else if (isBlocking) "Block running" else "No quick block"
-                    )
-
-                    views.setTextViewText(
-                        R.id.widget_apps_count,
-                        if (isBlocking) "$blockedCount apps blocked" else "Tap to start"
-                    )
-
-                    views.setTextViewText(
-                        R.id.widget_button,
-                        if (locked) "Locked" else if (isBlocking) "Stop" else "Start 25 min"
-                    )
-
-                    // Toggle action
-                    val toggleIntent = Intent(context, FocusBlockWidget::class.java).apply {
-                        action = ACTION_TOGGLE_BLOCKING
-                    }
-                    val togglePendingIntent = PendingIntent.getBroadcast(
-                        context, 0, toggleIntent,
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                    )
-                    views.setOnClickPendingIntent(R.id.widget_button, togglePendingIntent)
-
-                    // Open app action
-                    val openAppIntent = Intent(context, MainActivity::class.java)
-                    val openAppPendingIntent = PendingIntent.getActivity(
-                        context, 0, openAppIntent,
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                    )
-                    views.setOnClickPendingIntent(R.id.widget_container, openAppPendingIntent)
-
-                    appWidgetManager.updateAppWidget(appWidgetId, views)
-                } catch (e: Exception) {
-                    // Handle error
+        private suspend fun render(context: Context, manager: AppWidgetManager, ids: IntArray) {
+            val graph = AppGraph.get(context)
+            val active = graph.sessions.active()
+            val input = active?.let(graph.sessions::toInput)
+            val running = input != null && !SessionClock.state(input, graph.clock.now()).ended
+            val views = RemoteViews(context.packageName, R.layout.widget_focus_block)
+            val ready = PermissionHealth.missingRequired(context) == null
+            when {
+                running -> {
+                    views.setTextViewText(R.id.widget_status, input!!.plannedEndAt?.let { context.getString(R.string.widget_active, Fmt.time(context, it)) }
+                        ?: context.getString(R.string.widget_active_open))
+                    views.setTextViewText(R.id.widget_detail, context.resources.getQuantityString(R.plurals.apps_blocked_count, input.packages.size, input.packages.size))
+                    views.setTextViewText(R.id.widget_button, context.getString(if (input.strength == Strength.STRICT) R.string.widget_strict else R.string.widget_end))
+                }
+                !ready -> {
+                    views.setTextViewText(R.id.widget_status, context.getString(R.string.widget_needs_setup))
+                    views.setTextViewText(R.id.widget_detail, "")
+                    views.setTextViewText(R.id.widget_button, context.getString(R.string.widget_setup))
+                }
+                else -> {
+                    views.setTextViewText(R.id.widget_status, context.getString(R.string.widget_idle))
+                    val last = graph.sessions.lastSetup()
+                    views.setTextViewText(R.id.widget_detail, last?.let { context.resources.getQuantityString(R.plurals.apps_count, it.packages.size, it.packages.size) } ?: "")
+                    views.setTextViewText(R.id.widget_button, context.getString(if (last == null) R.string.widget_setup else R.string.widget_start))
                 }
             }
+            val strictRunning = running && input!!.strength == Strength.STRICT
+            val click = if (strictRunning) {
+                PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE)
+            } else {
+                PendingIntent.getBroadcast(context, 0, Intent(context, FocusBlockWidget::class.java).setAction(ACTION_TOGGLE), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            }
+            views.setOnClickPendingIntent(R.id.widget_button, click)
+            views.setOnClickPendingIntent(R.id.widget_container,
+                PendingIntent.getActivity(context, 1, Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE))
+            manager.updateAppWidget(ids, views)
         }
     }
 }

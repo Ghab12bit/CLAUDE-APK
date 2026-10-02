@@ -70,11 +70,16 @@ data class RoutineInput(
     val imported: Boolean = false,
 )
 
-/** Bedtime is an allow-only window: every app except exempt (safety + essential) apps is blocked. */
+/**
+ * Bedtime is an allow-only window: every app except exempt (safety + essential) apps is blocked.
+ * [scope] limits it to user-facing apps (those with a launcher icon) so system components such as
+ * keyboards or panels are never caught; null means every non-exempt package.
+ */
 data class BedtimeInput(
     val enabled: Boolean,
     val window: TimeWindow,
     val strength: Strength = Strength.NORMAL,
+    val scope: Set<String>? = null,
 )
 
 /** Shared daily allowance for chosen apps (spec 4.6 "App limit"). */

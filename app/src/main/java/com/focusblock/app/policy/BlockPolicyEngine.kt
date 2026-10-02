@@ -78,7 +78,7 @@ object BlockPolicyEngine {
         }
 
         snap.bedtime?.let { b ->
-            if (b.enabled) {
+            if (b.enabled && (b.scope?.contains(pkg) != false)) {
                 b.window.occurrenceAt(now, zone)?.let { o ->
                     out += BlockReason(ReasonType.BEDTIME, 1, "", b.strength, o.end)
                 }

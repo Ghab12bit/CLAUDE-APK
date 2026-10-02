@@ -45,6 +45,12 @@ import kotlinx.coroutines.withContext
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_OPEN = "open"
+        const val OPEN_END_SHEET = "end_sheet"
+        const val OPEN_HEALTH = "health"
+        const val OPEN_ACTIVITY = "activity"
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

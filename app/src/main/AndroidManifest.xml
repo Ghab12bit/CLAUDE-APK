@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Ends blocks and sends "Did you finish?" on time (Android 12+). Enforcement does not depend on it. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <application
         android:name=".FocusBlockApp"
@@ -100,45 +102,37 @@
             android:name=".service.FocusCycleOverlayService"
             android:exported="false" />
 
-        <!-- Boot Receiver -->
+        <!-- Block screen: its own task, never in Recents. -->
+        <activity
+            android:name=".ui.intervention.InterventionActivity"
+            android:exported="false"
+            android:theme="@style/Theme.FocusBlock.Intervention"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.focusblock.app.block"
+            android:excludeFromRecents="true" />
+
+        <!-- Single next-policy-change alarm. -->
         <receiver
-            android:name=".receiver.BootReceiver"
-            android:exported="true"
-            android:enabled="true">
+            android:name=".core.PolicyAlarmReceiver"
+            android:exported="false" />
+
+        <!-- Recovery after reboot, update and clock/time-zone changes (spec 9.3). -->
+        <receiver
+            android:name=".core.SystemEventReceiver"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>
         </receiver>
 
-        <!-- Schedule Alarm Receiver -->
+        <!-- Notification buttons (End block, Add 15 minutes, Did you finish?). -->
         <receiver
-            android:name=".receiver.ScheduleAlarmReceiver"
+            android:name=".core.NotificationActionReceiver"
             android:exported="false" />
-
-        <!-- Pomodoro Timer Receiver -->
-        <receiver
-            android:name=".receiver.PomodoroReceiver"
-            android:exported="false" />
-
-        <!-- App Timer Extend Receiver -->
-        <receiver
-            android:name=".receiver.AppTimerExtendReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.focusblock.app.ACTION_EXTEND_APP_TIMER" />
-            </intent-filter>
-        </receiver>
-
-        <!-- Charging State Receiver - tracks phone usage while charging for adaptive insights -->
-        <receiver
-            android:name=".receiver.ChargingStateReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
-                <action android:name="android.intent.action.ACTION_POWER_DISCONNECTED" />
-            </intent-filter>
-        </receiver>
 
         <!-- Home Screen Widget -->
         <receiver

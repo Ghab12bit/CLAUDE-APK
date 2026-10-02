@@ -5,7 +5,8 @@
     android:targetCellWidth="2"
     android:targetCellHeight="2"
     android:updatePeriodMillis="1800000"
-    android:previewImage="@drawable/ic_shield"
+    android:previewImage="@drawable/ic_mark"
+    android:description="@string/widget_description"
     android:initialLayout="@layout/widget_focus_block"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen" />

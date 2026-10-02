@@ -93,6 +93,12 @@ class BlockPolicyEngineTest {
         assertFalse(BlockPolicyEngine.evaluate("com.android.dialer", s, now, zone).blocked)
     }
 
+    @Test fun bedtimeOnlyAppliesToUserFacingAppsWhenScoped() {
+        val s = PolicySnapshot(bedtime = bedtime.copy(scope = setOf(app)))
+        assertTrue(decide(s).blocked)
+        assertFalse(BlockPolicyEngine.evaluate("com.samsung.android.app.cocktailbarservice", s, now, zone).blocked)
+    }
+
     // ---- Overrides ----------------------------------------------------------------------------
 
     @Test fun openAnywayUnlocksNormalReasonsForThatAppOnly() {

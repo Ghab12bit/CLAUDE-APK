@@ -1,119 +1,545 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  All user-facing copy (spec section 3). Plain, specific and tied to a time or an action.
+  One verb for enforcement: "block / blocked". "Strict Lock" is the name of a setting.
+-->
 <resources>
     <string name="app_name">FocusBlock</string>
+    <string name="accessibility_service_description">FocusBlock uses Accessibility to see which app is on screen, so it can show the block screen when you open a blocked app. It does not read what you type or see in other apps.</string>
+
+    <!-- Kept for the legacy notification channel until it is removed. -->
+    <string name="notification_channel_blocking">Block status</string>
+    <string name="notification_channel_blocking_desc">Shows what is blocked right now</string>
 
     <!-- Navigation -->
-    <string name="nav_home">Blocking</string>
-    <string name="nav_strict_mode">Strict Mode</string>
-    <string name="nav_statistics">Statistics</string>
-    <string name="nav_profile">Profile</string>
-
-    <!-- Quick Block -->
-    <string name="quick_block">Quick Block</string>
-    <string name="quick_block_start">Start</string>
-    <string name="quick_block_stop">Stop</string>
-    <string name="quick_block_timer">Timer</string>
-    <string name="quick_block_pomodoro">Pomodoro</string>
-    <string name="quick_block_active">Active</string>
-
-    <!-- Schedules -->
-    <string name="schedules">Schedules</string>
-    <string name="add_schedule">Add</string>
-    <string name="work_focus">Work Focus</string>
-    <string name="sleep_hygiene">Sleep Hygiene</string>
-    <string name="study_time">Study Time</string>
-    <string name="family_time">Family Time</string>
-    <string name="social_media_break">Social Media Break</string>
-    <string name="digital_detox">Digital Detox</string>
-
-    <!-- Strict Mode -->
-    <string name="strict_mode">Strict Mode</string>
-    <string name="strict_mode_description">Lock your blockings to stay on track with your goals. Strict Mode helps you resist the urge to bypass your own settings.</string>
-    <string name="strict_mode_enabled">Strict Mode is enabled</string>
-    <string name="strict_mode_disabled">Strict Mode is disabled</string>
-
-    <!-- Hard Mode -->
-    <string name="hard_mode">Hard Mode</string>
-    <string name="hard_mode_description">Apps will only be unblocked after the timer expires. You\'ll need your PIN to make any changes.</string>
-    <string name="hard_mode_unlock_time">Unlock available at</string>
-    <string name="enter_pin">Enter PIN</string>
-    <string name="set_pin">Set PIN</string>
-    <string name="confirm_pin">Confirm PIN</string>
-    <string name="pin_mismatch">PINs do not match</string>
-    <string name="incorrect_pin">Incorrect PIN</string>
-
-    <!-- Blocking Screen -->
-    <string name="blocked_by_focusblock">Blocked by FocusBlock</string>
-    <string name="you_tried_to_open">You tried to open %s</string>
-    <string name="times_today">%d× today</string>
-    <string name="times_total">%d× total</string>
-    <string name="close">Close</string>
-    <string name="app_is_blocked">%s is blocked</string>
-    <string name="by_quick_block">by Quick Block</string>
-    <string name="by_schedule">by %s</string>
-
-    <!-- Statistics -->
-    <string name="today">Today</string>
-    <string name="this_week">This Week</string>
-    <string name="this_month">This Month</string>
-    <string name="screen_time">Screen Time</string>
-    <string name="blocks_count">Blocks Count</string>
-    <string name="most_blocked">Most Blocked</string>
-    <string name="saved_time">Saved Time</string>
-
-    <!-- Settings -->
+    <string name="tab_block">Block</string>
+    <string name="tab_rules">Rules</string>
+    <string name="tab_activity">Activity</string>
     <string name="settings">Settings</string>
-    <string name="blocked_apps">Blocked Apps</string>
-    <string name="allowlist">Allowlist</string>
-    <string name="notifications">Notifications</string>
-    <string name="appearance">Appearance</string>
-    <string name="about">About</string>
-    <string name="version">Version</string>
 
-    <!-- Permissions -->
-    <string name="permission_usage_stats">Usage Access</string>
-    <string name="permission_usage_stats_desc">Required to detect which apps you\'re using</string>
-    <string name="permission_overlay">Display Over Apps</string>
-    <string name="permission_overlay_desc">Required to show blocking screen</string>
-    <string name="permission_accessibility">Accessibility Service</string>
-    <string name="permission_accessibility_desc">Optional: For enhanced blocking capabilities</string>
-    <string name="permission_notification">Notifications</string>
-    <string name="permission_notification_desc">Required to show blocking status</string>
-    <string name="grant_permission">Grant Permission</string>
+    <!-- Common actions -->
+    <string name="action_done">Done</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_save">Save</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_undo">Undo</string>
+    <string name="action_fix">Fix</string>
+    <string name="action_edit">Edit</string>
+    <string name="action_back">Back</string>
+    <string name="action_continue">Continue</string>
+    <string name="action_not_now">Not now</string>
+    <string name="action_apply">Apply</string>
+    <string name="action_close">Close</string>
+    <string name="action_retry">Try again</string>
+    <string name="action_rename">Rename</string>
+    <string name="more_options">More options</string>
 
-    <!-- Accessibility Service -->
-    <string name="accessibility_service_description">FocusBlock uses Accessibility Service to detect and block apps when they are opened. This helps ensure effective app blocking even when the standard method is bypassed.</string>
+    <!-- Durations and times -->
+    <string name="time_midnight">Midnight</string>
+    <string name="duration_min">%d min</string>
+    <string name="duration_h">%d h</string>
+    <string name="duration_h_min">%1$d h %2$d min</string>
+    <string name="duration_s">%d s</string>
+    <string name="time_left">%s left</string>
+    <string name="time_range">%1$s–%2$s</string>
+
+    <!-- Strengths -->
+    <string name="strength_normal">Normal</string>
+    <string name="strength_strict">Strict Lock</string>
+
+    <!-- Session types (spec 2.3) -->
+    <string name="session_timed">Timed</string>
+    <string name="session_intervals">Intervals</string>
+    <string name="session_until_stop">Until I stop</string>
+
+    <!-- Block tab, idle (spec 4.1) -->
+    <string name="block_title_idle">Block distractions</string>
+    <string name="status_ready">Ready · nothing blocked now</string>
+    <string name="status_needs">Blocking needs %s</string>
+    <string name="status_not_running">Blocking isn\'t running</string>
+    <string name="status_rule_starts">%1$s starts at %2$s</string>
+    <string name="status_rule_blocking">%1$s is blocking until %2$s</string>
+    <string name="status_rule_blocking_open">%1$s is blocking</string>
+    <string name="repeat_last_title">Repeat last block</string>
+    <string name="repeat_last_start">Start your last block again</string>
+    <string name="summary_dot">%1$s · %2$s</string>
+    <string name="summary_dot3">%1$s · %2$s · %3$s</string>
+    <string name="intention_label">What are you working on?</string>
+    <string name="intention_placeholder">e.g. Finish the Q3 report</string>
+    <string name="apps_to_block">Apps to block (%d)</string>
+    <string name="apps_more">+%d</string>
+    <string name="apps_none_chosen">No apps chosen yet</string>
+    <string name="session_type_label">Session type</string>
+    <string name="duration_label">Duration</string>
+    <string name="duration_custom">Custom</string>
+    <string name="custom_minutes_title">Custom length</string>
+    <string name="custom_minutes_label">Minutes (1–720)</string>
+    <string name="intervals_focus">Focus</string>
+    <string name="intervals_break">Break</string>
+    <string name="intervals_rounds">Rounds</string>
+    <string name="intervals_total">%1$d rounds · ends at %2$s</string>
+    <string name="decrease">Decrease %s</string>
+    <string name="increase">Increase %s</string>
+    <string name="strict_lock_consequence">You won\'t be able to stop or shorten this block. Emergency access stays available.</string>
+    <string name="strict_lock_needs_end">Strict Lock needs an end time. Choose Timed or Intervals.</string>
+    <string name="start_timed">Start %d-min block</string>
+    <string name="start_intervals">Start intervals</string>
+    <string name="start_block">Start block</string>
+    <string name="start_no_apps">Choose at least one app</string>
+    <string name="footnote_essentials">Calls and essential apps stay available</string>
+    <string name="next_rule">Next: %1$s at %2$s</string>
+    <string name="next_rule_day">Next: %1$s %2$s at %3$s</string>
+    <string name="already_running">A block is already running.</string>
+    <string name="start_failed">Couldn\'t start the block. Try again.</string>
+
+    <!-- Block tab, active (spec 4.3) -->
+    <string name="active_title_until">Blocking until %s</string>
+    <string name="active_title_open">Blocking until you end it</string>
+    <string name="active_title_break">Break until %s</string>
+    <string name="intention_quoted">“%s”</string>
+    <string name="phase_focus">Focus %1$d of %2$d</string>
+    <string name="phase_break">Break · %s left</string>
+    <string name="strict_line">Strict Lock · You can\'t end this block early</string>
+    <string name="selection_locked">Selection locked</string>
+    <string name="row_blocked_openings">Blocked openings</string>
+    <string name="row_essential_apps">Essential apps</string>
+    <string name="row_available">Available</string>
+    <string name="row_also_blocked_by">Also blocked by</string>
+    <string name="action_end_block">End block</string>
+    <string name="action_add_15">Add 15 minutes</string>
+    <string name="end_confirm_title">End this block now?</string>
+    <string name="end_confirm_body">It will be recorded as ended early.</string>
+    <string name="strict_cannot_end">You can\'t end this block early.</string>
+    <string name="announce_started">Block started. Blocking until %s</string>
+    <string name="announce_started_open">Block started. Blocking until you end it</string>
+    <string name="announce_ended">Block ended</string>
+    <string name="announce_break">Break started</string>
+    <string name="announce_focus">Focus started</string>
+    <string name="active_visual_cd">%1$s. %2$s</string>
+    <string name="degraded_banner">Blocking stopped working: %s</string>
+
+    <!-- Session end sheet (spec 4.4) -->
+    <string name="end_sheet_title">Did you finish?</string>
+    <string name="end_sheet_finished">Finished</string>
+    <string name="end_sheet_not_yet">Not yet</string>
+    <string name="end_sheet_add_15">Add 15 minutes</string>
+
+    <!-- App picker (spec 4.2) -->
+    <string name="picker_title_block">Choose apps to block</string>
+    <string name="picker_title_rule">Apps in %s</string>
+    <string name="picker_title_app_limit">Apps counted toward this limit</string>
+    <string name="picker_title_daily_limit">Apps counted toward your daily limit</string>
+    <string name="picker_title_essentials">Essential apps</string>
+    <string name="picker_title_set">Apps in this set</string>
+    <string name="picker_title_onboarding">Which apps distract you?</string>
+    <string name="picker_search">Search apps</string>
+    <string name="picker_recent">Recent</string>
+    <string name="picker_saved_sets">Saved sets</string>
+    <string name="picker_often_blocked">Often blocked (from your blocked attempts)</string>
+    <string name="picker_all_apps">All apps</string>
+    <string name="picker_always_available">Always available</string>
+    <string name="picker_save_set">Save as set…</string>
+    <string name="picker_set_name">Set name</string>
+    <string name="picker_no_results">No apps match “%s”</string>
+    <string name="picker_loading">Loading apps…</string>
+    <string name="picker_use_set">Use %s</string>
+    <string name="picker_clear">Clear</string>
+    <string name="app_selected_cd">%s, selected</string>
+    <string name="app_not_selected_cd">%s, not selected</string>
+
+    <!-- Intervention (spec 4.5) -->
+    <string name="iv_blocked_until">%1$s is blocked until %2$s</string>
+    <string name="iv_blocked_open">%s is blocked until you end this block</string>
+    <string name="iv_app_limit">%1$s limit reached · available again at %2$s</string>
+    <string name="iv_daily_limit">Daily limit reached · apps available again at %s</string>
+    <string name="reason_session_timed">Blocked by your %d-min block</string>
+    <string name="reason_session_intervals">Blocked by your intervals</string>
+    <string name="reason_session_open">Blocked by your block</string>
+    <string name="reason_rule">Blocked by %s</string>
+    <string name="reason_bedtime">Blocked by Bedtime</string>
+    <string name="reason_app_limit">Blocked by your %s limit</string>
+    <string name="reason_daily_limit">Blocked by your daily limit</string>
+    <string name="reason_focus_cycle">Blocked by %s</string>
+    <string name="name_bedtime">Bedtime</string>
+    <string name="name_daily_limit">Daily limit</string>
+    <string name="name_your_block">Your block</string>
+    <string name="iv_working_on">You\'re working on: %s</string>
+    <string name="iv_attempt">%s try in this block</string>
+    <string name="action_back_home">Back to home screen</string>
+    <string name="open_anyway">Open anyway</string>
+    <string name="open_anyway_wait">Open anyway in %d s</string>
+    <string name="open_anyway_confirm_title">Open %s for 5 minutes?</string>
+    <string name="open_anyway_confirm_body">This is your %s try. It will be logged.</string>
+    <string name="open_anyway_confirm_action">Open for 5 min</string>
+    <string name="emergency_access">Emergency access</string>
+    <string name="emergency_cost">10-min wait · reason required</string>
+    <string name="emergency_body">Why do you need %s? After a 10-minute wait it opens for 5 minutes. This is logged.</string>
+    <string name="emergency_reason_label">Reason</string>
+    <string name="emergency_request">Start 10-minute wait</string>
+    <string name="emergency_waiting">Emergency access ready at %s</string>
+    <string name="emergency_waiting_body">You can leave this screen. Open %1$s again after %2$s.</string>
+    <string name="emergency_use">Open %s for 5 minutes</string>
+    <string name="emergency_cancel">Cancel request</string>
+    <string name="emergency_reason_short">Write a short reason</string>
+    <string name="iv_footer">Calls and essential apps are still available.</string>
+    <string name="iv_open_until">%1$s is open until %2$s</string>
+    <string name="iv_not_blocked">%s isn\'t blocked right now.</string>
+    <string name="iv_open_app">Open %s</string>
+    <string name="iv_strict_no_bypass">Strict Lock is on, so there is no temporary access.</string>
+    <string name="app_icon_cd">%s icon</string>
+
+    <!-- Rules tab (spec 4.6) -->
+    <string name="rules_title">Rules</string>
+    <string name="rules_subtitle">What runs automatically</string>
+    <string name="coverage_line">Rules cover %s of today</string>
+    <string name="coverage_none">No rules run today</string>
+    <string name="coverage_cd">Today\'s blocking timeline: %s</string>
+    <string name="coverage_axis_cd">From midnight to midnight</string>
+    <string name="gap_line">Most blocked attempts happen %1$s–%2$s, which no rule covers.</string>
+    <string name="add_a_rule">Add a rule</string>
+    <string name="section_routines">Routines</string>
+    <string name="section_limits">Limits</string>
+    <string name="section_bedtime">Bedtime</string>
+    <string name="section_focus_cycles">Focus Cycles</string>
+    <string name="section_essentials">Essential apps</string>
+    <string name="section_imported">Rules from the previous version</string>
+    <string name="rule_summary_window">Blocks %1$s from %2$s to %3$s %4$s</string>
+    <string name="rule_summary_all_day">Blocks %1$s all day %2$s</string>
+    <string name="days_every_day">every day</string>
+    <string name="days_weekdays">on weekdays</string>
+    <string name="days_weekends">on weekends</string>
+    <string name="days_list">on %s</string>
+    <string name="day_1">Mon</string>
+    <string name="day_2">Tue</string>
+    <string name="day_3">Wed</string>
+    <string name="day_4">Thu</string>
+    <string name="day_5">Fri</string>
+    <string name="day_6">Sat</string>
+    <string name="day_7">Sun</string>
+    <string name="day_full_1">Monday</string>
+    <string name="day_full_2">Tuesday</string>
+    <string name="day_full_3">Wednesday</string>
+    <string name="day_full_4">Thursday</string>
+    <string name="day_full_5">Friday</string>
+    <string name="day_full_6">Saturday</string>
+    <string name="day_full_7">Sunday</string>
+    <string name="limit_summary_app">App limit · blocks %1$s after %2$s of combined use each day</string>
+    <string name="limit_summary_daily_all">Daily limit · blocks all apps except essentials after %s of total use each day</string>
+    <string name="limit_summary_daily_list">Daily limit · blocks %1$s after %2$s of total use each day</string>
+    <string name="bedtime_summary">Only essential apps open from %1$s to %2$s %3$s</string>
+    <string name="focus_cycle_summary">After %1$s on %2$s, blocks them for %3$s</string>
+    <string name="imported_summary">Imported rule · %s</string>
+    <string name="state_active">Active</string>
+    <string name="state_active_until">Active until %s</string>
+    <string name="state_next_at">Next at %s</string>
+    <string name="state_next_day_at">Next %1$s at %2$s</string>
+    <string name="state_off">Off</string>
+    <string name="state_not_working">Not working — %s</string>
+    <string name="state_reached">Limit reached</string>
+    <string name="state_used">%1$s of %2$s used</string>
+    <string name="state_on_break">On a break until %s</string>
+    <string name="state_on">On</string>
+    <string name="state_locked">Locked until %s</string>
+    <string name="cause_usage_off">Usage access is off</string>
+    <string name="cause_accessibility_off">Accessibility is off</string>
+    <string name="cause_no_apps">no apps chosen</string>
+    <string name="rule_deleted">%s deleted</string>
+    <string name="rule_locked_strict">Strict Lock · can\'t be edited or turned off while active</string>
+    <string name="rule_toggle_cd">Turn %s on or off</string>
+    <string name="rules_empty">No rules yet. Add one to block apps automatically.</string>
+    <string name="add_rule_title">Add a rule</string>
+    <string name="type_routine">Routine</string>
+    <string name="type_routine_desc">Block chosen apps at set times</string>
+    <string name="type_app_limit">App limit</string>
+    <string name="type_app_limit_desc">A shared daily allowance for chosen apps</string>
+    <string name="type_daily_limit">Daily limit</string>
+    <string name="type_daily_limit_desc">A total daily allowance, then apps are blocked until midnight</string>
+    <string name="type_bedtime">Bedtime</string>
+    <string name="type_bedtime_desc">Only essential apps open overnight</string>
+    <string name="type_focus_cycle">Focus Cycle</string>
+    <string name="type_focus_cycle_desc">After a usage window, a break</string>
+    <string name="templates_title">Start from a template</string>
+    <string name="template_work">Work hours</string>
+    <string name="template_work_desc">9 AM–5 PM on weekdays</string>
+    <string name="template_evening">Evening routine</string>
+    <string name="template_evening_desc">8:45–10:30 PM every day</string>
+    <string name="template_morning">Slow morning</string>
+    <string name="template_morning_desc">6–9 AM every day</string>
+    <string name="template_detox">Weekend detox</string>
+    <string name="template_detox_desc">All day on weekends</string>
+    <string name="template_custom">Start from scratch</string>
+    <string name="essentials_row">%s · always available</string>
+    <string name="daily_limit_exists">You already have a daily limit. Edit it from Rules.</string>
+    <string name="bedtime_exists">Bedtime is already set up. Edit it from Rules.</string>
+    <string name="focus_cycle_exists">A Focus Cycle is already set up. Edit it from Rules.</string>
+
+    <!-- Rule editor (spec 4.7) -->
+    <string name="editor_new">New %s</string>
+    <string name="editor_edit">Edit %s</string>
+    <string name="field_name">Name</string>
+    <string name="field_time">Time</string>
+    <string name="field_start">Starts</string>
+    <string name="field_end">Ends</string>
+    <string name="field_all_day">All day</string>
+    <string name="field_days">Days</string>
+    <string name="field_apps">Apps</string>
+    <string name="field_strength">Strength</string>
+    <string name="field_minutes_per_day">Allowance per day</string>
+    <string name="field_counts">Counts</string>
+    <string name="field_usage_window">Usage window</string>
+    <string name="field_break_length">Break length</string>
+    <string name="counts_all">All apps except essentials</string>
+    <string name="counts_chosen">Chosen apps</string>
+    <string name="overnight_note">Ends the next day</string>
+    <string name="editor_summary">Summary</string>
+    <string name="error_name">Name the rule</string>
+    <string name="error_days">Choose at least one day</string>
+    <string name="error_apps">Choose at least one app</string>
+    <string name="error_minutes">Choose 1–720 minutes</string>
+    <string name="error_locked">This rule uses Strict Lock and is active. You can change it after %s.</string>
+    <string name="error_config_locked">Your rules from the previous version are locked until %s.</string>
+    <string name="editor_saved">Saved</string>
+    <string name="default_routine_name">Routine</string>
+    <string name="default_limit_name">App limit</string>
+    <string name="editor_choose_apps">Choose apps</string>
+    <string name="editor_strict_note">While this rule is active you can\'t edit it or turn it off. Emergency access stays available.</string>
+    <string name="bedtime_editor_note">During bedtime only essential apps open. Edit essential apps in Settings.</string>
+    <string name="daily_limit_editor_note">Counted apps are blocked until midnight once the allowance is used.</string>
+    <string name="app_limit_editor_note">The minutes are shared: time in any of these apps counts toward the allowance.</string>
+    <string name="focus_cycle_editor_note">After you use these apps for the usage window, they are blocked for the break.</string>
+    <string name="limit_needs_usage">Limits need Usage access to count minutes.</string>
+    <string name="time_picker_title">Choose a time</string>
+
+    <!-- Activity (spec 4.8) -->
+    <string name="activity_title">What affected your focus</string>
+    <string name="period_today">Today</string>
+    <string name="period_week">This week</string>
+    <string name="screen_time_below">Screen time %1$s — %2$s below your 2-week average.</string>
+    <string name="screen_time_above">Screen time %1$s — %2$s above your 2-week average.</string>
+    <string name="screen_time_same">Screen time %s — about your 2-week average.</string>
+    <string name="screen_time_no_baseline">Screen time %s. Your 2-week average appears after 3 days of data.</string>
+    <string name="screen_time_week">Screen time this week %1$s — %2$s a day on average.</string>
+    <string name="section_blocks">Blocks</string>
+    <string name="outcome_finished">Finished</string>
+    <string name="outcome_not_finished">Not yet</string>
+    <string name="outcome_unanswered">Unanswered</string>
+    <string name="outcome_ended_early">Ended early</string>
+    <string name="outcome_extended">Extended</string>
+    <string name="section_attempts_by_hour">Blocked attempts by hour</string>
+    <string name="chart_cd">Blocked attempts by hour. %s</string>
+    <string name="chart_hour_count">%1$s: %2$d</string>
+    <string name="chart_empty">No blocked attempts in this period.</string>
+    <string name="section_most_used">Most used apps</string>
+    <string name="section_unlocks">Emergency and “Open anyway” unlocks</string>
+    <string name="unlock_open_anyway">Open anyway</string>
+    <string name="unlock_emergency">Emergency</string>
+    <string name="unlock_pending">Waiting</string>
+    <string name="unlocks_none">No unlocks in this period.</string>
+    <string name="section_rules_working">Rules working</string>
+    <string name="rule_working">Working</string>
+    <string name="rule_often_bypassed">Often bypassed · %1$d of %2$d attempts unlocked</string>
+    <string name="rules_none_active">No rule blocked anything in this period.</string>
+    <string name="section_suggestion">One suggestion</string>
+    <string name="sugg_routine_evidence">On %1$d of the last 14 days you tried to open blocked apps between %2$s and %3$s, and no rule covers that time.</string>
+    <string name="sugg_routine_change">Add a routine that blocks %1$s from %2$s to %3$s %4$s.</string>
+    <string name="sugg_strict_evidence">“%1$s” was opened with Open anyway on %2$d of the last 14 days.</string>
+    <string name="sugg_strict_change">Turn on Strict Lock for “%s”.</string>
+    <string name="sugg_limit_evidence">You used %1$s for an hour or more on %2$d of the last 7 days (usually %3$s).</string>
+    <string name="sugg_limit_change">Add an app limit of %2$s a day for %1$s.</string>
+    <string name="sugg_applied">Applied. You can change it in Rules.</string>
+    <string name="sugg_routine_name">Suggested routine</string>
+    <string name="activity_empty">Use FocusBlock for a day to see what affects your focus.</string>
+    <string name="usage_missing">Screen time needs Usage access. FocusBlock only reads which app was open and for how long.</string>
+    <string name="data_unavailable">Data unavailable</string>
+
+    <!-- Settings (spec 4.9) -->
+    <string name="settings_blocking_health">Blocking health</string>
+    <string name="settings_essentials">Essential apps</string>
+    <string name="settings_saved_sets">Saved app sets</string>
+    <string name="settings_default_block">Default block</string>
+    <string name="settings_notifications">Notifications</string>
+    <string name="settings_widget">Home-screen widget</string>
+    <string name="settings_data">Data and privacy</string>
+    <string name="settings_troubleshooting">Troubleshooting</string>
+    <string name="settings_about">About</string>
+    <string name="health_all_ok">Everything FocusBlock needs is working</string>
+    <string name="health_problems">%s needs attention</string>
+    <string name="perm_accessibility">Accessibility</string>
+    <string name="perm_usage">Usage access</string>
+    <string name="perm_notifications">Notifications</string>
+    <string name="perm_battery">Unrestricted battery</string>
+    <string name="perm_exact_alarms">Exact alarms</string>
+    <string name="perm_overlay">Display over other apps</string>
+    <string name="health_ok">Working</string>
+    <string name="health_off">Off</string>
+    <string name="health_not_running">On, but not running</string>
+    <string name="health_optional">Optional</string>
+    <string name="health_repair">Repair</string>
+    <string name="health_desc_accessibility">Notices when a blocked app opens and shows the block screen. Required.</string>
+    <string name="health_desc_usage">Counts minutes for limits and Activity.</string>
+    <string name="health_desc_notifications">Shows what is blocked and asks “Did you finish?”.</string>
+    <string name="health_desc_battery">Stops the phone from closing FocusBlock in the background.</string>
+    <string name="health_desc_exact_alarms">Ends blocks and sends “Did you finish?” on time.</string>
+    <string name="health_desc_overlay">Only used for backup blocking when Accessibility is off.</string>
+    <string name="health_repair_body">Android has Accessibility on for FocusBlock but the service isn\'t running. Turn FocusBlock off and on again in Accessibility settings.</string>
+    <string name="essentials_body">These apps open during every block, rule and limit. Calls, emergency apps and Settings are always available.</string>
+    <string name="essentials_add">Add or remove apps</string>
+    <string name="essentials_locked">You can\'t change essential apps while Strict Lock is active.</string>
+    <string name="essentials_empty">No essential apps yet.</string>
+    <string name="sets_body">Saved sets appear in the app picker and in rules.</string>
+    <string name="sets_empty">No saved sets yet. Save one from the app picker.</string>
+    <string name="set_delete">Delete set</string>
+    <string name="set_deleted">Set deleted</string>
+    <string name="default_block_body">Used for new blocks and by the widget.</string>
+    <string name="notif_block_status">Block status</string>
+    <string name="notif_block_status_desc">What is blocked, and “Did you finish?” when a block ends</string>
+    <string name="notif_rules">Rule start and end</string>
+    <string name="notif_rules_desc">When a routine or bedtime starts blocking</string>
+    <string name="notif_usage">Usage reminders</string>
+    <string name="notif_usage_desc">After 30 and 60 minutes in one app</string>
+    <string name="notif_summary">Daily summary</string>
+    <string name="notif_summary_desc">One message at 9 PM</string>
+    <string name="notif_problems">Blocking problems</string>
+    <string name="notif_problems_desc">When a permission is lost and blocking stops working</string>
+    <string name="notif_system_off">Notifications are off for FocusBlock.</string>
+    <string name="widget_body">When you tap Start, the widget starts:</string>
+    <string name="widget_repeat_last">Your last block</string>
+    <string name="widget_default">Your default block</string>
+    <string name="data_body">Your rules, blocks, blocked attempts and unlocks are stored on this phone only. FocusBlock does not upload anything.</string>
+    <string name="data_stores">Stored: app names you chose, block times, blocked attempts, unlock reasons, usage minutes read from Android.</string>
+    <string name="data_export">Export as JSON</string>
+    <string name="data_delete_history">Delete history</string>
+    <string name="data_delete_title">Delete history?</string>
+    <string name="data_delete_body">Blocks, attempts, unlocks and suggestions will be deleted. Rules and settings stay.</string>
+    <string name="data_exported">Exported</string>
+    <string name="data_deleted">History deleted</string>
+    <string name="data_export_failed">Couldn\'t export. Try again.</string>
+    <string name="troubleshoot_samsung_title">Samsung (One UI)</string>
+    <string name="troubleshoot_samsung_1">Settings › Apps › FocusBlock › Battery › Unrestricted.</string>
+    <string name="troubleshoot_samsung_2">Settings › Battery › Background usage limits: FocusBlock must not be in Sleeping or Deep sleeping apps.</string>
+    <string name="troubleshoot_samsung_3">If blocking stops after an update, turn FocusBlock off and on in Settings › Accessibility › Installed apps.</string>
+    <string name="troubleshoot_other_title">Other phones</string>
+    <string name="troubleshoot_other_1">Set battery use to Unrestricted or turn off battery optimisation for FocusBlock.</string>
+    <string name="troubleshoot_other_2">Don\'t swipe FocusBlock away with “Clear all” if your phone stops apps that way.</string>
+    <string name="diagnostics">Diagnostics</string>
+    <string name="diag_service">Accessibility service</string>
+    <string name="diag_service_running">Running</string>
+    <string name="diag_service_stopped">Not running</string>
+    <string name="diag_last_event">Last app change seen</string>
+    <string name="diag_never">Never</string>
+    <string name="diag_next_check">Next scheduled check</string>
+    <string name="diag_none">None</string>
+    <string name="diag_recent">Recent events</string>
+    <string name="diag_test">Test blocking</string>
+    <string name="diag_test_body">Starts a 1-minute block on one app so you can check the block screen appears.</string>
+    <string name="about_version">Version %s</string>
+
+    <!-- First run (spec 4.10) -->
+    <string name="onb_intro_1">Pick the apps that pull you away. FocusBlock blocks them when you start a block or when a rule runs.</string>
+    <string name="onb_intro_2">Calls and essential apps always stay available.</string>
+    <string name="onb_get_started">Get started</string>
+    <string name="onb_pick_body">You can change this any time.</string>
+    <string name="onb_step">Step %1$d of %2$d</string>
+    <string name="onb_why">Why</string>
+    <string name="onb_sees">FocusBlock sees</string>
+    <string name="onb_not_sees">FocusBlock doesn\'t see</string>
+    <string name="onb_acc_title">See which app is open</string>
+    <string name="onb_acc_why">This is how FocusBlock notices a blocked app and shows the block screen.</string>
+    <string name="onb_acc_sees">The name of the app on screen.</string>
+    <string name="onb_acc_not">What you type, read or watch.</string>
+    <string name="onb_acc_hint">In the list, tap FocusBlock, then turn it on.</string>
+    <string name="onb_usage_title">Count app minutes</string>
+    <string name="onb_usage_why">Needed for app limits, the daily limit and Activity.</string>
+    <string name="onb_usage_sees">Which app was open and for how long.</string>
+    <string name="onb_usage_not">Anything inside apps.</string>
+    <string name="onb_notif_title">Show block status</string>
+    <string name="onb_notif_why">Shows what is blocked and asks “Did you finish?” when a block ends.</string>
+    <string name="onb_notif_sees">Nothing new.</string>
+    <string name="onb_notif_not">Your other notifications.</string>
+    <string name="onb_battery_title">Keep running in the background</string>
+    <string name="onb_battery_why">Phones close background apps to save battery. Unrestricted keeps blocking reliable.</string>
+    <string name="onb_battery_sees">Nothing new.</string>
+    <string name="onb_battery_not">How other apps use the battery.</string>
+    <string name="onb_alarm_title">End blocks on time</string>
+    <string name="onb_alarm_why">Lets FocusBlock end a block and ask “Did you finish?” at the exact minute.</string>
+    <string name="onb_alarm_sees">Nothing new.</string>
+    <string name="onb_alarm_not">Your alarms.</string>
+    <string name="onb_open_settings">Open settings</string>
+    <string name="onb_allow">Allow</string>
+    <string name="onb_skip">Skip for now</string>
+    <string name="onb_granted">Allowed</string>
+    <string name="onb_test_title">Try a 1-minute test block</string>
+    <string name="onb_test_body">FocusBlock will block %s for 1 minute. Open it to see what happens.</string>
+    <string name="onb_test_start">Start test block</string>
+    <string name="onb_test_open">Open %s</string>
+    <string name="onb_test_skip">Skip test</string>
+    <string name="onb_test_waiting">Test block running. Open %s.</string>
+    <string name="onb_test_seen">The block screen appeared. Blocking works.</string>
+    <string name="onb_test_needs_accessibility">The test needs Accessibility. You can test later from Settings › Troubleshooting.</string>
+    <string name="onb_ready_title">FocusBlock is ready</string>
+    <string name="onb_ready_body">Start a block from the Block tab, or add a rule that runs on its own.</string>
+    <string name="onb_finish">Go to Block</string>
 
     <!-- Notifications -->
-    <string name="notification_channel_blocking">App Blocking</string>
-    <string name="notification_channel_blocking_desc">Shows when app blocking is active</string>
-    <string name="notification_blocking_active">FocusBlock is protecting your focus</string>
-    <string name="notification_apps_blocked">%d apps are being blocked</string>
+    <string name="channel_status">Block status</string>
+    <string name="channel_events">Block ended</string>
+    <string name="channel_rules">Rules</string>
+    <string name="channel_reminders">Usage reminders</string>
+    <string name="channel_summary">Daily summary</string>
+    <string name="channel_problems">Blocking problems</string>
+    <string name="channel_backup">Backup blocking</string>
+    <string name="notif_active_until">Blocking until %s</string>
+    <string name="notif_active_open">Blocking until you end it</string>
+    <string name="notif_focus_until">Focus %1$d of %2$d · until %3$s</string>
+    <string name="notif_break_until">Break until %s</string>
+    <string name="notif_end_text">Your block ended at %s.</string>
+    <string name="notif_rule_on">%1$s is blocking until %2$s</string>
+    <string name="notif_reminder">You\'ve been on %1$s for %2$s</string>
+    <string name="notif_summary_title">Today: %s of screen time</string>
+    <string name="notif_problem_title">Blocking stopped working: %s</string>
+    <string name="notif_problem_text">Tap to fix it.</string>
+    <string name="notif_backup_title">Backup blocking is on</string>
+    <string name="notif_backup_text">Accessibility is off, so FocusBlock uses a slower backup. Turn Accessibility on for reliable blocking.</string>
+    <string name="notif_extended">Added 15 minutes</string>
+    <string name="notif_end_refused">You can\'t end this block early.</string>
 
-    <!-- Pomodoro -->
-    <string name="pomodoro">Pomodoro</string>
-    <string name="work_session">Work Session</string>
-    <string name="short_break">Short Break</string>
-    <string name="long_break">Long Break</string>
-    <string name="pomodoro_work_default">25 min</string>
-    <string name="pomodoro_short_break_default">5 min</string>
-    <string name="pomodoro_long_break_default">15 min</string>
+    <!-- Widget -->
+    <string name="widget_idle">Nothing blocked</string>
+    <string name="widget_active">Blocking until %s</string>
+    <string name="widget_active_open">Blocking until you end it</string>
+    <string name="widget_start">Start</string>
+    <string name="widget_end">End</string>
+    <string name="widget_strict">Strict Lock</string>
+    <string name="widget_setup">Open FocusBlock</string>
+    <string name="widget_needs_setup">Blocking needs setup</string>
+    <string name="widget_description">Start or end a block</string>
 
-    <!-- Time formats -->
-    <string name="time_format_hours_minutes">%dh %dm</string>
-    <string name="time_format_minutes">%d min</string>
-    <string name="time_format_seconds">%d sec</string>
-
-    <!-- Common -->
-    <string name="save">Save</string>
-    <string name="cancel">Cancel</string>
-    <string name="delete">Delete</string>
-    <string name="edit">Edit</string>
-    <string name="enable">Enable</string>
-    <string name="disable">Disable</string>
-    <string name="active">Active</string>
-    <string name="inactive">Inactive</string>
-    <string name="select_apps">Select Apps</string>
-    <string name="no_apps_selected">No apps selected</string>
-    <string name="search_apps">Search apps</string>
+    <plurals name="apps_count">
+        <item quantity="one">%d app</item>
+        <item quantity="other">%d apps</item>
+    </plurals>
+    <plurals name="apps_blocked_count">
+        <item quantity="one">%d app blocked</item>
+        <item quantity="other">%d apps blocked</item>
+    </plurals>
+    <plurals name="apps_selected">
+        <item quantity="one">%d app selected</item>
+        <item quantity="other">%d apps selected</item>
+    </plurals>
+    <plurals name="essentials_count">
+        <item quantity="one">%d app always available</item>
+        <item quantity="other">%d apps always available</item>
+    </plurals>
+    <plurals name="attempts_count">
+        <item quantity="one">%d blocked attempt</item>
+        <item quantity="other">%d blocked attempts</item>
+    </plurals>
+    <plurals name="attempts_short">
+        <item quantity="one">%d attempt</item>
+        <item quantity="other">%d attempts</item>
+    </plurals>
+    <plurals name="blocks_count">
+        <item quantity="one">%d block</item>
+        <item quantity="other">%d blocks</item>
+    </plurals>
 </resources>

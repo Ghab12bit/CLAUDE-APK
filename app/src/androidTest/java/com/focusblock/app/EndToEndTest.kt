@@ -48,20 +48,33 @@ class EndToEndTest {
     private lateinit var target: String
     private lateinit var targetName: String
 
-    private fun shell(command: String) {
-        instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).executeShellCommand(command).use {
-            ParcelFileDescriptor.AutoCloseInputStream(it).readBytes()
+    private fun shell(command: String): String =
+        instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).executeShellCommand(command).let {
+            ParcelFileDescriptor.AutoCloseInputStream(it).use { stream -> String(stream.readBytes()) }
         }
+
+    /** What is on screen, for failure messages. */
+    private fun screenState(): String {
+        val texts = device.findObjects(By.text(java.util.regex.Pattern.compile(".+", java.util.regex.Pattern.DOTALL))).mapNotNull { it.text?.replace('\n', ' ') }.take(40)
+        val decision = runCatching { runBlocking { graph.enforcer.decide(target).first } }.getOrNull()
+        return "package=${device.currentPackageName} service=${ServiceHeartbeat.connected} blocked=${decision?.blocked} reason=${decision?.primary} texts=$texts"
     }
+
+    private fun check(condition: Boolean, what: String) = assertTrue("$what | ${screenState()}", condition)
 
     @Before fun prepare() {
         listOf(
             "appops set ${context.packageName} GET_USAGE_STATS allow",
             "appops set ${context.packageName} SYSTEM_ALERT_WINDOW allow",
             "pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS",
-            "settings put secure enabled_accessibility_services ${context.packageName}/com.focusblock.app.service.FocusBlockAccessibilityService",
-            "settings put secure accessibility_enabled 1",
         ).forEach(::shell)
+        // Writing the setting again makes Android re-bind the service, which drops events
+        // mid-test. Only write it when it is not already enabled.
+        val component = "${context.packageName}/com.focusblock.app.service.FocusBlockAccessibilityService"
+        if (!shell("settings get secure enabled_accessibility_services").contains(component)) {
+            shell("settings put secure enabled_accessibility_services $component")
+            shell("settings put secure accessibility_enabled 1")
+        }
         runBlocking {
             graph.db.settingsDao().insert(AppSettings(PrefKeys.ONBOARDING_DONE, "true"))
             graph.db.openHelper.writableDatabase.execSQL("UPDATE block_sessions SET isActive = 0, endReason = 'ENDED_EARLY', outcome = 'ENDED_EARLY' WHERE isActive = 1")
@@ -99,7 +112,7 @@ class EndToEndTest {
     private fun waitForBlockScreen() {
         val shown = device.wait(Until.hasObject(By.textContains("is blocked until")), 20_000)
         screenshot("intervention-${System.nanoTime()}")
-        assertTrue("Block screen did not appear for $target", shown)
+        check(shown, "Block screen did not appear for $target")
     }
 
     @Test fun openingABlockedAppShowsTheBlockScreenAndIsLogged() {
@@ -137,7 +150,7 @@ class EndToEndTest {
         device.findObject(By.text("Open anyway")).click()
         val unlocked = device.wait(Until.gone(By.textContains("is blocked until")), 10_000)
         screenshot("open-anyway")
-        assertTrue(unlocked)
+        check(unlocked, "Open anyway did not open the app")
         val events = runBlocking { graph.db.unlockEventDao().all() }
         val grant = events.first { it.packageName == target && it.status == UnlockEventEntity.GRANTED }
         assertEquals("OPEN_ANYWAY", grant.kind)
@@ -149,25 +162,25 @@ class EndToEndTest {
     @Test fun tabsRenderFromPersistedState() {
         start(Strength.NORMAL, minutes = 45)
         context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
-        assertTrue(device.wait(Until.hasObject(By.textStartsWith("Blocking until")), 15_000))
-        assertNotNull(device.findObject(By.text("“Finish the Q3 report”")))
-        assertNotNull(device.findObject(By.text("Add 15 minutes")))
+        check(device.wait(Until.hasObject(By.textStartsWith("Blocking until")), 15_000), "Active block title")
+        check(device.hasObject(By.text("“Finish the Q3 report”")), "Intention line")
+        check(device.wait(Until.hasObject(By.text("Add 15 minutes")), 5_000), "Add 15 minutes")
         screenshot("block-active")
         device.findObject(By.text("Rules")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("What runs automatically")), 10_000))
+        check(device.wait(Until.hasObject(By.text("What runs automatically")), 10_000), "Rules tab")
         screenshot("rules")
         device.findObject(By.text("Activity")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("What affected your focus")), 10_000))
+        check(device.wait(Until.hasObject(By.text("What affected your focus")), 10_000), "Activity tab")
         screenshot("activity")
         device.findObject(By.desc("Settings")).click()
-        assertTrue(device.wait(Until.hasObject(By.text("Blocking health")), 10_000))
+        check(device.wait(Until.hasObject(By.text("Blocking health")), 10_000), "Settings")
         screenshot("settings")
     }
 
     @Test fun idleBlockTabShowsSetupWithoutGiantNumber() {
         runBlocking { graph.sessions.saveSelection(listOf(target)) }
         context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
-        assertTrue(device.wait(Until.hasObject(By.text("Block distractions")), 15_000))
+        check(device.wait(Until.hasObject(By.text("Block distractions")), 15_000), "Idle Block tab")
         assertNotNull(device.findObject(By.text("What are you working on?")))
         assertNotNull(device.findObject(By.text("Intervals")))
         assertNotNull(device.findObject(By.text("Until I stop")))

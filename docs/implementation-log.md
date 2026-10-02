@@ -412,3 +412,42 @@ All 17 are done. Where an item is covered by an emulator test, the test is named
 | Notifications | Settings › Notifications | One screen, five switches, separate channels |
 | Imported v13–15 rules | Rules › "Rules from the previous version" | Enforced through the engine; editable when unlocked |
 | Work Mode / Digital Detox | Rule templates | Converted |
+
+### Verification evidence
+
+Android cannot be built in the authoring container: `dl.google.com` is blocked there. All Android
+evidence therefore comes from GitHub Actions (`.github/workflows/android-recovery.yml`) on this
+branch. Only the pure policy package was also compiled and tested locally, as a plain JVM project.
+
+| Check | Where | Result |
+|---|---|---|
+| `assembleDebug` | CI `build` | Pass |
+| Unit tests, 66 in total: policy engine and every §8.2 overlap pair, time windows (overnight, DST, time zone), sessions and friction, usage, coverage, recommendations, migration SQL against Room's schema 17, colour contrast (WCAG AA) | CI `build` (and policy tests locally) | Pass |
+| `lintDebug` | CI `build` | Pass |
+| Room migrations 12–16 → 17 with legacy fixtures, including Strict and Hard Mode mapping (`Migration17Test`, 3 tests) | CI `emulator`, Android 14 | Pass |
+| End to end with the real accessibility service (`EndToEndTest`, 5 tests). Opening a blocked app shows the block screen and is logged; Strict Lock offers only emergency access and cannot be ended; Open anyway is time-boxed and logged; tabs render from persisted state; the idle Block tab shows setup | CI `emulator`, Android 14 | See the final run below |
+
+Bugs found by the emulator run and fixed:
+- Compose crashed after Open anyway, because of an early `return@Column` after conditional
+  composition. All inline-layout early returns were removed.
+- Tests re-applied the accessibility setting before each test. Android then re-bound the service
+  partway through the test, and window events were lost.
+
+### Known limitations (not verified, or by design)
+
+- **No real-device test yet.** Nothing has been run on a Samsung S23 Ultra or on any other physical
+  phone. One UI's battery management ("Sleeping apps") and its accessibility-service killing are
+  real risks. Blocking health detects them and says so, but only a device run proves enforcement.
+  The device matrix (other OEMs, Android 10–13) is unknown.
+- **Fallback enforcement is weaker.** Without accessibility, the foreground service polls usage
+  events every second. A blocked app can be visible for about a second, and Android can delay
+  usage events.
+- **Strict Lock is not uninstall-proof.** Someone can still disable accessibility, force-stop the
+  app or uninstall it. Device-admin or uninstall protection was out of scope, because it needs a
+  decision on 12.3. Turning accessibility off is detected: the protection notification and the
+  fallback service start.
+- **The clock-tamper guard holds within one boot.** Blocks are timed with elapsed realtime and the
+  boot count. After a reboot, the wall clock is trusted again, so a clock moved forward and then
+  rebooted can end a Strict block early.
+- **Usage-based numbers depend on Android.** When Usage access is missing they show as unavailable,
+  never as zero.

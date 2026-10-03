@@ -36,6 +36,7 @@ import com.focusblock.app.ui.components.AppIcon
 import com.focusblock.app.ui.components.FbCard
 import com.focusblock.app.ui.components.FbProgressBar
 import com.focusblock.app.ui.components.StackedBarChart
+import com.focusblock.app.ui.components.pluralRes
 import com.focusblock.app.ui.theme.Fb
 import com.focusblock.app.ui.theme.FbType
 
@@ -69,7 +70,7 @@ fun LimitTodayCard(insight: LimitInsight?, allowanceMinutes: Int, enabled: Boole
             val line = when {
                 !enabled -> stringResource(R.string.limit_status_off)
                 reached -> stringResource(R.string.limit_status_reached)
-                else -> stringResource(R.string.limit_status_left, Fmt.duration(context, allowance - used))
+                else -> stringResource(R.string.limit_status_left, Fmt.duration(context, allowance - used + 59_999))
             }
             Text(line, style = FbType.label.copy(color = if (reached && enabled) Fb.warning else Fb.textPrimary))
             Spacer(Modifier.height(2.dp))
@@ -87,10 +88,10 @@ fun LimitHowItWorksCard(kind: RuleKind, countsAll: Boolean, appCount: Int, allow
         Text(stringResource(R.string.limit_how_title), style = FbType.heading)
         Spacer(Modifier.height(10.dp))
         if (kind == RuleKind.APP_LIMIT) {
-            HowRow(Icons.Outlined.Timer, stringResource(R.string.limit_how_app_1, appCount))
+            HowRow(Icons.Outlined.Timer, pluralRes(R.plurals.limit_how_app_1, appCount))
             HowRow(Icons.Outlined.Block, stringResource(R.string.limit_how_app_2, allowance))
         } else {
-            HowRow(Icons.Outlined.Timer, if (countsAll) stringResource(R.string.limit_how_daily_all_1) else stringResource(R.string.limit_how_daily_chosen_1, appCount))
+            HowRow(Icons.Outlined.Timer, if (countsAll) stringResource(R.string.limit_how_daily_all_1) else pluralRes(R.plurals.limit_how_daily_chosen_1, appCount))
             HowRow(Icons.Outlined.Block, stringResource(R.string.limit_how_daily_2, allowance))
         }
         HowRow(Icons.Outlined.Schedule, stringResource(R.string.limit_how_reset))

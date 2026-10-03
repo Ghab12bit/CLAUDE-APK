@@ -538,3 +538,8 @@ Feedback: tapping a limit showed only its settings; how App limit and Daily limi
   line, days over the limit, average). Settings follow, with a "Limit is on" switch that applies at
   once; an App limit has a Delete button instead of the small "Off" link.
 - **Rules tab.** Limit cards show a progress bar for today.
+- **Wording.** "Time left" rounds up to the next minute, so an unused 30 min allowance reads "30 min
+  left"; a limit on one app says "this app" instead of "these 1 apps".
+
+Verified on the emulator (API 34): the limit page test opens a limit from the Rules tab and checks
+the Today, How it works and Last 7 days cards and the "Limit is on" switch.

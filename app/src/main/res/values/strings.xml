@@ -659,10 +659,16 @@
     <string name="limit_status_off">This limit is off, so nothing is blocked</string>
     <string name="limit_resets">Starts again from zero at midnight.</string>
     <string name="limit_how_title">How it works</string>
-    <string name="limit_how_app_1">The time you spend in these %d apps is added together.</string>
+    <plurals name="limit_how_app_1">
+        <item quantity="one">Every minute you spend in this app counts towards the limit.</item>
+        <item quantity="other">The time you spend in these %d apps is added together.</item>
+    </plurals>
     <string name="limit_how_app_2">When the total reaches %s, all of them are blocked for the rest of the day.</string>
     <string name="limit_how_daily_all_1">Counts your total time in every app except essential apps.</string>
-    <string name="limit_how_daily_chosen_1">Counts your total time in these %d apps.</string>
+    <plurals name="limit_how_daily_chosen_1">
+        <item quantity="one">Counts your total time in this app.</item>
+        <item quantity="other">Counts your total time in these %d apps.</item>
+    </plurals>
     <string name="limit_how_daily_2">When the total reaches %s, every counted app is blocked for the rest of the day.</string>
     <string name="limit_how_reset">Everything unblocks and the count starts again at midnight.</string>
     <string name="limit_how_essentials">Calls and essential apps are never counted or blocked.</string>

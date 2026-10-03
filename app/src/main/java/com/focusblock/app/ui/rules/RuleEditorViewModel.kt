@@ -35,6 +35,20 @@ data class RuleDraft(
     val breakMinutes: Int = 30,
 )
 
+/** Live picture of a limit: today's use, which apps use it, and the last 7 days (App and Daily limits). */
+data class LimitInsight(
+    /** Counted use today, or null without Usage access. */
+    val usedToday: Long?,
+    /** Counted apps used today, most first. */
+    val perApp: List<Pair<String, Long>>,
+    /** The last 7 days, oldest first, today last. */
+    val week: List<Pair<java.time.LocalDate, Long>>,
+    /** Days in [week] whose use reached the allowance. */
+    val overDays: Int,
+    /** Average per day over days with data. */
+    val average: Long?,
+)
+
 data class EditorUi(
     val loading: Boolean = true,
     val kind: RuleKind = RuleKind.ROUTINE,
@@ -46,6 +60,9 @@ data class EditorUi(
     val saved: Boolean = false,
     val labels: Map<String, String> = emptyMap(),
     val usageAccess: Boolean = true,
+    /** On/off for limits (shown as a switch in the editor). */
+    val enabled: Boolean = true,
+    val insight: LimitInsight? = null,
 )
 
 /**
@@ -137,7 +154,62 @@ class RuleEditorViewModel(private val graph: AppGraph, private val saved: SavedS
         val restored = restore() ?: draft
         persist(restored)
         val labels = restored.apps.associateWith { graph.apps.label(it) }
-        mutable.update { it.copy(loading = false, isNew = isNew, draft = restored, lockedUntil = locked, labels = labels, usageAccess = graph.usage.hasAccess()) }
+        val enabled = when (kind) {
+            RuleKind.APP_LIMIT -> limit?.isEnabled ?: true
+            RuleKind.DAILY_LIMIT -> daily?.isEnabled ?: true
+            else -> true
+        }
+        mutable.update { it.copy(loading = false, isNew = isNew, draft = restored, lockedUntil = locked, labels = labels, usageAccess = graph.usage.hasAccess(), enabled = enabled) }
+        refreshInsight()
+    }
+
+    /** Turns an existing limit on or off right away (a new one is saved with this state). */
+    fun setEnabled(on: Boolean) {
+        if (mutable.value.lockedUntil != null) { mutable.update { it.copy(error = R.string.rule_locked_strict) }; return }
+        mutable.update { it.copy(enabled = on, error = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            when (kind) {
+                RuleKind.APP_LIMIT -> limit?.let { graph.db.appLimitDao().setEnabled(it.id, on, graph.clock.now()); limit = it.copy(isEnabled = on) }
+                RuleKind.DAILY_LIMIT -> daily?.let { graph.db.globalDailyLimitSettingsDao().setEnabled(on); daily = it.copy(isEnabled = on) }
+                else -> Unit
+            }
+            graph.requestRefresh()
+        }
+    }
+
+    private var insightJob: kotlinx.coroutines.Job? = null
+
+    /** Recomputes the limit's live picture for the apps and scope currently in the draft. */
+    private fun refreshInsight() {
+        if (kind != RuleKind.APP_LIMIT && kind != RuleKind.DAILY_LIMIT) return
+        insightJob?.cancel()
+        insightJob = viewModelScope.launch(Dispatchers.IO) {
+            val d = mutable.value.draft
+            val counted: Set<String> = if (kind == RuleKind.DAILY_LIMIT && d.countsAll) graph.apps.packages() - graph.policy.exempt() else d.apps.toSet()
+            val zone = graph.clock.zone()
+            val today = com.focusblock.app.policy.PolicyTime.localDate(graph.clock.now(), zone)
+            val todayTotals = graph.usage.todayTotals()
+            val dates = (6 downTo 0).map { today.minusDays(it.toLong()) }
+            val history = runCatching { graph.history.days(dates) }.getOrDefault(emptyMap())
+            val week = dates.map { date ->
+                val used = if (date == today) todayTotals?.let { t -> counted.sumOf { t[it] ?: 0L } }
+                    else history[date]?.let { u -> counted.sumOf { u.totals[it] ?: 0L } }
+                date to (used ?: -1L)
+            }
+            val known = week.filter { it.second >= 0 }
+            val allowance = d.minutes * 60_000L
+            val perApp = todayTotals?.filterKeys { it in counted }?.filterValues { it >= 60_000L }?.entries
+                ?.sortedByDescending { it.value }?.map { it.key to it.value }.orEmpty()
+            (perApp.map { it.first }).forEach { if (it !in mutable.value.labels) mutable.update { s -> s.copy(labels = s.labels + (it to graph.apps.label(it))) } }
+            val insight = LimitInsight(
+                usedToday = todayTotals?.let { t -> counted.sumOf { t[it] ?: 0L } },
+                perApp = perApp,
+                week = week.map { it.first to it.second.coerceAtLeast(0) },
+                overDays = known.count { it.second >= allowance },
+                average = known.filter { it.second > 0 }.takeIf { it.isNotEmpty() }?.let { k -> k.sumOf { it.second } / k.size },
+            )
+            mutable.update { it.copy(insight = insight) }
+        }
     }
 
     /** Templates (Add a rule → Start from a template) and suggestion pre-fill. */
@@ -165,7 +237,9 @@ class RuleEditorViewModel(private val graph: AppGraph, private val saved: SavedS
         persist(next)
         val labels = HashMap(mutable.value.labels)
         next.apps.forEach { if (it !in labels) labels[it] = graph.apps.label(it) }
+        val before = mutable.value.draft
         mutable.update { it.copy(draft = next, error = null, labels = labels) }
+        if (before.apps != next.apps || before.countsAll != next.countsAll || before.minutes != next.minutes) refreshInsight()
     }
 
     fun label(pkg: String) = mutable.value.labels[pkg] ?: graph.apps.label(pkg)
@@ -197,10 +271,10 @@ class RuleEditorViewModel(private val graph: AppGraph, private val saved: SavedS
                 }
                 RuleKind.APP_LIMIT -> graph.db.appLimitDao().upsert(
                     (limit ?: AppLimitEntity(name = d.name, packages = "", minutesPerDay = d.minutes))
-                        .copy(name = d.name.trim(), packages = apps.joinToString(","), minutesPerDay = d.minutes, updatedAt = now),
+                        .copy(name = d.name.trim(), packages = apps.joinToString(","), minutesPerDay = d.minutes, isEnabled = s.enabled, updatedAt = now),
                 )
                 RuleKind.DAILY_LIMIT -> graph.db.globalDailyLimitSettingsDao().insert(
-                    (daily ?: GlobalDailyLimitSettings()).copy(isEnabled = daily?.isEnabled ?: true, dailyLimitMinutes = d.minutes,
+                    (daily ?: GlobalDailyLimitSettings()).copy(isEnabled = s.enabled, dailyLimitMinutes = d.minutes,
                         countsAllApps = d.countsAll, trackedPackages = if (d.countsAll) daily?.trackedPackages.orEmpty() else apps.joinToString(","),
                         useAppTimerApps = false, updatedAt = now),
                 )

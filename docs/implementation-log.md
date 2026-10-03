@@ -523,3 +523,18 @@ and the end-early sheet reached from the block screen.
 
 Decision to confirm: Quick block is Normal strength and can be stopped any time with one
 confirmation. If that proves too easy, it could take the same wait and hold as timed blocks.
+
+## Round 5: limit pages (2026-10-03)
+
+Feedback: tapping a limit showed only its settings; how App limit and Daily limit work was unclear.
+
+- **How they work.** An App limit adds up the time of its chosen apps; when the total reaches the
+  allowance, all of them are blocked until midnight. The Daily limit does the same for your whole
+  phone (every app except essentials) or for a chosen list. Both reset at midnight; essential apps
+  are never counted. After midnight both read "0 min used" until you use a counted app.
+- **Limit page.** Now opens with a Today card (used of allowance, progress bar, time left or
+  "limit reached, blocked until midnight"), How it works in plain words (with when to use which),
+  Today by app (which apps used the allowance), and Last 7 days (daily use against the allowance
+  line, days over the limit, average). Settings follow, with a "Limit is on" switch that applies at
+  once; an App limit has a Delete button instead of the small "Off" link.
+- **Rules tab.** Limit cards show a progress bar for today.

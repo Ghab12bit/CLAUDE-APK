@@ -281,6 +281,32 @@ class EndToEndTest {
         assertNull("Stop ends the quick block", runBlocking { graph.sessions.active() })
     }
 
+    @Test fun aLimitPageShowsTodayHowItWorksAndTheWeek() {
+        val id = runBlocking {
+            graph.db.appLimitDao().upsert(com.focusblock.app.database.entity.AppLimitEntity(name = "Social apps", packages = target, minutesPerDay = 30))
+        }
+        try {
+            openMain()
+            tap("Rules")
+            // A rule card is one clickable element, so its texts are read together.
+            val row = device.wait(Until.findObject(By.textStartsWith("Social apps")), 10_000)
+            check(row != null, "Limit card on Rules")
+            row.click()
+            check(device.wait(Until.hasObject(By.text("How it works")), 10_000), "How it works")
+            check(device.hasObject(By.text("TODAY")), "Today card")
+            screenshot("15-limit-page")
+            scrollDown()
+            screenshot("15-limit-page-2")
+            scrollTo("Last 7 days")
+            check(device.hasObject(By.text("Last 7 days")), "Week card")
+            scrollTo("Delete this limit")
+            screenshot("15-limit-page-3")
+            check(device.hasObject(By.text("Limit is on")), "On/off switch")
+        } finally {
+            runBlocking { graph.db.appLimitDao().delete(id) }
+        }
+    }
+
     @Test fun appsCanBeAddedToARunningStrictBlock() {
         start(Strength.STRICT)
         val other = runBlocking {

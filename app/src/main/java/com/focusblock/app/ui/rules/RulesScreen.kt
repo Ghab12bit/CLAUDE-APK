@@ -213,6 +213,7 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                         name = l.name,
                         summary = RuleText.appLimit(context, l, vm::label),
                         chip = RuleText.limitState(context, l.isEnabled, used, l.minutesPerDay, if (!state.usageAccess) context.getString(R.string.cause_usage_off) else null),
+                        progress = used?.takeIf { l.isEnabled }?.let { it.toFloat() / (l.minutesPerDay * 60_000L).coerceAtLeast(1L) },
                         enabled = l.isEnabled,
                         onToggle = { vm.setLimitEnabled(l, it) },
                         onClick = { onEdit(EditorRequest(RuleKind.APP_LIMIT, l.id)) },
@@ -229,6 +230,7 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                         chip = RuleText.limitState(context, d.isEnabled, counted?.usedMillisToday?.takeIf { state.usageAccess }, d.dailyLimitMinutes,
                             if (!state.usageAccess) context.getString(R.string.cause_usage_off) else null),
                         extra = lockedUntil?.let { stringResource(R.string.state_locked, Fmt.time(context, it)) },
+                        progress = counted?.usedMillisToday?.takeIf { state.usageAccess && d.isEnabled }?.let { it.toFloat() / (d.dailyLimitMinutes * 60_000L).coerceAtLeast(1L) },
                         enabled = d.isEnabled,
                         toggleEnabled = !(d.isEnabled && lockedUntil != null),
                         onToggle = { vm.setDailyEnabled(d, it) },
@@ -358,6 +360,8 @@ fun RuleRow(
     extra: String? = null,
     toggleEnabled: Boolean = true,
     onDelete: (() -> Unit)? = null,
+    /** Share of a limit used today (0–1+), drawn as a bar; null for rules without an allowance. */
+    progress: Float? = null,
 ) {
     var menu by remember { mutableStateOf(false) }
     Row(
@@ -371,6 +375,13 @@ fun RuleRow(
             Text(summary, style = FbType.caption.copy(fontSize = FbType.label.fontSize, lineHeight = FbType.label.lineHeight))
             Spacer(Modifier.height(6.dp))
             StateChip(chip.text, chip.kind)
+            if (progress != null) {
+                Spacer(Modifier.height(8.dp))
+                com.focusblock.app.ui.components.FbProgressBar(
+                    progress, if (progress >= 1f) Fb.warning else Fb.accent, height = 6.dp,
+                    brush = if (progress >= 1f) null else androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Fb.accent, Fb.accentAlt)),
+                )
+            }
             if (extra != null) {
                 Spacer(Modifier.height(4.dp))
                 Text(extra, style = FbType.caption)

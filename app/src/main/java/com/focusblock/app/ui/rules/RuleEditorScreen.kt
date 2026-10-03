@@ -1,5 +1,8 @@
 package com.focusblock.app.ui.rules
 
+import com.focusblock.app.ui.components.SecondaryButton
+import com.focusblock.app.ui.components.SectionHeader
+import com.focusblock.app.ui.components.FbCard
 import android.app.TimePickerDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -80,6 +83,32 @@ fun RuleEditorScreen(state: EditorUi, vm: RuleEditorViewModel, onClose: () -> Un
         if (locked) {
             Text(stringResource(R.string.error_locked, Fmt.time(context, state.lockedUntil!!)), style = FbType.body.copy(color = Fb.warning), modifier = Modifier.padding(horizontal = Fb.gutter))
             Spacer(Modifier.height(12.dp))
+        }
+
+        // Limits: what is happening today, how the rule works, and the last 7 days.
+        val isLimit = kind == RuleKind.APP_LIMIT || kind == RuleKind.DAILY_LIMIT
+        if (isLimit) {
+            Spacer(Modifier.height(8.dp))
+            LimitTodayCard(state.insight, d.minutes, state.enabled, state.usageAccess)
+            Spacer(Modifier.height(12.dp))
+            LimitHowItWorksCard(kind, d.countsAll, d.apps.size, d.minutes)
+            state.insight?.takeIf { it.usedToday != null }?.let { insight ->
+                Spacer(Modifier.height(12.dp))
+                LimitTodayByAppCard(insight, vm::label)
+                Spacer(Modifier.height(12.dp))
+                LimitWeekCard(insight, d.minutes)
+            }
+            SectionHeader(stringResource(R.string.limit_settings))
+            if (!state.isNew) {
+                FbCard(contentPadding = 0.dp) {
+                    DividerRow(
+                        title = stringResource(R.string.limit_is_on),
+                        subtitle = stringResource(if (state.enabled) R.string.limit_is_on_yes else R.string.limit_is_on_no),
+                        trailing = { FbSwitch(state.enabled, vm::setEnabled, enabled = !locked, contentDescription = stringResource(R.string.limit_is_on)) },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+            }
         }
 
         // Name.
@@ -184,7 +213,13 @@ fun RuleEditorScreen(state: EditorUi, vm: RuleEditorViewModel, onClose: () -> Un
         Column(Modifier.padding(horizontal = Fb.gutter), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PrimaryButton(stringResource(R.string.action_save), vm::save, enabled = !locked)
             if (!state.isNew && kind != RuleKind.IMPORTED && !locked) {
-                TextLink(stringResource(if (kind == RuleKind.ROUTINE || kind == RuleKind.APP_LIMIT) R.string.action_delete else R.string.state_off), vm::delete, accent = false)
+                when (kind) {
+                    // The switch above turns the daily limit off; there is only one, so nothing to delete.
+                    RuleKind.DAILY_LIMIT -> Unit
+                    RuleKind.APP_LIMIT -> SecondaryButton(stringResource(R.string.limit_delete), vm::delete)
+                    RuleKind.ROUTINE -> TextLink(stringResource(R.string.action_delete), vm::delete, accent = false)
+                    else -> TextLink(stringResource(R.string.state_off), vm::delete, accent = false)
+                }
             }
         }
         Spacer(Modifier.height(32.dp))

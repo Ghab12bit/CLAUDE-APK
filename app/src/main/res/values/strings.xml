@@ -651,4 +651,33 @@
     <string name="suggested_add_all">Add all</string>
     <string name="suggested_add_cd">Add %s to the block</string>
     <string name="picker_suggested">Suggested from your usage</string>
+    <!-- Limit pages -->
+    <string name="limit_today">TODAY</string>
+    <string name="limit_of_allowance">of %s used</string>
+    <string name="limit_status_left">%s left today</string>
+    <string name="limit_status_reached">Limit reached · these apps are blocked until midnight</string>
+    <string name="limit_status_off">This limit is off, so nothing is blocked</string>
+    <string name="limit_resets">Starts again from zero at midnight.</string>
+    <string name="limit_how_title">How it works</string>
+    <string name="limit_how_app_1">The time you spend in these %d apps is added together.</string>
+    <string name="limit_how_app_2">When the total reaches %s, all of them are blocked for the rest of the day.</string>
+    <string name="limit_how_daily_all_1">Counts your total time in every app except essential apps.</string>
+    <string name="limit_how_daily_chosen_1">Counts your total time in these %d apps.</string>
+    <string name="limit_how_daily_2">When the total reaches %s, every counted app is blocked for the rest of the day.</string>
+    <string name="limit_how_reset">Everything unblocks and the count starts again at midnight.</string>
+    <string name="limit_how_essentials">Calls and essential apps are never counted or blocked.</string>
+    <string name="limit_how_vs_daily">Use an App limit for a few apps you overuse. Use the Daily limit for your whole phone.</string>
+    <string name="limit_how_vs_app">Use the Daily limit for your whole phone. Use an App limit for a few apps you overuse.</string>
+    <string name="limit_by_app">Today by app</string>
+    <string name="limit_by_app_none">None of these apps has been used for a minute today.</string>
+    <string name="limit_week">Last 7 days</string>
+    <string name="limit_week_cd">Use of these apps on each of the last 7 days against the allowance. Over the limit on %d days.</string>
+    <string name="limit_over_days">Over the limit on %d of 7 days</string>
+    <string name="limit_line_note">The dashed line is your allowance.</string>
+    <string name="limit_average">a day on average</string>
+    <string name="limit_settings">Settings</string>
+    <string name="limit_is_on">Limit is on</string>
+    <string name="limit_is_on_yes">Counting and blocking today</string>
+    <string name="limit_is_on_no">Off · nothing is counted or blocked</string>
+    <string name="limit_delete">Delete this limit</string>
 </resources>

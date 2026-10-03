@@ -517,5 +517,9 @@ Found by the emulator run: the safety net that presses HOME when the block scree
 up fired after 1.5 s even when the block screen was only slow to start, so HOME covered it. It now
 waits 3 s and only acts if the block screen never appeared (`ServiceHeartbeat.interventionShownAt`).
 
+Verification: GitHub Actions run 37099171748 (commit `6d6611f`) passed build, unit tests, lint and
+all 14 emulator tests, including the block screen without Open anyway, quick block start and stop,
+and the end-early sheet reached from the block screen.
+
 Decision to confirm: Quick block is Normal strength and can be stopped any time with one
 confirmation. If that proves too easy, it could take the same wait and hold as timed blocks.

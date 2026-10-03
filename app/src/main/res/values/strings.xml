@@ -297,6 +297,8 @@
     <string name="error_name">Name the rule</string>
     <string name="error_days">Choose at least one day</string>
     <string name="error_apps">Choose at least one app</string>
+    <string name="error_apps_essential">All the chosen apps are essential apps, which are never blocked or counted. Choose another app.</string>
+    <string name="error_imported_save">Couldn\'t save this rule. Check its name, apps, times and days.</string>
     <string name="error_minutes">Choose 1–720 minutes</string>
     <string name="error_locked">This rule uses Strict Lock and is active. You can change it after %s.</string>
     <string name="error_config_locked">Your rules from the previous version are locked until %s.</string>
@@ -657,13 +659,19 @@
     <string name="limit_status_left">%s left today</string>
     <string name="limit_status_reached">Limit reached · these apps are blocked until midnight</string>
     <string name="limit_status_off">This limit is off, so nothing is blocked</string>
+    <string name="limit_status_unsaved">Over the new allowance · these apps are blocked once you save</string>
+    <string name="limit_counting">Counting today\'s use…</string>
+    <string name="limit_choose_apps_first">Choose apps to see how much of the allowance they use today.</string>
     <string name="limit_resets">Starts again from zero at midnight.</string>
     <string name="limit_how_title">How it works</string>
     <plurals name="limit_how_app_1">
         <item quantity="one">Every minute you spend in this app counts towards the limit.</item>
         <item quantity="other">The time you spend in these %d apps is added together.</item>
     </plurals>
-    <string name="limit_how_app_2">When the total reaches %s, all of them are blocked for the rest of the day.</string>
+    <plurals name="limit_how_app_2">
+        <item quantity="one">When it reaches %2$s, it is blocked for the rest of the day.</item>
+        <item quantity="other">When the total reaches %2$s, all of them are blocked for the rest of the day.</item>
+    </plurals>
     <string name="limit_how_daily_all_1">Counts your total time in every app except essential apps.</string>
     <plurals name="limit_how_daily_chosen_1">
         <item quantity="one">Counts your total time in this app.</item>
@@ -675,7 +683,7 @@
     <string name="limit_how_vs_daily">Use an App limit for a few apps you overuse. Use the Daily limit for your whole phone.</string>
     <string name="limit_how_vs_app">Use the Daily limit for your whole phone. Use an App limit for a few apps you overuse.</string>
     <string name="limit_by_app">Today by app</string>
-    <string name="limit_by_app_none">None of these apps has been used for a minute today.</string>
+    <string name="limit_by_app_none">None of these apps has been used today.</string>
     <string name="limit_week">Last 7 days</string>
     <string name="limit_week_cd">Use of these apps on each of the last 7 days against the allowance. Over the limit on %d days.</string>
     <string name="limit_over_days">Over the limit on %d of 7 days</string>

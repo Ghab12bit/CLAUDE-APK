@@ -41,8 +41,8 @@ data class LimitInsight(
     val usedToday: Long?,
     /** Counted apps used today, most first. */
     val perApp: List<Pair<String, Long>>,
-    /** The last 7 days, oldest first, today last. */
-    val week: List<Pair<java.time.LocalDate, Long>>,
+    /** The last 7 days, oldest first, today last; null while history is still loading. */
+    val week: List<Pair<java.time.LocalDate, Long>>?,
     /** Days in [week] whose use reached the allowance. */
     val overDays: Int,
     /** Average per day over days with data. */
@@ -63,6 +63,12 @@ data class EditorUi(
     /** On/off for limits (shown as a switch in the editor). */
     val enabled: Boolean = true,
     val insight: LimitInsight? = null,
+    /** Allowance as saved (null for a new limit), so the page never says "blocked" for an unsaved change. */
+    val savedMinutes: Int? = null,
+    /** False for an imported rule without a time window (usage, launches or manual only). */
+    val importedTimed: Boolean = true,
+    /** A save is running; further taps are ignored. */
+    val saving: Boolean = false,
 )
 
 /**
@@ -159,8 +165,22 @@ class RuleEditorViewModel(private val graph: AppGraph, private val saved: SavedS
             RuleKind.DAILY_LIMIT -> daily?.isEnabled ?: true
             else -> true
         }
-        mutable.update { it.copy(loading = false, isNew = isNew, draft = restored, lockedUntil = locked, labels = labels, usageAccess = graph.usage.hasAccess(), enabled = enabled) }
+        val savedMinutes = when (kind) {
+            RuleKind.APP_LIMIT -> limit?.minutesPerDay
+            RuleKind.DAILY_LIMIT -> daily?.dailyLimitMinutes
+            else -> null
+        }
+        mutable.update {
+            it.copy(loading = false, isNew = isNew, draft = restored, lockedUntil = locked, labels = labels, usageAccess = graph.usage.hasAccess(),
+                enabled = enabled, savedMinutes = savedMinutes, importedTimed = imported?.let { r -> r.timed && !r.manual } ?: true)
+        }
         refreshInsight()
+        // Keep "used today" current while the page stays open.
+        if (kind == RuleKind.APP_LIMIT || kind == RuleKind.DAILY_LIMIT) {
+            viewModelScope.launch {
+                while (true) { kotlinx.coroutines.delay(60_000); refreshInsight() }
+            }
+        }
     }
 
     /** Turns an existing limit on or off right away (a new one is saved with this state). */
@@ -179,37 +199,52 @@ class RuleEditorViewModel(private val graph: AppGraph, private val saved: SavedS
 
     private var insightJob: kotlinx.coroutines.Job? = null
 
-    /** Recomputes the limit's live picture for the apps and scope currently in the draft. */
+    /**
+     * Recomputes the limit's live picture for the apps and scope currently in the draft. Today is
+     * published first (one quick query); the 7 days follow once the saved history is read.
+     */
     private fun refreshInsight() {
         if (kind != RuleKind.APP_LIMIT && kind != RuleKind.DAILY_LIMIT) return
         insightJob?.cancel()
         insightJob = viewModelScope.launch(Dispatchers.IO) {
             val d = mutable.value.draft
-            val counted: Set<String> = if (kind == RuleKind.DAILY_LIMIT && d.countsAll) graph.apps.packages() - graph.policy.exempt() else d.apps.toSet()
+            // Essential apps are never counted (the same set enforcement uses).
+            val exempt = graph.policy.exempt()
+            val counted: Set<String> = (if (kind == RuleKind.DAILY_LIMIT && d.countsAll) graph.apps.packages() else d.apps.toSet()) - exempt
             val zone = graph.clock.zone()
             val today = com.focusblock.app.policy.PolicyTime.localDate(graph.clock.now(), zone)
             val todayTotals = graph.usage.todayTotals()
+            val usedToday = todayTotals?.let { t -> counted.sumOf { t[it] ?: 0L } }
+            val perApp = todayTotals?.filterKeys { it in counted }?.filterValues { it >= 30_000L }?.entries
+                ?.sortedByDescending { it.value }?.map { it.key to it.value }.orEmpty()
+            val missing = perApp.map { it.first }.filter { it !in mutable.value.labels }
+            if (missing.isNotEmpty()) {
+                val extra = missing.associateWith { graph.apps.label(it) }
+                mutable.update { s -> s.copy(labels = s.labels + extra) }
+            }
+            val previousWeek = mutable.value.insight?.week
+            mutable.update { it.copy(insight = LimitInsight(usedToday, perApp, previousWeek, 0, null).withWeek(previousWeek, d.minutes)) }
+
             val dates = (6 downTo 0).map { today.minusDays(it.toLong()) }
             val history = runCatching { graph.history.days(dates) }.getOrDefault(emptyMap())
             val week = dates.map { date ->
-                val used = if (date == today) todayTotals?.let { t -> counted.sumOf { t[it] ?: 0L } }
+                val used = if (date == today) usedToday
                     else history[date]?.let { u -> counted.sumOf { u.totals[it] ?: 0L } }
                 date to (used ?: -1L)
             }
-            val known = week.filter { it.second >= 0 }
-            val allowance = d.minutes * 60_000L
-            val perApp = todayTotals?.filterKeys { it in counted }?.filterValues { it >= 60_000L }?.entries
-                ?.sortedByDescending { it.value }?.map { it.key to it.value }.orEmpty()
-            (perApp.map { it.first }).forEach { if (it !in mutable.value.labels) mutable.update { s -> s.copy(labels = s.labels + (it to graph.apps.label(it))) } }
-            val insight = LimitInsight(
-                usedToday = todayTotals?.let { t -> counted.sumOf { t[it] ?: 0L } },
-                perApp = perApp,
-                week = week.map { it.first to it.second.coerceAtLeast(0) },
-                overDays = known.count { it.second >= allowance },
-                average = known.filter { it.second > 0 }.takeIf { it.isNotEmpty() }?.let { k -> k.sumOf { it.second } / k.size },
-            )
-            mutable.update { it.copy(insight = insight) }
+            mutable.update { s -> s.copy(insight = s.insight?.withWeek(week, d.minutes)) }
         }
+    }
+
+    /** Adds the 7 days ([week] values below zero mean "no data") with days over and the average. */
+    private fun LimitInsight.withWeek(week: List<Pair<java.time.LocalDate, Long>>?, minutes: Int): LimitInsight {
+        if (week == null) return copy(week = null)
+        val known = week.filter { it.second >= 0 }
+        return copy(
+            week = week.map { it.first to it.second.coerceAtLeast(0) },
+            overDays = known.count { it.second >= minutes * 60_000L },
+            average = known.filter { it.second > 0 }.takeIf { it.isNotEmpty() }?.let { k -> k.sumOf { it.second } / k.size },
+        )
     }
 
     /** Templates (Add a rule → Start from a template) and suggestion pre-fill. */
@@ -246,20 +281,25 @@ class RuleEditorViewModel(private val graph: AppGraph, private val saved: SavedS
 
     fun save() {
         val s = mutable.value
+        if (s.saving || s.saved) return
         val d = s.draft
         if (s.lockedUntil != null) { mutable.update { it.copy(error = R.string.rule_locked_strict) }; return }
-        val error = when {
-            (kind == RuleKind.ROUTINE || kind == RuleKind.APP_LIMIT || kind == RuleKind.IMPORTED) && d.name.isBlank() -> R.string.error_name
-            (kind == RuleKind.ROUTINE || kind == RuleKind.BEDTIME || kind == RuleKind.IMPORTED) && d.days.isEmpty() -> R.string.error_days
-            (kind == RuleKind.ROUTINE || kind == RuleKind.APP_LIMIT || kind == RuleKind.FOCUS_CYCLE || kind == RuleKind.IMPORTED) && d.apps.isEmpty() -> R.string.error_apps
-            kind == RuleKind.DAILY_LIMIT && !d.countsAll && d.apps.isEmpty() -> R.string.error_apps
-            (kind == RuleKind.APP_LIMIT || kind == RuleKind.DAILY_LIMIT) && d.minutes !in 1..720 -> R.string.error_minutes
-            else -> null
-        }
-        if (error != null) { mutable.update { it.copy(error = error) }; return }
+        mutable.update { it.copy(saving = true) }
         viewModelScope.launch(Dispatchers.IO) {
+            // Essential apps are removed first, so a rule of only essential apps is caught below.
             val exempt = graph.policy.exempt()
             val apps = d.apps.filter { it !in exempt }
+            val timed = kind != RuleKind.IMPORTED || s.importedTimed
+            val error = when {
+                (kind == RuleKind.ROUTINE || kind == RuleKind.APP_LIMIT || kind == RuleKind.IMPORTED) && d.name.isBlank() -> R.string.error_name
+                (kind == RuleKind.ROUTINE || kind == RuleKind.BEDTIME || kind == RuleKind.IMPORTED) && timed && d.days.isEmpty() -> R.string.error_days
+                (kind == RuleKind.ROUTINE || kind == RuleKind.APP_LIMIT || kind == RuleKind.FOCUS_CYCLE || kind == RuleKind.IMPORTED) && apps.isEmpty() ->
+                    if (d.apps.isEmpty()) R.string.error_apps else R.string.error_apps_essential
+                kind == RuleKind.DAILY_LIMIT && !d.countsAll && apps.isEmpty() -> if (d.apps.isEmpty()) R.string.error_apps else R.string.error_apps_essential
+                (kind == RuleKind.APP_LIMIT || kind == RuleKind.DAILY_LIMIT) && d.minutes !in 1..720 -> R.string.error_minutes
+                else -> null
+            }
+            if (error != null) { mutable.update { it.copy(error = error, saving = false) }; return@launch }
             val now = graph.clock.now()
             val start = if (d.allDay) 0 else d.start
             val end = if (d.allDay) 0 else d.end
@@ -298,16 +338,24 @@ class RuleEditorViewModel(private val graph: AppGraph, private val saved: SavedS
                     if (c == null) graph.db.focusCycleDao().insert(updated) else graph.db.focusCycleDao().update(updated)
                 }
                 RuleKind.IMPORTED -> imported?.let { r ->
+                    // Rules without a time window keep their stored times and days.
                     val result = runCatching {
-                        ImportedRuleStore.save(graph.db, r.copy(name = d.name.trim(), packages = apps.joinToString(","), start = start, end = end, days = TimeWindow.formatDays(d.days)))
+                        ImportedRuleStore.save(graph.db, r.copy(name = d.name.trim(), packages = apps.joinToString(","),
+                            start = if (timed) start else r.start, end = if (timed) end else r.end,
+                            days = if (timed) TimeWindow.formatDays(d.days) else r.days))
                     }
-                    if (result.isFailure) { mutable.update { it.copy(error = R.string.rule_locked_strict) }; return@launch }
+                    result.exceptionOrNull()?.let { e ->
+                        // check() failures are locks; require() failures are invalid values.
+                        val message = if (e is IllegalStateException) R.string.rule_locked_strict else R.string.error_imported_save
+                        mutable.update { it.copy(error = message, saving = false) }
+                        return@launch
+                    }
                 }
             }
             graph.policy.invalidate()
             graph.requestRefresh()
             saved.remove<Any>(KEY)
-            mutable.update { it.copy(saved = true) }
+            mutable.update { it.copy(saved = true, saving = false) }
         }
     }
 

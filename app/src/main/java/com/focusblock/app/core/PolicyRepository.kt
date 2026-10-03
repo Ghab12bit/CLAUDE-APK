@@ -141,12 +141,13 @@ class PolicyRepository(
         }
 
         val limits = s.limits.map { l ->
-            val packages = csv(l.packages).toSet()
+            // Essential apps are never counted, even if they were chosen before they became essential.
+            val packages = csv(l.packages).toSet() - exempt
             AppLimitInput(l.id, l.name, packages, l.minutesPerDay, packages.sumOf { today?.get(it) ?: 0L }, l.isEnabled && today != null)
         }
 
         val daily = s.daily?.let { d ->
-            val counted = if (d.countsAllApps) launchable else csv(d.trackedPackages).toSet()
+            val counted = if (d.countsAllApps) launchable else csv(d.trackedPackages).toSet() - exempt
             DailyLimitInput(
                 enabled = d.isEnabled && today != null,
                 limitMinutes = d.dailyLimitMinutes,

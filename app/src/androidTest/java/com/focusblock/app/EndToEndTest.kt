@@ -332,6 +332,19 @@ class EndToEndTest {
         }
     }
 
+    @Test fun essentialAppsAreNotCountedInALimit() {
+        val essential = runBlocking { graph.policy.exempt().first { it != target } }
+        val id = runBlocking {
+            graph.db.appLimitDao().upsert(com.focusblock.app.database.entity.AppLimitEntity(name = "Mixed", packages = "$target,$essential", minutesPerDay = 30))
+        }
+        try {
+            val limit = runBlocking { graph.policy.invalidate(); graph.policy.snapshot(freshUsage = true) }.appLimits.first { it.id == id }
+            assertEquals(setOf(target), limit.packages)
+        } finally {
+            runBlocking { graph.db.appLimitDao().delete(id); graph.policy.invalidate() }
+        }
+    }
+
     @Test fun appsCanBeAddedToARunningStrictBlock() {
         start(Strength.STRICT)
         val other = runBlocking {

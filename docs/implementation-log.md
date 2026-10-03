@@ -543,3 +543,28 @@ Feedback: tapping a limit showed only its settings; how App limit and Daily limi
 
 Verified on the emulator (API 34): the limit page test opens a limit from the Rules tab and checks
 the Today, How it works and Last 7 days cards and the "Limit is on" switch.
+
+## Round 6: usage counting and Rules fixes (2026-10-03)
+
+Feedback: Activity showed less usage than the phone's own screen time; the Rules section still had
+problems.
+
+- **Undercounted usage (root cause).** Moving between two screens of one app is reported by Android
+  as "A paused, B resumed, A stopped". The calculator closed the app on A's stop, so every minute on
+  B (a story, a post, a chat) was lost until the app was opened again. Activities are now tracked by
+  class and `ACTIVITY_STOPPED` never ends foreground time. This also fed the limits, so limits
+  reached their allowance late. Saved days are recounted (history file version 2) while Android
+  still has their events; older saved days keep their old numbers.
+- **Limit page.** No longer shows "Limits need Usage access" while it loads: today appears first
+  ("Counting today's use…"), the 7 days follow. Refreshes every minute while open. Says "blocked
+  once you save" for an unsaved lower allowance instead of claiming apps are blocked. A new limit
+  without apps asks for apps instead of showing 0 of 30 min.
+- **Essential apps** are no longer counted towards an App limit or a chosen-list Daily limit (UI and
+  enforcement), matching "Calls and essential apps are never counted".
+- **Double taps.** Save ignores taps while saving (no duplicate rules); a rule card or "Add a rule"
+  opens one editor only.
+- **Rules tab** refreshes when you come back to it. The Daily limit card no longer shows "0 min" when
+  Android returned no usage.
+- **Imported rules** without a time window can be saved (no days required), and a failed save says
+  why instead of "locked".
+- **Saving only essential apps** now says so instead of saving a rule with no apps.

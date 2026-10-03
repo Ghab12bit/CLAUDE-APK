@@ -207,7 +207,8 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                 SectionHeader(stringResource(R.string.section_limits))
                 state.limits.forEach { l ->
                     Spacer(Modifier.height(10.dp))
-                    val packages = csv(l.packages)
+                    val exempt = state.snapshot?.exempt.orEmpty()
+                    val packages = csv(l.packages).filter { it !in exempt }
                     val used = state.usageToday?.let { u -> packages.sumOf { u[it] ?: 0L } }
                     RuleRow(
                         name = l.name,
@@ -222,7 +223,8 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                 }
                 state.daily?.let { d ->
                     Spacer(Modifier.height(10.dp))
-                    val counted = state.snapshot?.dailyLimit
+                    // Unknown (not 0) when Android returned no usage.
+                    val counted = state.snapshot?.dailyLimit?.takeIf { state.usageToday != null }
                     val lockedUntil = vm.dailyLockedUntil(d)
                     RuleRow(
                         name = stringResource(R.string.type_daily_limit),

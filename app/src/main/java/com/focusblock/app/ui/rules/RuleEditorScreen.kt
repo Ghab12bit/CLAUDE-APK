@@ -89,10 +89,11 @@ fun RuleEditorScreen(state: EditorUi, vm: RuleEditorViewModel, onClose: () -> Un
         val isLimit = kind == RuleKind.APP_LIMIT || kind == RuleKind.DAILY_LIMIT
         if (isLimit) {
             Spacer(Modifier.height(8.dp))
-            LimitTodayCard(state.insight, d.minutes, state.enabled, state.usageAccess)
+            val noApps = d.apps.isEmpty() && !(kind == RuleKind.DAILY_LIMIT && d.countsAll)
+            LimitTodayCard(state.insight, d.minutes, state.savedMinutes, state.enabled, state.usageAccess, noApps)
             Spacer(Modifier.height(12.dp))
             LimitHowItWorksCard(kind, d.countsAll, d.apps.size, d.minutes)
-            state.insight?.takeIf { it.usedToday != null }?.let { insight ->
+            state.insight?.takeIf { it.usedToday != null && !noApps }?.let { insight ->
                 Spacer(Modifier.height(12.dp))
                 LimitTodayByAppCard(insight, vm::label)
                 Spacer(Modifier.height(12.dp))
@@ -119,7 +120,7 @@ fun RuleEditorScreen(state: EditorUi, vm: RuleEditorViewModel, onClose: () -> Un
         }
 
         // Time.
-        if (kind == RuleKind.ROUTINE || kind == RuleKind.BEDTIME || kind == RuleKind.IMPORTED) {
+        if (kind == RuleKind.ROUTINE || kind == RuleKind.BEDTIME || (kind == RuleKind.IMPORTED && state.importedTimed)) {
             SectionLabel(stringResource(R.string.field_time))
             FbDivider()
             if (kind == RuleKind.ROUTINE) {
@@ -211,7 +212,7 @@ fun RuleEditorScreen(state: EditorUi, vm: RuleEditorViewModel, onClose: () -> Un
         }
         Spacer(Modifier.height(24.dp))
         Column(Modifier.padding(horizontal = Fb.gutter), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton(stringResource(R.string.action_save), vm::save, enabled = !locked)
+            PrimaryButton(stringResource(R.string.action_save), vm::save, enabled = !locked && !state.saving)
             if (!state.isNew && kind != RuleKind.IMPORTED && !locked) {
                 when (kind) {
                     // The switch above turns the daily limit off; there is only one, so nothing to delete.

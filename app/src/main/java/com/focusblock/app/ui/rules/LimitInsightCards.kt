@@ -42,15 +42,20 @@ import com.focusblock.app.ui.theme.FbType
 
 /** "35 min of 50 min used today", a progress bar and what happens next. */
 @Composable
-fun LimitTodayCard(insight: LimitInsight?, allowanceMinutes: Int, enabled: Boolean, usageAccess: Boolean) {
+fun LimitTodayCard(insight: LimitInsight?, allowanceMinutes: Int, savedMinutes: Int?, enabled: Boolean, usageAccess: Boolean, noApps: Boolean) {
     val context = LocalContext.current
     val allowance = allowanceMinutes * 60_000L
     val used = insight?.usedToday
     FbCard(brush = Brush.linearGradient(listOf(Fb.surfaceActive, Fb.surface))) {
         Text(stringResource(R.string.limit_today), style = FbType.overline)
         Spacer(Modifier.height(6.dp))
-        if (!usageAccess || used == null) {
+        if (!usageAccess) {
             Text(stringResource(R.string.limit_needs_usage), style = FbType.body.copy(color = Fb.warning))
+        } else if (noApps) {
+            Text(stringResource(R.string.limit_choose_apps_first), style = FbType.body.copy(color = Fb.textSecondary))
+        } else if (used == null) {
+            // Still reading usage (or Android returned nothing yet).
+            Text(stringResource(R.string.limit_counting), style = FbType.body.copy(color = Fb.textSecondary))
         } else {
             val reached = used >= allowance
             Row(verticalAlignment = Alignment.Bottom) {
@@ -67,9 +72,12 @@ fun LimitTodayCard(insight: LimitInsight?, allowanceMinutes: Int, enabled: Boole
             }
             FbProgressBar(fraction, color, height = 12.dp, brush = if (reached) null else Brush.horizontalGradient(listOf(Fb.accent, Fb.accentAlt)))
             Spacer(Modifier.height(10.dp))
+            // Blocking follows the saved allowance; an unsaved change only says what will happen.
+            val savedReached = savedMinutes != null && used >= savedMinutes * 60_000L
             val line = when {
                 !enabled -> stringResource(R.string.limit_status_off)
-                reached -> stringResource(R.string.limit_status_reached)
+                reached && savedReached -> stringResource(R.string.limit_status_reached)
+                reached -> stringResource(R.string.limit_status_unsaved)
                 else -> stringResource(R.string.limit_status_left, Fmt.duration(context, allowance - used + 59_999))
             }
             Text(line, style = FbType.label.copy(color = if (reached && enabled) Fb.warning else Fb.textPrimary))
@@ -89,7 +97,7 @@ fun LimitHowItWorksCard(kind: RuleKind, countsAll: Boolean, appCount: Int, allow
         Spacer(Modifier.height(10.dp))
         if (kind == RuleKind.APP_LIMIT) {
             HowRow(Icons.Outlined.Timer, pluralRes(R.plurals.limit_how_app_1, appCount))
-            HowRow(Icons.Outlined.Block, stringResource(R.string.limit_how_app_2, allowance))
+            HowRow(Icons.Outlined.Block, context.resources.getQuantityString(R.plurals.limit_how_app_2, appCount, appCount, allowance))
         } else {
             HowRow(Icons.Outlined.Timer, if (countsAll) stringResource(R.string.limit_how_daily_all_1) else pluralRes(R.plurals.limit_how_daily_chosen_1, appCount))
             HowRow(Icons.Outlined.Block, stringResource(R.string.limit_how_daily_2, allowance))
@@ -145,13 +153,19 @@ fun LimitTodayByAppCard(insight: LimitInsight, label: (String) -> String) {
 fun LimitWeekCard(insight: LimitInsight, allowanceMinutes: Int) {
     val context = LocalContext.current
     val allowance = allowanceMinutes * 60_000L
+    val week = insight.week
     FbCard {
         Text(stringResource(R.string.limit_week), style = FbType.heading)
         Spacer(Modifier.height(10.dp))
+        if (week == null) {
+            // History is still being read.
+            Box(Modifier.fillMaxWidth().height(150.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).background(Fb.surfaceHigh))
+            return@FbCard
+        }
         StackedBarChart(
-            values = insight.week.map { longArrayOf(it.second) },
+            values = week.map { longArrayOf(it.second) },
             colors = listOf(Fb.accent),
-            xLabel = { i -> insight.week.getOrNull(i)?.first?.let { Fmt.weekdayShort(it) } },
+            xLabel = { i -> week.getOrNull(i)?.first?.let { Fmt.weekdayShort(it) } },
             yLabel = { v -> if (v == 0L) "0" else Fmt.duration(context, v) },
             description = stringResource(R.string.limit_week_cd, insight.overDays),
             height = 150.dp,

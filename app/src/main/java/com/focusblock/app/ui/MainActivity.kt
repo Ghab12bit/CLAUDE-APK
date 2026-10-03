@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +44,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.lifecycleScope
@@ -186,11 +189,19 @@ private fun MainNav(open: String?, onOpened: () -> Unit) {
                 BlockScreen(state, blockVm, onSettings = { nav.navigate(SettingsRoutes.HOME) },
                     onEssentials = { nav.navigate(SettingsRoutes.ESSENTIALS) }, onHealth = { nav.navigate(SettingsRoutes.HEALTH) })
             }
-            composable(Tabs.RULES) {
+            composable(Tabs.RULES) { entry ->
                 val vm: RulesViewModel = viewModel(factory = viewModelFactory { initializer { RulesViewModel(graph) } })
                 val state by vm.state.collectAsStateWithLifecycle()
-                RulesScreen(state, vm, onSettings = { nav.navigate(SettingsRoutes.HOME) }, onEdit = { nav.navigate(editorRoute(it)) },
-                    onEssentials = { nav.navigate(SettingsRoutes.ESSENTIALS) })
+                // Coming back from an editor (or Settings) shows the saved state straight away.
+                DisposableEffect(entry) {
+                    val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) vm.refresh() }
+                    entry.lifecycle.addObserver(observer)
+                    onDispose { entry.lifecycle.removeObserver(observer) }
+                }
+                // A double tap would open two editors; the second could save stale values over the first.
+                val resumed = { entry.lifecycle.currentState == Lifecycle.State.RESUMED }
+                RulesScreen(state, vm, onSettings = { if (resumed()) nav.navigate(SettingsRoutes.HOME) }, onEdit = { if (resumed()) nav.navigate(editorRoute(it)) },
+                    onEssentials = { if (resumed()) nav.navigate(SettingsRoutes.ESSENTIALS) })
             }
             composable(Tabs.ACTIVITY) {
                 val vm: ActivityViewModel = viewModel(factory = viewModelFactory { initializer { ActivityViewModel(graph) } })

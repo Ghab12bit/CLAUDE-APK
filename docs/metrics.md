@@ -16,8 +16,11 @@ phone. Each one is listed here with its formula and source (spec 4.8). There is 
 
 ## Foreground time (`UsageCalculator`)
 
-- An app is in the foreground from its first `ACTIVITY_RESUMED` until its `ACTIVITY_PAUSED` or
-  `ACTIVITY_STOPPED`.
+- Activities are tracked one by one (by class name). An app is in the foreground from its first
+  `ACTIVITY_RESUMED` until its last resumed activity sends `ACTIVITY_PAUSED`.
+- `ACTIVITY_STOPPED` never ends an app's time. Moving from screen A to screen B of one app is
+  reported as "A paused, B resumed, A stopped"; ending the app on A's stop dropped all the time
+  spent on B (fixed in round 6; saved days are recounted while Android still has their events).
 - When another app resumes, any app still open is closed at that moment. Time is never counted twice;
   in split screen it goes to the most recently resumed app.
 - `SCREEN_NON_INTERACTIVE`, `KEYGUARD_SHOWN` and `DEVICE_SHUTDOWN` close every open app.

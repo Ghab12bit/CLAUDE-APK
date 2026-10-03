@@ -24,6 +24,7 @@ import com.focusblock.app.database.entity.AppSettings
 import com.focusblock.app.database.entity.UnlockEventEntity
 import com.focusblock.app.policy.SessionType
 import com.focusblock.app.policy.Strength
+import com.focusblock.app.policy.UsageCalculator
 import com.focusblock.app.ui.MainActivity
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -255,6 +256,30 @@ class EndToEndTest {
             graph.history.setCounted(target, targetName, true)
             assertTrue(target !in graph.history.notCounted())
         }
+    }
+
+    @Test fun timeOnASecondScreenOfAnAppIsCounted() {
+        val settings = "com.android.settings"
+        fun used() = runBlocking { graph.usage.invalidate(); graph.usage.todayTotals(0)?.get(settings) ?: 0L }
+        val before = used()
+        val opened = System.currentTimeMillis()
+        context.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        check(device.wait(Until.hasObject(By.pkg(settings).depth(0)), 10_000), "Settings opened")
+        Thread.sleep(2_000)
+        // Another screen (activity) of the same app: Android reports the first screen as stopped
+        // after this one resumed, which must not end the app's time.
+        context.startActivity(Intent(android.provider.Settings.ACTION_DISPLAY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        Thread.sleep(20_000)
+        check(device.currentPackageName == settings, "Still in Settings")
+        device.pressHome()
+        Thread.sleep(1_000)
+        val counted = used() - before
+        // The previous way of counting (any stop ended the app's time) on the same events.
+        val events = runBlocking { graph.usage.events(opened - 5_000, System.currentTimeMillis()) }.orEmpty()
+        val oldWay = events.map { if (it.type == UsageCalculator.Type.STOPPED) it.copy(type = UsageCalculator.Type.PAUSED, cls = null) else it.copy(cls = null) }
+        val oldCounted = UsageCalculator.totals(UsageCalculator.intervals(oldWay, System.currentTimeMillis()), opened - 5_000, System.currentTimeMillis())[settings] ?: 0L
+        assertTrue("Counted ${counted / 1000} s of about 22 s in Settings (old way: ${oldCounted / 1000} s)", counted >= 20_000)
+        assertTrue("The old way should have missed the second screen, counted ${oldCounted / 1000} s", oldCounted < 10_000)
     }
 
     @Test fun aQuickBlockRunsUntilStoppedWithOneConfirmation() {

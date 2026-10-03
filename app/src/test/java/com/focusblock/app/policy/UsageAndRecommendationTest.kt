@@ -30,6 +30,46 @@ class UsageAndRecommendationTest {
         assertEquals(10 * min, totals["b"])
     }
 
+    @Test fun movingBetweenScreensOfOneAppKeepsCounting() {
+        // Android reports the old screen's stop after the new screen resumed.
+        val events = listOf(
+            Event(t(2, 10), "a", Type.RESUMED, "Feed"),
+            Event(t(2, 10, 5), "a", Type.PAUSED, "Feed"),
+            Event(t(2, 10, 5), "a", Type.RESUMED, "Story"),
+            Event(t(2, 10, 6), "a", Type.STOPPED, "Feed"),
+            Event(t(2, 10, 30), "a", Type.PAUSED, "Story"),
+            Event(t(2, 10, 30), "a", Type.RESUMED, "Feed"),
+            Event(t(2, 10, 31), "a", Type.STOPPED, "Story"),
+            Event(t(2, 10, 40), "home", Type.RESUMED, "Launcher"),
+            Event(t(2, 10, 41), "a", Type.PAUSED, "Feed"),
+        )
+        val totals = UsageCalculator.totals(UsageCalculator.intervals(events, t(2, 12)), t(2, 0), t(3, 0))
+        assertEquals(40 * min, totals["a"])
+    }
+
+    @Test fun aScreenResumedBeforeTheLastOnePausedKeepsTheAppOpen() {
+        val events = listOf(
+            Event(t(2, 10), "a", Type.RESUMED, "One"),
+            Event(t(2, 10, 1), "a", Type.RESUMED, "Two"),
+            Event(t(2, 10, 1), "a", Type.PAUSED, "One"),
+            Event(t(2, 10, 20), "a", Type.PAUSED, "Two"),
+        )
+        val totals = UsageCalculator.totals(UsageCalculator.intervals(events, t(2, 12)), t(2, 0), t(3, 0))
+        assertEquals(20 * min, totals["a"])
+    }
+
+    @Test fun aNewInstanceOfTheSameScreenIsNotEndedByTheOldOnesStop() {
+        val events = listOf(
+            Event(t(2, 10), "a", Type.RESUMED, "Post"),
+            Event(t(2, 10, 2), "a", Type.PAUSED, "Post"),
+            Event(t(2, 10, 2), "a", Type.RESUMED, "Post"),
+            Event(t(2, 10, 3), "a", Type.STOPPED, "Post"),
+            Event(t(2, 10, 15), null, Type.SCREEN_OFF),
+        )
+        val totals = UsageCalculator.totals(UsageCalculator.intervals(events, t(2, 12)), t(2, 0), t(3, 0))
+        assertEquals(15 * min, totals["a"])
+    }
+
     @Test fun sessionsSpanningMidnightAreSplitBetweenDays() {
         val events = listOf(Event(t(2, 23, 30), "a", Type.RESUMED), Event(t(3, 0, 45), "a", Type.PAUSED))
         val intervals = UsageCalculator.intervals(events, t(3, 12))

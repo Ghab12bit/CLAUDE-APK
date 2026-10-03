@@ -8,7 +8,10 @@ import java.time.ZoneId
  * Turns raw foreground events (from UsageStatsManager.queryEvents) into per-app foreground time.
  *
  * Rules (documented in docs/metrics.md):
- *  - An app is in the foreground from its first ACTIVITY_RESUMED until it pauses or stops.
+ *  - Activities are tracked one by one ([Event.cls]). An app is in the foreground from its first
+ *    ACTIVITY_RESUMED until its last resumed activity pauses.
+ *  - ACTIVITY_STOPPED never ends foreground time. Moving between two screens of one app reports
+ *    "A paused, B resumed, A stopped", so closing on the stop would drop all time spent on B.
  *  - A new app resuming closes any other open app at that moment, so time is never double-counted
  *    (split-screen time is attributed to the most recently resumed app).
  *  - Screen off, keyguard and shutdown close everything.
@@ -18,7 +21,8 @@ object UsageCalculator {
     /** [SCREEN_ON] and [UNLOCK] do not open or close apps; they count pickups (see [Insights]). */
     enum class Type { RESUMED, PAUSED, STOPPED, SCREEN_OFF, SHUTDOWN, SCREEN_ON, UNLOCK }
 
-    data class Event(val time: Long, val pkg: String?, val type: Type)
+    /** [cls] is the activity class, so two screens of one app are told apart (null when unknown). */
+    data class Event(val time: Long, val pkg: String?, val type: Type, val cls: String? = null)
     data class Interval(val pkg: String, val start: Long, val end: Long) {
         val length: Long get() = end - start
     }
@@ -27,7 +31,10 @@ object UsageCalculator {
     fun intervals(events: List<Event>, end: Long): List<Interval> {
         val out = ArrayList<Interval>()
         val open = LinkedHashMap<String, Long>()
+        // Resumed activities of each open app.
+        val resumed = HashMap<String, MutableSet<String>>()
         fun close(pkg: String, at: Long) {
+            resumed.remove(pkg)
             val start = open.remove(pkg) ?: return
             val stop = minOf(at, end)
             if (stop > start) out += Interval(pkg, start, stop)
@@ -40,8 +47,16 @@ object UsageCalculator {
                     val pkg = e.pkg ?: continue
                     open.keys.filter { it != pkg }.forEach { close(it, e.time) }
                     open.putIfAbsent(pkg, e.time)
+                    resumed.getOrPut(pkg) { HashSet() } += e.cls.orEmpty()
                 }
-                Type.PAUSED, Type.STOPPED -> e.pkg?.let { close(it, e.time) }
+                Type.PAUSED -> {
+                    val pkg = e.pkg ?: continue
+                    val activities = resumed[pkg]
+                    activities?.remove(e.cls.orEmpty())
+                    // Without activity names, any pause closes the app.
+                    if (activities == null || activities.isEmpty() || e.cls == null) close(pkg, e.time)
+                }
+                Type.STOPPED -> Unit
                 Type.SCREEN_OFF, Type.SHUTDOWN -> closeAll(e.time)
                 Type.SCREEN_ON, Type.UNLOCK -> Unit
             }

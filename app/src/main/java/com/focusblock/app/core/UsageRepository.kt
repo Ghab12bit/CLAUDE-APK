@@ -42,7 +42,7 @@ class UsageRepository(private val context: Context, private val clock: AppClock)
                 KEYGUARD_HIDDEN -> UsageCalculator.Type.UNLOCK
                 else -> null
             } ?: continue
-            out += UsageCalculator.Event(e.timeStamp, e.packageName, type)
+            out += UsageCalculator.Event(e.timeStamp, e.packageName, type, e.className)
         }
         out
     }

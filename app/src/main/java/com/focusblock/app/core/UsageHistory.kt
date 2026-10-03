@@ -72,7 +72,8 @@ class UsageHistory(
                         // Complete when Android's events began before the day did.
                         val complete = first < dayStart
                         val wanted = d in dates
-                        val save = complete && d.isBefore(today) && (!file(d).exists() || !d.isBefore(today.minusDays(2)))
+                        // Re-saved while recent, or when it was saved by an older way of counting.
+                        val save = complete && d.isBefore(today) && (!d.isBefore(today.minusDays(2)) || savedVersion(d) < VERSION)
                         if (wanted || save) {
                             val day = Insights.dayUsage(intervals, events, d, zone, now, notInSpans)
                             if (save) write(day)
@@ -133,7 +134,7 @@ class UsageHistory(
         val hourly = JSONObject()
         day.hourly?.forEach { (pkg, hours) -> hourly.put(pkg, JSONArray().apply { hours.forEach { put(it) } }) }
         val json = JSONObject()
-            .put("v", 1)
+            .put("v", VERSION)
             .put("h", hourly)
             .put("o", JSONObject().apply { day.opens.forEach { (k, v) -> put(k, v) } })
         day.pickups?.let { json.put("p", it) }
@@ -146,6 +147,12 @@ class UsageHistory(
             tmp.renameTo(file(day.date))
         }
     }
+
+    /** Version of the day saved for [d]; 0 when none is saved. */
+    private fun savedVersion(d: LocalDate): Int = runCatching {
+        val f = file(d)
+        if (f.exists()) JSONObject(f.readText()).optInt("v", 1) else 0
+    }.getOrDefault(0)
 
     private fun read(d: LocalDate): DayUsage? = runCatching {
         val f = file(d)
@@ -179,5 +186,11 @@ class UsageHistory(
     companion object {
         /** About a year of history is kept. */
         const val KEEP_DAYS = 400L
+
+        /**
+         * How saved days were counted. 2: moving between screens of one app no longer stops its
+         * time; days saved as 1 are recounted while Android still has their events.
+         */
+        const val VERSION = 2
     }
 }

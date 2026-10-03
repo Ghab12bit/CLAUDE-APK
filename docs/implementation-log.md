@@ -444,7 +444,7 @@ Bugs found by the emulator runs and fixed:
   asynchronously, so the launcher could land on top and hide the block screen: the blocked app
   closed, but without the reason or any choices. The service now starts the block screen directly
   over the blocked app, like the fallback service. It presses HOME only if that start fails, or if
-  the blocked app is still in front 1.5 s later (Android can refuse a background start silently).
+  the block screen has still not appeared 3 s later (Android can refuse a background start silently; a slow start is not covered).
 - UiAutomator's default connection suspends every other accessibility service. The tests now keep
   FocusBlock's service running, so they exercise the real enforcement path throughout.
 
@@ -512,6 +512,10 @@ Decisions to confirm:
 | "Remove Open anyway; if needed I can turn off the timer" | The block screen no longer offers Open anyway (`FrictionPolicy.OPEN_ANYWAY_ENABLED = false`; `OverrideManager.openAnyway` refuses). For your own Normal block it shows "End this block early…", which opens the end-early sheet with its wait and hold. Strict Lock still offers only emergency access. Earlier Open anyway records stay in history. |
 | A quick block without a timer that I can turn off (after 5 minutes or 5 hours) | Quick block card at the top of the Block tab: one tap blocks your chosen apps (or, if none, your top 5 suggested apps) with no end time. The running screen shows how long it has been blocking. "Stop quick block" ends it after one confirmation, without the wait and hold of timed blocks, because it is meant to be turned off. The notification button says "Stop quick block" too. |
 | Suggest the apps I spend the most time on, dynamically | `SmartApps` ranks apps from the last 7 days of use and blocked attempts (formula in `docs/metrics.md`). Suggestions appear as one-tap chips under the apps to block (with Add all) and at the top of the app picker, with each app's daily average, and change as your use does. |
+
+Found by the emulator run: the safety net that presses HOME when the block screen does not come
+up fired after 1.5 s even when the block screen was only slow to start, so HOME covered it. It now
+waits 3 s and only acts if the block screen never appeared (`ServiceHeartbeat.interventionShownAt`).
 
 Decision to confirm: Quick block is Normal strength and can be stopped any time with one
 confirmation. If that proves too easy, it could take the same wait and hold as timed blocks.

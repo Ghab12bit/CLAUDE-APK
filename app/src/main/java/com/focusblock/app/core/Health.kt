@@ -22,6 +22,8 @@ object ServiceHeartbeat {
     @Volatile var owner: Any? = null
     @Volatile var connectedAt: Long = 0L
     @Volatile var lastEventAt: Long = 0L
+    /** When the block screen last came to the front (set by InterventionActivity). */
+    @Volatile var interventionShownAt: Long = 0L
     /** Set by the running service; asks it to re-check the app on screen now. */
     @Volatile var recheck: (() -> Unit)? = null
     /** elapsedRealtime when this process started, so a just-started process is not reported as broken. */

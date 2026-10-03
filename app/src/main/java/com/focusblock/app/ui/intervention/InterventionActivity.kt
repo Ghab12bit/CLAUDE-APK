@@ -103,6 +103,7 @@ class InterventionActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.focusblock.app.core.ServiceHeartbeat.interventionShownAt = android.os.SystemClock.elapsedRealtime()
         viewModel.refresh(resetWait = false)
     }
 

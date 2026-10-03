@@ -109,9 +109,13 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         }
         // Android can refuse a background start without an error. If the blocked app is still in
         // front once the block screen should be up, leave it anyway.
-        // Compare the start time too, so an app reopened through Open anyway is left alone.
+        // Only if the block screen never came up: a slow start must not be covered by HOME.
         val since = foregroundSince
-        handler.postDelayed({ if (foreground == pkg && foregroundSince == since) performGlobalAction(GLOBAL_ACTION_HOME) }, INTERVENTION_GRACE_MS)
+        val requested = android.os.SystemClock.elapsedRealtime()
+        handler.postDelayed({
+            val shown = ServiceHeartbeat.interventionShownAt >= requested
+            if (!shown && foreground == pkg && foregroundSince == since) performGlobalAction(GLOBAL_ACTION_HOME)
+        }, INTERVENTION_GRACE_MS)
     }
 
     /** Next re-check: the earliest policy change, or when an open app's limit or cycle runs out. */
@@ -179,7 +183,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     }
 
     companion object {
-        private const val INTERVENTION_GRACE_MS = 1_500L
+        private const val INTERVENTION_GRACE_MS = 3_000L
         val isRunning: Boolean get() = ServiceHeartbeat.connected
     }
 }

@@ -503,3 +503,15 @@ Decisions to confirm:
 | Activity only reaches about a week back | Android keeps detailed usage events for only 7–10 days. FocusBlock now saves each complete day (hourly per app, opens, pickups, continuous use, longest focus) to one file per day in app-private storage, from Activity and from the daily background job, for about a year. Activity also reads the daily per-app log that earlier versions wrote. The arrows go back as far as any history exists. Days Android discarded before saving began cannot be recovered. |
 | Leave an app such as a clock out of total usage | "Count in screen time" switch on each app's sheet. Left-out apps are removed from totals, charts, habits, the usage split, continuous use and longest focus, and listed in a "Not counted in screen time" card with a Count button. The daily summary uses the same rule. |
 | Open anyway lets the app open again without the block screen | Open anyway was a 5-minute unlock for the app, so reopening it within 5 minutes skipped the block screen. It now covers one visit: leaving the app (going home or to another app) ends it at once, in both enforcement paths, and the next opening is blocked again as the next try, with its longer wait. Keyboards and system overlays such as the notification shade do not count as leaving. Emergency access keeps its full 5 minutes. |
+
+## Round 4: no Open anyway, quick block, smart suggestions (2026-10-03)
+
+| Feedback | Change |
+|---|---|
+| After Open anyway the app opened without saying for how long | Open anyway is removed (next row). The remaining way in, emergency access, now says how long: a toast when the app opens ("Facebook is open for 5 min, until 11:41") and a notification that counts down to when it is blocked again. |
+| "Remove Open anyway; if needed I can turn off the timer" | The block screen no longer offers Open anyway (`FrictionPolicy.OPEN_ANYWAY_ENABLED = false`; `OverrideManager.openAnyway` refuses). For your own Normal block it shows "End this block early…", which opens the end-early sheet with its wait and hold. Strict Lock still offers only emergency access. Earlier Open anyway records stay in history. |
+| A quick block without a timer that I can turn off (after 5 minutes or 5 hours) | Quick block card at the top of the Block tab: one tap blocks your chosen apps (or, if none, your top 5 suggested apps) with no end time. The running screen shows how long it has been blocking. "Stop quick block" ends it after one confirmation, without the wait and hold of timed blocks, because it is meant to be turned off. The notification button says "Stop quick block" too. |
+| Suggest the apps I spend the most time on, dynamically | `SmartApps` ranks apps from the last 7 days of use and blocked attempts (formula in `docs/metrics.md`). Suggestions appear as one-tap chips under the apps to block (with Add all) and at the top of the app picker, with each app's daily average, and change as your use does. |
+
+Decision to confirm: Quick block is Normal strength and can be stopped any time with one
+confirmation. If that proves too easy, it could take the same wait and hold as timed blocks.

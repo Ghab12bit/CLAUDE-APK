@@ -629,4 +629,26 @@
     <string name="action_count_again">Count</string>
     <string name="count_in_screen_time">Count in screen time</string>
     <string name="count_in_screen_time_note">Turn off for apps you leave running on purpose, like a clock or stopwatch. They are left out of totals, charts and habits.</string>
+    <!-- Round 4: no Open anyway, quick block, smart suggestions -->
+    <string name="iv_end_block">End this block early…</string>
+    <string name="iv_stop_quick_block">Stop quick block…</string>
+    <string name="unlock_toast">%1$s is open for %2$s, until %3$s</string>
+    <string name="notif_unlocked_title">%s is open (emergency access)</string>
+    <string name="notif_unlocked_text">Blocked again at %s</string>
+    <string name="quick_block_title">Quick block</string>
+    <string name="quick_block_subtitle">Blocks %s until you turn it off</string>
+    <string name="quick_block_suggested">Blocks your most used apps (%s) until you turn it off</string>
+    <string name="quick_block_no_apps">Choose apps below to use quick block</string>
+    <string name="quick_block_start_cd">Start quick block</string>
+    <string name="quick_block_on">Quick block on</string>
+    <string name="quick_block_so_far">blocking so far · no timer</string>
+    <string name="overline_quick">QUICK BLOCK</string>
+    <string name="quick_block_stop">Stop quick block</string>
+    <string name="quick_block_stop_title">Stop quick block?</string>
+    <string name="quick_block_stop_body">It has been blocking for %s.</string>
+    <string name="quick_block_stop_action">Stop</string>
+    <string name="suggested_title">Suggested from your usage</string>
+    <string name="suggested_add_all">Add all</string>
+    <string name="suggested_add_cd">Add %s to the block</string>
+    <string name="picker_suggested">Suggested from your usage</string>
 </resources>

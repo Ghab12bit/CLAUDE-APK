@@ -5,7 +5,8 @@ also runs routines and limits on its own and keeps calls and essential apps avai
 
 ## The app
 
-- **Block**: start a block in seconds.
+- **Quick block**: one tap blocks your apps (or your most used ones) with no timer, until you stop it.
+- **Block**: start a block in seconds. Apps you use most are suggested from your recent usage.
   - Write one line about what you're working on, choose apps, then pick Timed, Intervals or
     Until I stop.
   - Optionally turn on **Strict Lock**: you can't end or shorten the block, but emergency access
@@ -22,7 +23,7 @@ also runs routines and limits on its own and keeps calls and essential apps avai
     rules that get bypassed.
   - One evidence-based suggestion. Nothing changes until you tap Apply.
 - **Block screen**: opening a blocked app shows which rule blocked it and until when.
-  - In Normal blocks, "Open anyway" covers one visit and gets slower with each try.
+  - There is no "Open anyway": end your block (with its wait and hold) or use emergency access.
   - Emergency access needs a reason and a 10-minute wait, opens one app for 5 minutes, and is
     logged.
 

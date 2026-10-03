@@ -7,6 +7,8 @@ import java.time.ZoneId
  * Durations are open decision 12.3 #10; the defaults below are used until the owner confirms.
  */
 object FrictionPolicy {
+    /** Off: "Open anyway" was removed from the product (see [offer]). */
+    const val OPEN_ANYWAY_ENABLED = false
     const val OPEN_ANYWAY_MINUTES = 5
     const val EMERGENCY_WAIT_MINUTES = 10
     const val EMERGENCY_UNLOCK_MINUTES = 5
@@ -25,7 +27,9 @@ object FrictionPolicy {
     /** [attempt] is 1-based: this app's attempt count in the current block/window, including this one. */
     fun offer(decision: BlockDecision, attempt: Int): Offer {
         if (!decision.blocked) return Offer(OpenAnyway.NONE, 0, false)
-        if (!decision.bypass.openAnyway) return Offer(OpenAnyway.NONE, 0, decision.bypass.emergency)
+        // "Open anyway" is no longer offered (user decision, round 4): ending the block or emergency
+        // access are the only ways in. The levels below are kept only if it is ever turned back on.
+        if (!OPEN_ANYWAY_ENABLED || !decision.bypass.openAnyway) return Offer(OpenAnyway.NONE, 0, decision.bypass.emergency)
         return when {
             attempt <= 1 -> Offer(OpenAnyway.IMMEDIATE, 0, decision.bypass.emergency)
             attempt == 2 -> Offer(OpenAnyway.AFTER_WAIT, SECOND_ATTEMPT_WAIT_SECONDS, decision.bypass.emergency)

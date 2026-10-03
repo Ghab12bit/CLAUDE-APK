@@ -64,6 +64,7 @@ class AppGraph private constructor(appContext: Context) {
     val enforcer = Enforcer(db, clock, policy, apps)
     val overrides = OverrideManager(db, clock, enforcer, apps) { requestRefresh() }
     val focusCycles = FocusCycleTracker(db, clock, policy)
+    val smartApps by lazy { SmartAppsRepository(history, categories, policy, apps, db, clock) }
     val recommendations = RecommendationRepository(context, db, clock, usage, policy, apps)
 
     private val refreshMutex = Mutex()

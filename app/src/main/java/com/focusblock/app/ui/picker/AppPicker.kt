@@ -85,6 +85,8 @@ data class PickerData(
     val often: List<String> = emptyList(),
     val essentials: Set<String> = emptySet(),
     val safety: Set<String> = emptySet(),
+    /** Apps worth blocking from the last 7 days of use (dynamic). */
+    val suggested: List<com.focusblock.app.policy.SmartApps.Suggestion> = emptyList(),
 )
 
 /** Activity-scoped so app labels and icons load once (spec 11.4: picker opens without freezing). */
@@ -112,6 +114,8 @@ class PickerViewModel(private val graph: AppGraph) : ViewModel() {
                 Triple(apps, recent, often) to graph.safety.packages()
             }
             mutable.update { it.copy(loaded = true, apps = loaded.first.first, recent = loaded.first.second, often = loaded.first.third, safety = loaded.second) }
+            val suggested = runCatching { graph.smartApps.suggestions(8) }.getOrDefault(emptyList())
+            mutable.update { it.copy(suggested = suggested) }
         }
     }
 
@@ -193,6 +197,16 @@ fun AppPickerSheet(
                     LazyColumn(Modifier.fillMaxWidth()) {
                         if (q.isEmpty()) {
                             val showSets = context != PickerContext.ESSENTIALS && context != PickerContext.SET
+                            val showSuggested = context != PickerContext.ESSENTIALS && context != PickerContext.SET && context != PickerContext.DAILY_LIMIT
+                            val suggested = if (showSuggested) data.suggested.mapNotNull { s -> byPkg[s.pkg]?.let { it to s } } else emptyList()
+                            if (suggested.isNotEmpty()) {
+                                item(key = "h_suggested") { SectionLabel(stringResource(R.string.picker_suggested)) }
+                                items(suggested, key = { "g_" + it.first.packageName }) { (app, s) ->
+                                    val note = if (s.dailyAverage >= 60_000L) stringResource(R.string.per_day_duration, com.focusblock.app.core.Fmt.duration(LocalContext.current, s.dailyAverage))
+                                        else pluralRes(R.plurals.attempts_short, s.attempts)
+                                    AppRow(app, app.packageName in selected || app.packageName in fixed, locked(app.packageName), app.packageName in data.safety, app.packageName in fixed, note) { toggle(app.packageName) }
+                                }
+                            }
                             val recent = data.recent.mapNotNull(byPkg::get)
                             if (recent.isNotEmpty() && context != PickerContext.ESSENTIALS) {
                                 item(key = "h_recent") { SectionLabel(stringResource(R.string.picker_recent)) }
@@ -257,7 +271,7 @@ fun AppPickerSheet(
 }
 
 @Composable
-private fun AppRow(app: InstalledApps.App, selected: Boolean, locked: Boolean, safety: Boolean, fixed: Boolean = false, onToggle: () -> Unit) {
+private fun AppRow(app: InstalledApps.App, selected: Boolean, locked: Boolean, safety: Boolean, fixed: Boolean = false, note: String? = null, onToggle: () -> Unit) {
     val description = stringResource(if (selected) R.string.app_selected_cd else R.string.app_not_selected_cd, app.label)
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp)
@@ -272,6 +286,7 @@ private fun AppRow(app: InstalledApps.App, selected: Boolean, locked: Boolean, s
             Text(app.label, style = FbType.body.copy(color = if (locked) Fb.textSecondary else Fb.textPrimary), maxLines = 1)
             if (locked) Text(stringResource(R.string.picker_always_available), style = FbType.caption)
             else if (fixed) Text(stringResource(R.string.picker_in_this_block), style = FbType.caption)
+            else if (note != null) Text(note, style = FbType.caption.copy(color = Fb.accentAlt))
         }
         if (!locked) {
             Box(

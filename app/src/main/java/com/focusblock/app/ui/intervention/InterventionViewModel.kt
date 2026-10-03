@@ -89,28 +89,6 @@ class InterventionViewModel(private val graph: AppGraph, private val saved: Save
         viewModelScope.launch { graph.enforcer.setAction(logId, AttemptAction.RETURNED) }
     }
 
-    fun requestOpenAnyway() {
-        val s = mutable.value
-        if (s.waitLeft > 0) return
-        when (s.offer.openAnyway) {
-            FrictionPolicy.OpenAnyway.AFTER_WAIT_AND_CONFIRM -> mutable.update { it.copy(showOpenConfirm = true) }
-            FrictionPolicy.OpenAnyway.NONE -> Unit
-            else -> confirmOpenAnyway()
-        }
-    }
-
-    fun dismissOpenConfirm() = mutable.update { it.copy(showOpenConfirm = false) }
-
-    fun confirmOpenAnyway() {
-        mutable.update { it.copy(showOpenConfirm = false) }
-        viewModelScope.launch {
-            when (val r = graph.overrides.openAnyway(mutable.value.pkg, logId)) {
-                is OverrideManager.Result.Granted -> mutable.update { it.copy(openedUntil = r.until) }
-                else -> refresh()
-            }
-        }
-    }
-
     fun openEmergency() = mutable.update { it.copy(emergencyOpen = true) }
     fun closeEmergency() = mutable.update { it.copy(emergencyOpen = false) }
 
@@ -131,7 +109,10 @@ class InterventionViewModel(private val graph: AppGraph, private val saved: Save
     fun useEmergency() {
         viewModelScope.launch {
             when (val r = graph.overrides.useEmergency(mutable.value.pkg)) {
-                is OverrideManager.Result.Granted -> mutable.update { it.copy(openedUntil = r.until) }
+                is OverrideManager.Result.Granted -> {
+                    graph.notifier.showUnlocked(mutable.value.appName, r.until)
+                    mutable.update { it.copy(openedUntil = r.until) }
+                }
                 else -> refresh(resetWait = false)
             }
         }

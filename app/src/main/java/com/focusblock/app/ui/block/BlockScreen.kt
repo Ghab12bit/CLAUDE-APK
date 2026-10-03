@@ -1,6 +1,10 @@
 package com.focusblock.app.ui.block
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.outlined.Stop
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -190,9 +194,40 @@ private fun IdleBlock(state: BlockUi, vm: BlockViewModel, onEssentials: () -> Un
     Spacer(Modifier.height(8.dp))
     BlockStatus(state, onHealth)
 
+    // Quick block: one tap, no timer, runs until you turn it off.
+    Spacer(Modifier.height(16.dp))
+    val quickApps = vm.quickApps()
+    val quickEnabled = quickApps.isNotEmpty() && state.missing == null && !state.busy
+    FbCard(
+        brush = Brush.linearGradient(listOf(Fb.surfaceActive, Fb.surface)),
+        onClick = if (quickEnabled) vm::startQuick else null,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconWell(Icons.Outlined.Bolt, Fb.accent)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.quick_block_title), style = FbType.heading)
+                Spacer(Modifier.height(2.dp))
+                val names = quickApps.take(3).joinToString(", ") { vm.label(it) } + if (quickApps.size > 3) " +${quickApps.size - 3}" else ""
+                val subtitle = when {
+                    quickApps.isEmpty() -> stringResource(R.string.quick_block_no_apps)
+                    d.packages.isEmpty() -> stringResource(R.string.quick_block_suggested, names)
+                    else -> stringResource(R.string.quick_block_subtitle, names)
+                }
+                Text(subtitle, style = FbType.caption.copy(fontSize = FbType.label.fontSize, lineHeight = FbType.label.lineHeight), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(12.dp))
+            Box(
+                Modifier.size(44.dp).clip(CircleShape)
+                    .background(if (quickEnabled) Brush.linearGradient(listOf(Fb.buttonPrimaryBg, Fb.buttonPrimaryBgEnd)) else Brush.linearGradient(listOf(Fb.track, Fb.track))),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Outlined.PlayArrow, stringResource(R.string.quick_block_start_cd), tint = if (quickEnabled) Fb.buttonPrimaryText else Fb.disabled, modifier = Modifier.size(24.dp)) }
+        }
+    }
+
     // Repeat last block: one tap starts it again.
     state.last?.let { last ->
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
         val length = when (last.type) {
             SessionType.TIMED -> Fmt.minutes(context, last.minutes)
             SessionType.INTERVALS -> stringResource(R.string.session_intervals)
@@ -241,6 +276,21 @@ private fun IdleBlock(state: BlockUi, vm: BlockViewModel, onEssentials: () -> Un
         } else {
             Spacer(Modifier.height(4.dp))
             AppIconRow(d.packages, vm::label, onMore = { showPicker = true }, modifier = Modifier.clickable { showPicker = true })
+        }
+        // Smart suggestions: apps you spend the most time on lately, one tap to add.
+        val suggested = state.suggestions.filter { it.pkg !in d.packages }
+        if (suggested.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.AutoAwesome, null, tint = Fb.accentAlt, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.suggested_title), style = FbType.label.copy(color = Fb.textSecondary), modifier = Modifier.weight(1f))
+                if (suggested.size > 1) TextLink(stringResource(R.string.suggested_add_all), vm::addAllSuggested)
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                suggested.forEach { s -> SuggestionChip(s, vm.label(s.pkg)) { vm.addSuggested(s.pkg) } }
+            }
         }
     }
 
@@ -335,6 +385,33 @@ private fun IdleBlock(state: BlockUi, vm: BlockViewModel, onEssentials: () -> Un
     }
 }
 
+/** "Instagram · 1 h 20 min a day  +": adds a suggested app to the block. */
+@Composable
+private fun SuggestionChip(s: com.focusblock.app.policy.SmartApps.Suggestion, label: String, onAdd: () -> Unit) {
+    val context = LocalContext.current
+    val description = stringResource(R.string.suggested_add_cd, label)
+    Row(
+        Modifier.clip(RoundedCornerShape(14.dp)).background(Fb.surfaceHigh)
+            .clickable(role = Role.Button, onClick = onAdd)
+            .semantics(mergeDescendants = true) { contentDescription = description }
+            .padding(start = 8.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        com.focusblock.app.ui.components.AppIcon(s.pkg, null, 28.dp)
+        Spacer(Modifier.width(8.dp))
+        Column {
+            Text(label, style = FbType.label, maxLines = 1)
+            Text(
+                if (s.dailyAverage >= 60_000L) stringResource(R.string.per_day_duration, Fmt.duration(context, s.dailyAverage))
+                else pluralRes(R.plurals.attempts_short, s.attempts),
+                style = FbType.caption, maxLines = 1,
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Icon(Icons.Outlined.Add, null, tint = Fb.accent, modifier = Modifier.size(18.dp))
+    }
+}
+
 /** Tinted rounded square behind an icon. */
 @Composable
 private fun IconWell(icon: ImageVector, tint: Color) {
@@ -425,9 +502,11 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
     val st = SessionClock.state(input, now)
     var confirmEnd by rememberSaveable { mutableStateOf(false) }
     var addApps by rememberSaveable { mutableStateOf(false) }
+    val quick = input.type == SessionType.INDEFINITE
+    var confirmStop by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.endEarlyRequested) {
         if (state.endEarlyRequested) {
-            if (input.strength == Strength.NORMAL) confirmEnd = true
+            if (quick) confirmStop = true else if (input.strength == Strength.NORMAL) confirmEnd = true
             vm.clearEndEarlyRequest()
         }
     }
@@ -436,7 +515,7 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
         input.type == SessionType.INTERVALS && st.phase == SessionClock.Phase.BREAK ->
             stringResource(R.string.active_title_break, Fmt.time(context, st.phaseEndsAt ?: now))
         input.plannedEndAt != null -> stringResource(R.string.active_title_until, Fmt.time(context, input.plannedEndAt))
-        else -> stringResource(R.string.active_title_open)
+        else -> stringResource(R.string.quick_block_on)
     }
     ScreenTitle(title)
     // Degraded protection mid-block is reported plainly (spec 4.11).
@@ -461,14 +540,22 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
     val headline = when {
         input.type == SessionType.INTERVALS && st.phase == SessionClock.Phase.BREAK -> stringResource(R.string.phase_break, Fmt.minutes(context, (((st.phaseEndsAt ?: now) - now + 59_999) / 60_000).toInt()))
         remaining != null -> Fmt.left(context, remaining)
-        else -> stringResource(R.string.session_until_stop)
+        // Quick block: how long it has been blocking.
+        else -> Fmt.duration(context, (now - input.startedAt).coerceAtLeast(0))
     }
     val caption = when {
         input.type == SessionType.INTERVALS && st.phase != SessionClock.Phase.BREAK -> stringResource(R.string.phase_focus, st.round, st.totalRounds)
         input.type == SessionType.INTERVALS -> stringResource(R.string.phase_focus, (st.round + 1).coerceAtMost(st.totalRounds), st.totalRounds)
+        quick -> input.intention?.let { stringResource(R.string.intention_quoted, it) } ?: stringResource(R.string.quick_block_so_far)
         else -> input.intention?.let { stringResource(R.string.intention_quoted, it) }
     }
-    val footer = stringResource(if (input.strength == Strength.STRICT) R.string.overline_strict else R.string.overline_normal)
+    val footer = stringResource(
+        when {
+            quick -> R.string.overline_quick
+            input.strength == Strength.STRICT -> R.string.overline_strict
+            else -> R.string.overline_normal
+        },
+    )
     ActiveBlockVisual(visualState, progress, headline, caption, footer = footer)
     if (input.type == SessionType.INTERVALS) {
         input.intention?.let {
@@ -522,7 +609,12 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
         SecondaryButton(stringResource(R.string.action_add_apps), { addApps = true }, Modifier.weight(1f), leadingIcon = Icons.Outlined.Add)
     }
     Spacer(Modifier.height(12.dp))
-    if (input.strength == Strength.NORMAL) {
+    if (quick) {
+        // A quick block has no timer: it is meant to be turned off, with one confirmation.
+        Column(Modifier.padding(horizontal = Fb.gutter)) {
+            SecondaryButton(stringResource(R.string.quick_block_stop), { confirmStop = true }, leadingIcon = Icons.Outlined.Stop)
+        }
+    } else if (input.strength == Strength.NORMAL) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             TextLink(stringResource(R.string.end_early_link), { confirmEnd = true }, accent = false, style = FbType.caption.copy(fontWeight = FontWeight.Medium))
         }
@@ -540,6 +632,16 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
             intention = input.intention,
             onKeep = { confirmEnd = false },
             onEnd = { confirmEnd = false; vm.end() },
+        )
+    }
+    if (confirmStop) {
+        AlertDialog(
+            onDismissRequest = { confirmStop = false },
+            containerColor = Fb.surface,
+            title = { Text(stringResource(R.string.quick_block_stop_title), style = FbType.heading) },
+            text = { Text(stringResource(R.string.quick_block_stop_body, Fmt.duration(context, (now - input.startedAt).coerceAtLeast(0))), style = FbType.body) },
+            confirmButton = { TextButton(onClick = { confirmStop = false; vm.end() }) { Text(stringResource(R.string.quick_block_stop_action), color = Fb.textPrimary) } },
+            dismissButton = { TextButton(onClick = { confirmStop = false }) { Text(stringResource(R.string.end_early_keep), color = Fb.accent) } },
         )
     }
     if (addApps) {

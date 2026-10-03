@@ -65,6 +65,8 @@ data class BlockUi(
     val blockedOpenings: Int = 0,
     val busy: Boolean = false,
     val message: Int? = null,
+    /** Apps worth blocking from the last 7 days of use (see SmartApps), not yet in the draft. */
+    val suggestions: List<com.focusblock.app.policy.SmartApps.Suggestion> = emptyList(),
     /** Set when the notification or widget asked to end the block; the screen opens the end-early sheet. */
     val endEarlyRequested: Boolean = false,
 )
@@ -139,8 +141,9 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
             val session = mutable.value.input
             val also = if (session != null) overlapping(session, now) else emptyList()
             val openings = mutable.value.session?.let { graph.db.attemptDao().since(it.startedAt).count { log -> log.sessionId == it.id } } ?: 0
+            val suggestions = runCatching { graph.smartApps.suggestions(8) }.getOrDefault(emptyList())
             val labels = HashMap(mutable.value.labels)
-            (mutable.value.draft.packages + (session?.packages ?: emptySet()) + (mutable.value.last?.packages ?: emptyList()))
+            (mutable.value.draft.packages + (session?.packages ?: emptySet()) + (mutable.value.last?.packages ?: emptyList()) + suggestions.map { it.pkg })
                 .forEach { if (it !in labels) labels[it] = graph.apps.label(it) }
             mutable.update {
                 it.copy(
@@ -151,6 +154,7 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
                     alsoBlockedBy = also,
                     blockedOpenings = openings,
                     labels = labels,
+                    suggestions = suggestions,
                 )
             }
         }
@@ -198,6 +202,20 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
     // ---- Actions ----------------------------------------------------------------------------
 
     fun start() = run(mutable.value.draft.toSetup(), mutable.value.draft.intention)
+
+    /** Apps a quick block would use: the chosen apps, or else the top suggestions. */
+    fun quickApps(): List<String> = mutable.value.draft.packages.ifEmpty { mutable.value.suggestions.take(QUICK_SUGGESTED).map { it.pkg } }
+
+    /** Quick block: no timer, Normal strength, runs until you stop it. */
+    fun startQuick() {
+        val apps = quickApps()
+        if (apps.isEmpty()) return
+        run(BlockSetup(apps, SessionType.INDEFINITE, strength = Strength.NORMAL), mutable.value.draft.intention)
+    }
+
+    fun addSuggested(pkg: String) = setPackages((mutable.value.draft.packages + pkg).distinct())
+
+    fun addAllSuggested() = setPackages((mutable.value.draft.packages + mutable.value.suggestions.map { it.pkg }).distinct())
 
     fun repeatLast() {
         val last = mutable.value.last ?: return
@@ -285,6 +303,7 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
     companion object {
         private const val KEY_DRAFT = "draft"
         val PRESETS = listOf(25, 45, 60)
+        const val QUICK_SUGGESTED = 5
     }
 }
 

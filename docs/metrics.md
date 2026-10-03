@@ -80,7 +80,7 @@ Neutral. Categories only change how time is shown. They never block anything.
 | Week by week (Trend) | Each 7-day week's total, its average per day over days with data, and its change from the week before | UsageStats |
 | Blocks: Finished / Not yet / Extended / Unanswered / Ended early | Count of `block_sessions` started in the period, grouped by `outcome`. Active blocks, history migrated from older versions (`endReason = LEGACY`) and the first-run test block (`endReason = TEST`) are not counted. | `block_sessions` |
 | Blocked attempts by hour | Count of `block_logs` rows in the period, grouped by the local hour of `timestamp` | `block_logs` |
-| Emergency and Open anyway unlocks | `unlock_events` requested in the period whose status is not `CANCELLED`, newest first | `unlock_events` |
+| Emergency (and, before it was removed, Open anyway) unlocks | `unlock_events` requested in the period whose status is not `CANCELLED`, newest first | `unlock_events` |
 | Rules working / bypassed | For each rule: attempts = `block_logs` rows in the period with that reason and rule id; bypasses = `GRANTED` `unlock_events` with the same reason type and rule id. A rule is **often bypassed** when it has 3 or more bypasses **and** bypasses ≥ ⅓ of its attempts. | `block_logs`, `unlock_events` |
 
 ## Rules tab
@@ -108,6 +108,21 @@ Common rules:
 | Add a routine | Blocked attempts in a local hour on 3 or more of the last 14 days, where no enabled routine or bedtime covers at least 30 minutes of that hour on those days. The busiest hour (by days, then attempts) is widened to neighbouring qualifying hours, up to 3 hours. | A routine for that window. Its days are weekdays, weekends or every day, depending on which days the evidence fell on. It blocks the up to 5 apps most attempted in the window. |
 | Turn on Strict Lock | A Normal routine opened with Open anyway on 3 or more of the last 14 days | That routine becomes Strict Lock |
 | Add an app limit | An app with no limit, used 60 minutes or more on 3 or more of the last 7 full days | A limit of 75% of the app's median daily use, rounded down to 5 minutes, with a minimum of 15 minutes |
+
+## Suggested from your usage (`SmartApps`)
+
+Shown on the Block tab (under the apps to block, and behind Quick block when no apps are chosen) and
+at the top of the app picker. Recomputed every time it is shown (cached for two minutes), so it
+follows your use.
+
+| Step | Rule |
+|---|---|
+| Data | The last 7 days, today included, from Activity's history; blocked attempts (`block_logs`) in the same days |
+| Daily average | An app's foreground time ÷ days that have any usage data |
+| Eligible | Apps with a launcher icon that are not essential, safety or "not counted" apps; never Productive apps |
+| Threshold | At least 10 minutes a day on average, or at least 3 blocked attempts |
+| Score | Daily average × 1.0 for Distracting apps or × 0.6 for Neutral apps, plus 5 minutes per blocked attempt |
+| Shown | Up to 8, highest score first; apps already chosen are left out. Quick block with no chosen apps uses the top 5. |
 
 ## Notifications
 

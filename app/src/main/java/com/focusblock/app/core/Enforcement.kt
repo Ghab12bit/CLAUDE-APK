@@ -124,17 +124,12 @@ class OverrideManager(
     }
 
     /** Normal reasons only. Refused when any Strict reason applies, whatever the UI showed. */
-    suspend fun openAnyway(pkg: String, logId: Long): Result = withContext(Dispatchers.IO) {
-        val (decision, _) = enforcer.decide(pkg)
-        if (!decision.blocked) return@withContext Result.NotNeeded
-        if (!decision.bypass.openAnyway) return@withContext Result.NotAllowed
-        val now = clock.now()
-        val until = now + FrictionPolicy.OPEN_ANYWAY_MINUTES * SessionClock.MINUTE
-        insertGrant(pkg, OverrideKind.OPEN_ANYWAY, decision.primary, decision.strength, now, now, until, null)
-        enforcer.setAction(logId, AttemptAction.OPEN_ANYWAY)
-        onChanged()
-        Result.Granted(until)
-    }
+    /**
+     * "Open anyway" was removed: a blocked app no longer opens without ending the block or using
+     * emergency access. Kept so older callers are refused rather than granted.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    suspend fun openAnyway(pkg: String, logId: Long): Result = Result.NotAllowed
 
     /**
      * Open anyway covers one visit: leaving the app ends it (at the latest after five minutes), so

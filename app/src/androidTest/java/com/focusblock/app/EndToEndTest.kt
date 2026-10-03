@@ -155,29 +155,18 @@ class EndToEndTest {
         assertTrue(refused is com.focusblock.app.core.OverrideManager.Result.NotAllowed)
     }
 
-    @Test fun openAnywayOnAFirstAttemptIsTimeBoxedAndLogged() {
+    @Test fun theBlockScreenOffersNoOpenAnywayOnlyEndingTheBlock() {
         start(Strength.NORMAL)
         openTarget()
         waitForBlockScreen()
-        device.findObject(By.text("Open anyway")).click()
-        val unlocked = device.wait(Until.gone(By.textContains("is blocked until")), 10_000)
-        screenshot("open-anyway")
-        check(unlocked, "Open anyway did not open the app")
-        val events = runBlocking { graph.db.unlockEventDao().all() }
-        val grant = events.first { it.packageName == target && it.status == UnlockEventEntity.GRANTED }
-        assertEquals("OPEN_ANYWAY", grant.kind)
-        assertTrue((grant.expiresAt ?: 0) - (grant.grantedAt ?: 0) <= 5 * 60_000L)
-        val decision = runBlocking { graph.enforcer.decide(target).first }
-        assertTrue("App should be open for the override window", !decision.blocked)
-        // Open anyway covers one visit: leaving the app ends it, and the next opening is blocked again.
-        device.pressHome()
-        val deadline = System.currentTimeMillis() + 5_000
-        while (!runBlocking { graph.enforcer.decide(target).first }.blocked && System.currentTimeMillis() < deadline) Thread.sleep(200)
-        check(runBlocking { graph.enforcer.decide(target).first }.blocked, "Leaving the app ends Open anyway")
-        Thread.sleep(1_600) // past the attempt debounce
-        openTarget()
-        waitForBlockScreen()
-        check(device.hasObject(By.textContains("2nd try")), "Reopening counts as the next try")
+        assertNull("Open anyway was removed", device.findObject(By.textStartsWith("Open anyway")))
+        assertTrue(runBlocking { graph.overrides.openAnyway(target, 0) } is com.focusblock.app.core.OverrideManager.Result.NotAllowed)
+        screenshot("12-block-screen-no-open-anyway")
+        // "End this block early…" leads to the end-early sheet (wait and hold), not straight into the app.
+        tap("End this block early…")
+        check(device.wait(Until.hasObject(By.text("Keep blocking")), 15_000), "End-early sheet from the block screen")
+        assertNotNull("Nothing ends until the hold", runBlocking { graph.sessions.active() })
+        assertTrue(runBlocking { graph.enforcer.decide(target).first }.blocked)
     }
 
     @Test fun tabsRenderFromPersistedState() {
@@ -266,6 +255,30 @@ class EndToEndTest {
             graph.history.setCounted(target, targetName, true)
             assertTrue(target !in graph.history.notCounted())
         }
+    }
+
+    @Test fun aQuickBlockRunsUntilStoppedWithOneConfirmation() {
+        runBlocking { graph.sessions.saveSelection(listOf(target)) }
+        openMain()
+        // The card is one clickable element, so its texts are read together.
+        val card = device.wait(Until.findObject(By.textStartsWith("Quick block")), 15_000)
+        check(card != null, "Quick block card")
+        screenshot("13-quick-block-card")
+        card.click()
+        check(device.wait(Until.hasObject(By.text("Quick block on")), 10_000), "Quick block running")
+        val running = runBlocking { graph.sessions.active() }
+        assertNotNull(running)
+        assertEquals("INDEFINITE", running!!.sessionType)
+        assertNull("A quick block has no end time", running.plannedEndAt)
+        assertTrue(runBlocking { graph.enforcer.decide(target).first }.blocked)
+        screenshot("14-quick-block-running")
+        scrollTo("Stop quick block")
+        tap("Stop quick block")
+        check(device.wait(Until.hasObject(By.text("Stop quick block?")), 5_000), "Stop confirmation")
+        tap("Stop")
+        val deadline = System.currentTimeMillis() + 5_000
+        while (runBlocking { graph.sessions.active() } != null && System.currentTimeMillis() < deadline) Thread.sleep(200)
+        assertNull("Stop ends the quick block", runBlocking { graph.sessions.active() })
     }
 
     @Test fun appsCanBeAddedToARunningStrictBlock() {

@@ -111,7 +111,8 @@ class Notifier(private val context: Context, private val db: FocusBlockDatabase,
         }
         if (input.strength == Strength.NORMAL) {
             // Opens the end-early sheet; ending from the notification would skip its wait and hold.
-            builder.addAction(0, context.getString(R.string.end_early_link), openApp(MainActivity.OPEN_END_EARLY, 10))
+            val label = if (input.type == SessionType.INDEFINITE) R.string.quick_block_stop else R.string.end_early_link
+            builder.addAction(0, context.getString(label), openApp(MainActivity.OPEN_END_EARLY, 10))
         }
         if (input.plannedEndAt != null) {
             builder.addAction(0, context.getString(R.string.action_add_15), action(NotificationActionReceiver.ACTION_EXTEND, session.id, 11))
@@ -142,6 +143,20 @@ class Notifier(private val context: Context, private val db: FocusBlockDatabase,
     }
 
     fun cancelEnded() = cancel(ID_ENDED)
+
+    /** Emergency access: shows which app is open and counts down to when it closes again. */
+    fun showUnlocked(appName: String, until: Long) {
+        val left = (until - clock.now()).coerceAtLeast(0)
+        post(ID_UNLOCKED, NotificationCompat.Builder(context, CHANNEL_EVENTS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.notif_unlocked_title, appName))
+            .setContentText(context.getString(R.string.notif_unlocked_text, Fmt.time(context, until)))
+            .setWhen(until).setUsesChronometer(true).setChronometerCountDown(true).setShowWhen(true)
+            .setOnlyAlertOnce(true)
+            .setTimeoutAfter(left)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .build())
+    }
 
     suspend fun showRuleStarted(name: String, until: Long?) {
         if (!enabled(Kind.RULES)) return
@@ -210,5 +225,6 @@ class Notifier(private val context: Context, private val db: FocusBlockDatabase,
         const val ID_SUMMARY = 4105
         const val ID_PROBLEM = 4106
         const val ID_BACKUP = 4107
+        const val ID_UNLOCKED = 4108
     }
 }

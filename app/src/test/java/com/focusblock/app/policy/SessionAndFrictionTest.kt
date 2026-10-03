@@ -64,12 +64,15 @@ class SessionAndFrictionTest {
         return BlockPolicyEngine.evaluate(app, s, start + min, zone)
     }
 
-    @Test fun normalFrictionGrowsWithAttempts() {
+    @Test fun openAnywayIsNoLongerOffered() {
+        // Removed from the product: a Normal block offers only emergency access on its block screen.
         val d = decision(Strength.NORMAL)
-        assertEquals(FrictionPolicy.OpenAnyway.IMMEDIATE, FrictionPolicy.offer(d, 1).openAnyway)
-        FrictionPolicy.offer(d, 2).let { assertEquals(FrictionPolicy.OpenAnyway.AFTER_WAIT, it.openAnyway); assertEquals(10, it.waitSeconds) }
-        FrictionPolicy.offer(d, 5).let { assertEquals(FrictionPolicy.OpenAnyway.AFTER_WAIT_AND_CONFIRM, it.openAnyway); assertEquals(30, it.waitSeconds) }
-        assertTrue(FrictionPolicy.offer(d, 1).emergency)
+        for (attempt in 1..5) {
+            val offer = FrictionPolicy.offer(d, attempt)
+            assertEquals(FrictionPolicy.OpenAnyway.NONE, offer.openAnyway)
+            assertEquals(0, offer.waitSeconds)
+            assertTrue(offer.emergency)
+        }
     }
 
     @Test fun strictLockOffersOnlyEmergency() {

@@ -82,9 +82,7 @@ class InterventionActivity : ComponentActivity() {
                 InterventionScreen(
                     state = state,
                     onBackHome = ::goHome,
-                    onOpenAnyway = viewModel::requestOpenAnyway,
-                    onConfirmOpen = viewModel::confirmOpenAnyway,
-                    onDismissConfirm = viewModel::dismissOpenConfirm,
+                    onEndBlock = ::openEndBlock,
                     onEmergency = viewModel::openEmergency,
                     onCloseEmergency = viewModel::closeEmergency,
                     onReason = viewModel::setReason,
@@ -120,8 +118,23 @@ class InterventionActivity : ComponentActivity() {
     }
 
     private fun launchBlockedApp() {
-        val pkg = viewModel.state.value.pkg
-        packageManager.getLaunchIntentForPackage(pkg)?.let { startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        val s = viewModel.state.value
+        // Say how long the app stays open (emergency access); a notification also counts down.
+        s.openedUntil?.let { until ->
+            val left = com.focusblock.app.core.Fmt.duration(this, until - System.currentTimeMillis() + 30_000)
+            android.widget.Toast.makeText(this, getString(R.string.unlock_toast, s.appName, left, com.focusblock.app.core.Fmt.time(this, until)), android.widget.Toast.LENGTH_LONG).show()
+        }
+        packageManager.getLaunchIntentForPackage(s.pkg)?.let { startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        finish()
+    }
+
+    /** "End this block…": opens FocusBlock on the end-early sheet, where its wait and hold apply. */
+    private fun openEndBlock() {
+        startActivity(
+            Intent(this, com.focusblock.app.ui.MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(com.focusblock.app.ui.MainActivity.EXTRA_OPEN, com.focusblock.app.ui.MainActivity.OPEN_END_EARLY),
+        )
         finish()
     }
 
@@ -167,9 +180,7 @@ fun reasonName(reason: BlockReason, session: SessionInput?): String = when (reas
 fun InterventionScreen(
     state: InterventionState,
     onBackHome: () -> Unit,
-    onOpenAnyway: () -> Unit,
-    onConfirmOpen: () -> Unit,
-    onDismissConfirm: () -> Unit,
+    onEndBlock: () -> Unit,
     onEmergency: () -> Unit,
     onCloseEmergency: () -> Unit,
     onReason: (String) -> Unit,
@@ -189,7 +200,7 @@ fun InterventionScreen(
             AppIcon(state.pkg, null, 72.dp)
             Spacer(Modifier.height(20.dp))
 
-            // Opened via Open anyway / emergency access. No early returns in this
+            // Opened via emergency access. No early returns in this
             // inline Column: they unbalance Compose groups on recomposition.
             val reason = decision?.primary
             if (state.openedUntil != null) {
@@ -201,22 +212,11 @@ fun InterventionScreen(
                 Spacer(Modifier.height(24.dp))
                 Column(Modifier.padding(horizontal = Fb.gutter)) { PrimaryButton(stringResource(R.string.iv_open_app, state.appName), onLaunchApp) }
             } else {
-                BlockedBody(state, decision, reason, onBackHome, onOpenAnyway, onEmergency, onCloseEmergency, onReason, onRequestEmergency, onUseEmergency, onCancelEmergency)
+                BlockedBody(state, decision, reason, onBackHome, onEndBlock, onEmergency, onCloseEmergency, onReason, onRequestEmergency, onUseEmergency, onCancelEmergency)
             }
         }
     }
     LaunchedEffect(state.openedUntil) { if (state.openedUntil != null) onLaunchApp() }
-
-    if (state.showOpenConfirm) {
-        AlertDialog(
-            onDismissRequest = onDismissConfirm,
-            containerColor = Fb.surface,
-            title = { Text(stringResource(R.string.open_anyway_confirm_title, state.appName), style = FbType.heading) },
-            text = { Text(stringResource(R.string.open_anyway_confirm_body, Fmt.ordinal(state.attempt)), style = FbType.body) },
-            confirmButton = { TextButton(onClick = onConfirmOpen) { Text(stringResource(R.string.open_anyway_confirm_action), color = Fb.textPrimary) } },
-            dismissButton = { TextButton(onClick = onDismissConfirm) { Text(stringResource(R.string.action_cancel), color = Fb.accent) } },
-        )
-    }
 }
 
 @Composable
@@ -225,7 +225,7 @@ private fun BlockedBody(
     decision: BlockDecision,
     reason: BlockReason,
     onBackHome: () -> Unit,
-    onOpenAnyway: () -> Unit,
+    onEndBlock: () -> Unit,
     onEmergency: () -> Unit,
     onCloseEmergency: () -> Unit,
     onReason: (String) -> Unit,
@@ -273,10 +273,10 @@ private fun BlockedBody(
                 SecondaryButton(stringResource(R.string.action_back_home), onBackHome)
             } else {
                 PrimaryButton(stringResource(R.string.action_back_home), onBackHome, leadingIcon = Icons.Outlined.ArrowBack)
-                if (state.offer.openAnyway != FrictionPolicy.OpenAnyway.NONE) {
-                    val label = if (state.waitLeft > 0) stringResource(R.string.open_anyway_wait, state.waitLeft) else stringResource(R.string.open_anyway)
-                    TextLink(label, onOpenAnyway, accent = false, enabled = state.waitLeft == 0)
-                    Text(stringResource(R.string.open_anyway_cost), style = FbType.caption, textAlign = TextAlign.Center)
+                // No "Open anyway": to use the app, end the block itself (with its wait and hold).
+                if (reason.type == ReasonType.SESSION && decision.strength == Strength.NORMAL) {
+                    val quick = state.session?.type == SessionType.INDEFINITE
+                    TextLink(stringResource(if (quick) R.string.iv_stop_quick_block else R.string.iv_end_block), onEndBlock, accent = false)
                 }
                 if (state.offer.emergency) {
                     // Low emphasis, with its cost visible underneath (spec 2.5).

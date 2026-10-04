@@ -16,6 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Compiles once: the app and the test APK. The emulator job installs these instead of compiling again.
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -32,18 +33,15 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          # Save the Gradle cache from this branch too (by default only the default branch writes it).
+          cache-read-only: false
 
       - name: Allow Gradle wrapper execution
         run: chmod +x gradlew
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
-
-      - name: Run unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
-
-      - name: Android lint
-        run: ./gradlew lintDebug --stacktrace
+      - name: Build debug APK and test APK
+        run: ./gradlew assembleDebug assembleDebugAndroidTest --stacktrace
 
       - name: Print new Room schemas (not yet committed)
         if: always()
@@ -57,16 +55,6 @@ jobs:
             fi
           done
 
-      - name: Upload reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: focusblock-build-reports
-          path: |
-            app/build/reports
-            app/build/test-results
-            app/schemas
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -75,12 +63,18 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  emulator:
-    needs: build
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: focusblock-test-apk
+          path: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  # Unit tests and lint run at the same time as the build and emulator jobs.
+  checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-    permissions:
-      contents: write
+    timeout-minutes: 30
 
     steps:
       - name: Check out source
@@ -94,9 +88,39 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
 
       - name: Allow Gradle wrapper execution
         run: chmod +x gradlew
+
+      - name: Unit tests and Android lint
+        run: ./gradlew testDebugUnitTest lintDebug --continue --stacktrace
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: focusblock-build-reports
+          path: |
+            app/build/reports
+            app/build/test-results
+            app/schemas
+
+  emulator:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download APKs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: focusblock-*-apk
+          merge-multiple: true
+          path: apks
 
       - name: Enable KVM for emulator tests
         run: |
@@ -104,15 +128,40 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # A booted emulator snapshot is cached, so later runs start in seconds instead of a cold boot.
+      - name: Emulator snapshot cache
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-34-x86_64-pixel_6_pro-v1
+
+      - name: Create emulator snapshot
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6_pro
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "Emulator snapshot created."
+
       - name: Native UI, enforcement and Room migration tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           arch: x86_64
           profile: pixel_6_pro
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
+          # The runner treats every line as its own command, so the test run lives in one line.
           script: |
-            ./gradlew connectedDebugAndroidTest --stacktrace; result=$?; mkdir -p app/build/screenshots; adb pull /data/local/tmp/focusblock-screens/. app/build/screenshots/ || true; ls app/build/screenshots || true; exit "$result"
+            adb install -r -t apks/app-debug.apk && adb install -r -t apks/app-debug-androidTest.apk && adb shell am instrument -w com.focusblock.app.test/androidx.test.runner.AndroidJUnitRunner | tee instrument.txt; mkdir -p screenshots; adb pull /data/local/tmp/focusblock-screens/. screenshots/ || true; ls screenshots || true; grep -q '^OK ([1-9]' instrument.txt
 
       - name: Publish screenshots for review
         if: always() && github.ref == 'refs/heads/claude/new-session-hf7zu9'
@@ -121,7 +170,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           shopt -s nullglob
-          files=(app/build/screenshots/*.png)
+          files=(screenshots/*.png)
           if [ ${#files[@]} -eq 0 ]; then echo "No screenshots"; exit 0; fi
           gh release delete focusblock-screens --cleanup-tag --yes || true
           gh release create focusblock-screens "${files[@]}" --target "${GITHUB_SHA}" --prerelease \
@@ -134,12 +183,11 @@ jobs:
         with:
           name: focusblock-test-evidence
           path: |
-            app/build/reports
-            app/build/outputs/androidTest-results
-            app/build/screenshots
+            instrument.txt
+            screenshots
 
   release:
-    needs: [build, emulator]
+    needs: [build, checks, emulator]
     # Only commits marked [release] replace the published APK, so half-finished slices never ship.
     if: github.ref == 'refs/heads/claude/new-session-hf7zu9' && contains(github.event.head_commit.message, '[release]')
     runs-on: ubuntu-latest

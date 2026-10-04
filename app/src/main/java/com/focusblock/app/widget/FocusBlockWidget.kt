@@ -58,10 +58,6 @@ class FocusBlockWidget : AppWidgetProvider() {
         }
     }
 
-    /** The last block, or before the first one, the apps chosen in onboarding or the picker. */
-    private suspend fun lastOrChosen(graph: AppGraph): BlockSetup? =
-        graph.sessions.lastSetup() ?: graph.sessions.savedSelection().takeIf { it.isNotEmpty() }?.let { BlockSetup(it) }
-
     private suspend fun widgetSetup(graph: AppGraph): BlockSetup? {
         val last = lastOrChosen(graph) ?: return null
         if (graph.db.settingsDao().getValue(PrefKeys.WIDGET_ACTION) != "default") return last
@@ -84,6 +80,10 @@ class FocusBlockWidget : AppWidgetProvider() {
 
     companion object {
         const val ACTION_TOGGLE = "com.focusblock.app.WIDGET_TOGGLE"
+
+        /** The last block, or before the first one, the apps chosen in onboarding or the picker. */
+        private suspend fun lastOrChosen(graph: AppGraph): BlockSetup? =
+            graph.sessions.lastSetup() ?: graph.sessions.savedSelection().takeIf { it.isNotEmpty() }?.let { BlockSetup(it) }
 
         fun updateAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context) ?: return

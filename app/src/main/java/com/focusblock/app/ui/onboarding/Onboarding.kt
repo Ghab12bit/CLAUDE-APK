@@ -120,12 +120,16 @@ fun OnboardingFlow(onDone: () -> Unit) {
         else -> null
     }
     val granted = remember(refreshTick, step) { requirement != null && PermissionHealth.state(context, requirement) == HealthState.OK }
+    fun rationale() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        (context as? Activity)?.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) == true
+    // Rationale state when the request was made: true before or after means the dialog was shown.
+    var rationaleBefore by rememberSaveable { mutableStateOf(false) }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
         refreshTick++
         // Once Android stops showing the dialog (denied twice, or turned off in system settings), the
         // request comes back denied at once; the switch is then only in the app's notification settings.
-        val justDeclined = !allowed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            (context as? Activity)?.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) == true
+        // A dialog the user just declined (first or second time) is left as their answer.
+        val justDeclined = !allowed && (rationaleBefore || rationale())
         if (!justDeclined && PermissionHealth.state(context, Requirement.NOTIFICATIONS) != HealthState.OK) PermissionHealth.open(context, Requirement.NOTIFICATIONS)
     }
 
@@ -172,8 +176,10 @@ fun OnboardingFlow(onDone: () -> Unit) {
                 onAllow = { PermissionHealth.open(context, Requirement.USAGE) }, onNext = { next() })
             Step.NOTIFICATIONS -> PermissionStep(R.string.onb_notif_title, R.string.onb_notif_why, R.string.onb_notif_sees, R.string.onb_notif_not, granted,
                 onAllow = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    else PermissionHealth.open(context, Requirement.NOTIFICATIONS)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        rationaleBefore = rationale()
+                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else PermissionHealth.open(context, Requirement.NOTIFICATIONS)
                 }, onNext = { next() })
             Step.BATTERY -> PermissionStep(R.string.onb_battery_title, R.string.onb_battery_why, R.string.onb_battery_sees, R.string.onb_battery_not, granted,
                 onAllow = { PermissionHealth.open(context, Requirement.BATTERY) }, onNext = { next() })

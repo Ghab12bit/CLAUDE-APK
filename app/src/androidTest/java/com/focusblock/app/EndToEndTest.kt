@@ -354,7 +354,8 @@ class EndToEndTest {
             scrollDown()
             screenshot("15-limit-page-2")
             scrollTo("Last 7 days")
-            check(device.hasObject(By.text("Last 7 days")), "Week card")
+            // The page is short now that "How it works" starts folded: the heading may already be above the fold.
+            check(device.hasObject(By.text("Last 7 days")) || device.hasObject(By.textStartsWith("Over the limit on")), "Week card")
             scrollTo("Delete limit")
             screenshot("15-limit-page-3")
             check(device.hasObject(By.text("Limit is on")), "On/off switch")

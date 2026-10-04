@@ -17,9 +17,11 @@ import com.focusblock.app.database.entity.AppGroup
 import com.focusblock.app.database.entity.AppSettings
 import com.focusblock.app.database.entity.DiagnosticEvent
 import com.focusblock.app.policy.BlockPolicyEngine
+import com.focusblock.app.policy.SessionClock
 import com.focusblock.app.policy.SessionType
 import com.focusblock.app.policy.Strength
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -62,14 +64,15 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             val s = graph.db.settingsDao()
             val notify = Notifier.Kind.values().associateWith { graph.notifier.enabled(it) }
-            val snap = graph.policy.snapshot()
-            val now = graph.clock.now()
-            val strict = snap.session?.let { it.strength == Strength.STRICT && (it.plannedEndAt ?: 0L) > now } == true ||
-                BlockPolicyEngine.activeRuleReasons(snap, now, graph.clock.zone()).any { it.strength == Strength.STRICT }
+            val strict = strictNow()
+            // "Until I stop" is no longer a default type (the Quick block card starts those). An older
+            // saved value becomes Timed, so this screen and the widget agree.
+            val savedType = s.getValue(PrefKeys.DEFAULT_TYPE)
+            if (savedType == SessionType.INDEFINITE.name) s.insert(AppSettings(PrefKeys.DEFAULT_TYPE, SessionType.TIMED.name))
             mutable.update {
                 it.copy(
                     health = PermissionHealth.items(graph.context),
-                    defaultType = SessionType.values().firstOrNull { t -> t.name == s.getValue(PrefKeys.DEFAULT_TYPE) } ?: SessionType.TIMED,
+                    defaultType = SessionType.values().firstOrNull { t -> t.name == savedType && t != SessionType.INDEFINITE } ?: SessionType.TIMED,
                     defaultMinutes = s.getValue(PrefKeys.DEFAULT_MINUTES)?.toIntOrNull() ?: 45,
                     defaultStrength = if (s.getValue(PrefKeys.DEFAULT_STRENGTH) == Strength.STRICT.name) Strength.STRICT else Strength.NORMAL,
                     notify = notify,
@@ -82,6 +85,20 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
                 )
             }
         }
+    }
+
+    /**
+     * True while anything in Strict Lock is running: a block (measured with its trusted clock, so a
+     * changed wall clock does not end it), a rule, or a legacy daily-limit lock. [fresh] re-reads
+     * the policy instead of using the cached snapshot.
+     */
+    private suspend fun strictNow(fresh: Boolean = false): Boolean {
+        if (fresh) graph.policy.invalidate()
+        val snap = graph.policy.snapshot()
+        val now = graph.clock.now()
+        return snap.session?.let { it.strength == Strength.STRICT && !SessionClock.state(it, now).ended } == true ||
+            BlockPolicyEngine.activeRuleReasons(snap, now, graph.clock.zone()).any { it.strength == Strength.STRICT } ||
+            snap.dailyLimit?.let { it.enabled && it.lockedUntil > now } == true
     }
 
     private fun put(key: String, value: String) {
@@ -97,11 +114,20 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
     fun setDefaultStrength(strength: Strength) = put(PrefKeys.DEFAULT_STRENGTH, strength.name)
     fun setWidgetAction(action: String) = put(PrefKeys.WIDGET_ACTION, action)
 
-    /** Changing essentials during Strict Lock would be a bypass, so it is refused. */
+    /**
+     * Adding an essential app during Strict Lock would unblock it, so additions are refused then.
+     * Strict is re-checked here rather than taken from the screen, which may have opened before the
+     * lock began. Removing one only makes blocking stronger, so that stays allowed.
+     */
     fun setEssentials(packages: List<String>) {
-        if (mutable.value.strictActive) { mutable.update { it.copy(message = R.string.essentials_locked) }; return }
         viewModelScope.launch {
-            graph.essentials.set(packages.toSet())
+            val wanted = packages.toSet()
+            val adding = wanted - graph.db.essentialAppDao().packages().toSet()
+            if (adding.isNotEmpty() && strictNow(fresh = true)) {
+                mutable.update { it.copy(strictActive = true, message = R.string.essentials_locked) }
+                return@launch
+            }
+            graph.essentials.set(wanted)
             graph.policy.invalidate()
             graph.requestRefresh()
         }
@@ -115,14 +141,41 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
 
     fun clearMessage() = mutable.update { it.copy(message = null) }
 
-    /** Troubleshooting: a 1-minute block on one app, to check the block screen appears. */
+    /**
+     * Troubleshooting: a 1-minute block on one app, to check the block screen appears. Like the
+     * first-run test it does not become "Repeat last block" or the saved selection, and it is
+     * discarded when its minute is up, so it never asks "Did you finish?" or counts in Activity.
+     */
     fun testBlock(onStarted: (String) -> Unit) {
         viewModelScope.launch {
             val exempt = graph.policy.exempt()
             val candidate = (graph.sessions.lastSetup()?.packages.orEmpty() + graph.apps.all().map { it.packageName }).firstOrNull { it !in exempt }
             if (candidate == null) { mutable.update { it.copy(message = R.string.start_no_apps) }; return@launch }
-            val result = graph.sessions.start(StartRequest(BlockSetup(listOf(candidate), SessionType.TIMED, 1)))
-            if (result is StartResult.Started) onStarted(candidate) else mutable.update { it.copy(message = R.string.already_running) }
+            val result = graph.sessions.start(StartRequest(BlockSetup(listOf(candidate), SessionType.TIMED, 1), test = true))
+            if (result is StartResult.Started) {
+                discardTestWhenOver(result.id)
+                onStarted(candidate)
+            } else {
+                mutable.update { it.copy(message = R.string.already_running) }
+            }
+        }
+    }
+
+    /** Runs on the app's scope, so leaving Settings before the minute is up still discards the test. */
+    private fun discardTestWhenOver(id: Long) {
+        graph.scope.launch {
+            while (true) {
+                val running = graph.sessions.active()?.takeIf { it.id == id } ?: break
+                // A second before its end, so it never completes and never posts "Did you finish?".
+                // Re-read after waiting: "Add 15 minutes" moves the end. Measured like the block's own
+                // end (trusted clock), so a changed wall clock cannot let it complete first.
+                val now = graph.sessions.trustedNow(running) ?: graph.clock.now()
+                val wait = (running.plannedEndAt ?: break) - now - 1_000
+                if (wait <= 0) break
+                delay(wait)
+            }
+            graph.sessions.discardTest(id)
+            graph.notifier.cancelEnded()
         }
     }
 

@@ -1,8 +1,10 @@
 package com.focusblock.app.ui.onboarding
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -75,22 +78,35 @@ fun OnboardingFlow(onDone: () -> Unit) {
     var testId by rememberSaveable { mutableLongStateOf(0L) }
     var testSeen by rememberSaveable { mutableStateOf(false) }
     var refreshTick by rememberSaveable { mutableIntStateOf(0) }
+    var startingTest by remember { mutableStateOf(false) }
     RefreshOnResume { refreshTick++ }
 
     val steps = Step.values().filter { it != Step.EXACT_ALARMS || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S }
     val step = steps[stepIndex.coerceIn(0, steps.lastIndex)]
-    fun next() {
-        // Leaving the test step ends the test block quietly: it never asks "Did you finish?" and
-        // never replaces the apps chosen above as the Block tab's selection.
-        if (step == Step.TEST && testId > 0) {
-            val id = testId
+    // A test block ends quietly: it never asks "Did you finish?" and never replaces the apps chosen
+    // above as the Block tab's selection.
+    fun endTest(id: Long) = scope.launch {
+        graph.sessions.discardTest(id)
+        graph.notifier.cancelEnded()
+    }
+    // Leaving the test step (continue, skip or back) ends a running test block.
+    fun leaveTest() {
+        if (step != Step.TEST) return
+        if (testId > 0) {
+            endTest(testId)
             testId = 0
-            scope.launch {
-                graph.sessions.discardTest(id)
-                graph.notifier.cancelEnded()
-            }
         }
+        // Coming back offers a new test rather than waiting on the one just ended.
+        if (!testSeen) testStartedAt = 0
+    }
+    fun next() {
+        leaveTest()
         stepIndex = (stepIndex + 1).coerceAtMost(steps.lastIndex)
+    }
+    // Back goes to the previous step instead of closing the app and starting over.
+    BackHandler(enabled = stepIndex > 0) {
+        leaveTest()
+        stepIndex = (stepIndex - 1).coerceAtLeast(0)
     }
     val apps = csv(appsCsv)
 
@@ -104,7 +120,14 @@ fun OnboardingFlow(onDone: () -> Unit) {
         else -> null
     }
     val granted = remember(refreshTick, step) { requirement != null && PermissionHealth.state(context, requirement) == HealthState.OK }
-    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refreshTick++ }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
+        refreshTick++
+        // Once Android stops showing the dialog (denied twice, or turned off in system settings), the
+        // request comes back denied at once; the switch is then only in the app's notification settings.
+        val justDeclined = !allowed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            (context as? Activity)?.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) == true
+        if (!justDeclined && PermissionHealth.state(context, Requirement.NOTIFICATIONS) != HealthState.OK) PermissionHealth.open(context, Requirement.NOTIFICATIONS)
+    }
 
     if (step == Step.TEST && testStartedAt > 0 && !testSeen) {
         // The intervention logs a blocked attempt; seeing it means blocking works end to end.
@@ -114,7 +137,7 @@ fun OnboardingFlow(onDone: () -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 24.dp)) {
+    Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(vertical = 24.dp)) {
         Image(painterResource(R.drawable.ic_mark), contentDescription = null, modifier = Modifier.padding(horizontal = Fb.gutter).size(28.dp))
         Spacer(Modifier.height(20.dp))
         if (stepIndex in 2 until steps.size - 2) {
@@ -133,7 +156,7 @@ fun OnboardingFlow(onDone: () -> Unit) {
                 Title(stringResource(R.string.picker_title_onboarding))
                 Body(stringResource(R.string.onb_pick_body))
                 SectionGap()
-                if (apps.isNotEmpty()) AppIconRow(apps, { graph.apps.label(it) })
+                if (apps.isNotEmpty()) AppIconRow(apps, { graph.apps.label(it) }, onMore = { picker = true })
                 Actions {
                     SecondaryButton(stringResource(R.string.editor_choose_apps), { picker = true })
                     PrimaryButton(stringResource(R.string.action_continue), {
@@ -163,7 +186,7 @@ fun OnboardingFlow(onDone: () -> Unit) {
                 Title(stringResource(R.string.onb_test_title))
                 when {
                     app == null || !ready -> {
-                        Body(stringResource(R.string.onb_test_needs_accessibility))
+                        Body(stringResource(if (app == null) R.string.onb_test_no_apps else R.string.onb_test_needs_accessibility))
                         Actions { PrimaryButton(stringResource(R.string.action_continue), { next() }) }
                     }
                     testSeen -> {
@@ -183,12 +206,21 @@ fun OnboardingFlow(onDone: () -> Unit) {
                         Body(stringResource(R.string.onb_test_body, appName))
                         Actions {
                             PrimaryButton(stringResource(R.string.onb_test_start), {
-                                scope.launch {
-                                    val started = graph.sessions.start(StartRequest(BlockSetup(listOf(app), SessionType.TIMED, 1), test = true))
-                                    if (started is com.focusblock.app.core.StartResult.Started) {
-                                        testId = started.id
-                                        testStartedAt = System.currentTimeMillis()
-                                    } else next()
+                                // A second tap would fail as already running and skip the test.
+                                if (!startingTest) {
+                                    startingTest = true
+                                    scope.launch {
+                                        val result = graph.sessions.start(StartRequest(BlockSetup(listOf(app), SessionType.TIMED, 1), test = true))
+                                        startingTest = false
+                                        val started = result as? com.focusblock.app.core.StartResult.Started
+                                        if (steps.getOrNull(stepIndex) != Step.TEST) {
+                                            // Left the step (Back) while it started: end it like any other left test.
+                                            started?.let { endTest(it.id) }
+                                        } else if (started != null) {
+                                            testId = started.id
+                                            testStartedAt = System.currentTimeMillis()
+                                        } else next()
+                                    }
                                 }
                             })
                             TextLink(stringResource(R.string.onb_test_skip), { next() }, accent = false)

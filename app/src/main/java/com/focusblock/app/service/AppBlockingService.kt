@@ -65,9 +65,12 @@ class AppBlockingService : Service() {
             if (ServiceHeartbeat.connected) { stopSelf(); return }
             if (power.isInteractive) {
                 val now = System.currentTimeMillis()
+                // Without exact-alarm access the policy alarm can arrive late; run its tick here then.
+                if (graph.alarms.claimLate(now)) graph.scope.launch { runCatching { graph.tick("alarm_late") } }
                 latestForeground(usage, now - 15_000, now)?.let { pkg ->
                     if (pkg != current) {
-                        val previous = current
+                        // A keyboard or system overlay in between does not end the time in the app under it.
+                        val previous = lastReal
                         current = pkg
                         if (pkg !in graph.safety.transient() && pkg != lastReal) {
                             // Leaving an app ends its Open anyway (it covers one visit only).
@@ -76,12 +79,16 @@ class AppBlockingService : Service() {
                         }
                         if (pkg != packageName && pkg !in graph.safety.transient()) {
                             graph.focusCycles.onForeground(pkg, previous)
-                            graph.enforcer.check(pkg)?.let { blocked -> show(pkg, blocked.logId, blocked.attempt) }
+                            // Without the block screen a check would only log attempts that were never blocked.
+                            if (canShowBlockScreen()) graph.enforcer.check(pkg)?.let { blocked -> show(pkg, blocked.logId, blocked.attempt) }
+                        } else if (pkg == packageName) {
+                            // FocusBlock itself is never checked, but a Focus Cycle must still count the time in the app just left.
+                            graph.focusCycles.onForeground(null, previous)
                         }
                     } else if (pkg != packageName && now - lastSameAppCheck > 15_000) {
                         // Re-check the open app every 15 s so limits and rule starts apply without a new launch.
                         lastSameAppCheck = now
-                        graph.enforcer.check(pkg, freshUsage = true)?.let { blocked -> show(pkg, blocked.logId, blocked.attempt) }
+                        if (canShowBlockScreen()) graph.enforcer.check(pkg, freshUsage = true)?.let { blocked -> show(pkg, blocked.logId, blocked.attempt) }
                     }
                 }
             }
@@ -103,10 +110,12 @@ class AppBlockingService : Service() {
 
     private suspend fun show(pkg: String, logId: Long, attempt: Int) = withContext(Dispatchers.Main) {
         val intent = InterventionActivity.intent(this@AppBlockingService, pkg, logId, attempt)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || Settings.canDrawOverlays(this@AppBlockingService)) {
-            runCatching { startActivity(intent) }
-        }
+        if (canShowBlockScreen()) runCatching { startActivity(intent) }
     }
+
+    /** Android 10+ lets a service start the block screen from the background only with "Display over other apps". */
+    private fun canShowBlockScreen(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || Settings.canDrawOverlays(this)
 
     override fun onDestroy() {
         scope.cancel()

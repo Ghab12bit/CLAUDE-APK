@@ -144,10 +144,13 @@ class Notifier(private val context: Context, private val db: FocusBlockDatabase,
 
     fun cancelEnded() = cancel(ID_ENDED)
 
-    /** Emergency access: shows which app is open and counts down to when it closes again. */
-    fun showUnlocked(appName: String, until: Long) {
+    /**
+     * Emergency access: shows which app is open and counts down to when it closes again. With [pkg]
+     * each app has its own notice, so a second app's access does not replace the first countdown.
+     */
+    fun showUnlocked(appName: String, until: Long, pkg: String? = null) {
         val left = (until - clock.now()).coerceAtLeast(0)
-        post(ID_UNLOCKED, NotificationCompat.Builder(context, CHANNEL_EVENTS)
+        post(pkg?.let { ID_UNLOCKED_APP + (it.hashCode() and 0xFF) } ?: ID_UNLOCKED, NotificationCompat.Builder(context, CHANNEL_EVENTS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.notif_unlocked_title, appName))
             .setContentText(context.getString(R.string.notif_unlocked_text, Fmt.time(context, until)))
@@ -181,7 +184,7 @@ class Notifier(private val context: Context, private val db: FocusBlockDatabase,
         val title = if (until != null) context.getString(R.string.notif_rule_on, name, Fmt.time(context, until))
         else context.getString(R.string.status_rule_blocking_open, name)
         post(ID_RULE, NotificationCompat.Builder(context, CHANNEL_RULES)
-            .setSmallIcon(R.drawable.ic_notification).setContentTitle(title).setAutoCancel(true)
+            .setSmallIcon(R.drawable.ic_notification).setContentTitle(title).setAutoCancel(true).setOnlyAlertOnce(true)
             .setTimeoutAfter(((until ?: (clock.now() + 3_600_000)) - clock.now()).coerceAtLeast(60_000))
             .setContentIntent(openApp(requestCode = 3)).build())
     }
@@ -246,5 +249,7 @@ class Notifier(private val context: Context, private val db: FocusBlockDatabase,
         const val ID_UNLOCKED = 4108
         /** Plus 0–255 per app, so two apps' "ready" notices do not replace each other. */
         const val ID_EMERGENCY_READY = 4200
+        /** Plus 0–255 per app, so two apps' emergency access countdowns do not replace each other. */
+        const val ID_UNLOCKED_APP = 4500
     }
 }

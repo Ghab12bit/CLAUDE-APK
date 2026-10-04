@@ -24,8 +24,10 @@ phone. Each one is listed here with its formula and source (spec 4.8). There is 
 - When another app resumes, any app still open is closed at that moment. Time is never counted twice;
   in split screen it goes to the most recently resumed app.
 - `SCREEN_NON_INTERACTIVE`, `KEYGUARD_SHOWN` and `DEVICE_SHUTDOWN` close every open app.
-- Each query starts one day (or two hours, for today) before the window, so an app already open at
-  the window start is counted. Intervals are then clipped to the window.
+- Each query starts one day before the window (a day before midnight, for today and for hourly
+  rules), so an app already open at the window start is counted. Intervals are then clipped to the
+  window. Recent events are re-read in full every few minutes and topped up with only newer events
+  (with a minute of overlap) in between.
 - An interval that crosses midnight is split between the two days (local time zone).
 - If Usage access is missing, or Android returns no data, the value is **unavailable**, never zero.
 
@@ -69,22 +71,22 @@ Neutral. Categories only change how time is shown. They never block anything.
 | Metric | Formula | Source |
 |---|---|---|
 | Screen time (hero number) | Foreground time in the range, across counted apps (all apps except FocusBlock, home-screen launchers, System UI and apps excluded from reports). Trend shows the average per day over days with data instead. | UsageStats |
-| "x less / more than your usual" (Day) | The day's screen time compared with the mean of the previous 14 days that have data (at least 3). For today, each day only counts up to the current time of day. Differences under 5 minutes read "about your usual". | UsageStats |
-| "x a day · y% less than the week before" (Week) | Screen time ÷ days in the range so far; change = (this range − the 7 days before it) ÷ the 7 days before it | UsageStats |
+| "x less / more than your usual" (Day) | The day's screen time compared with the mean of the previous 14 days that have data (at least 3). Whether a day has data is decided from its whole day; for today, each of those days then only counts up to the current time of day (a day with no use yet by then counts as 0). Differences under 5 minutes read "about your usual". | UsageStats |
+| "x a day · y% less than the week before" (Week) | Average per day over days with data (today, still under way, only counts when it is the only one); change = this average vs the per-day average of the 7 days before, shown only when that week has at least 3 days with data | UsageStats |
 | Chart (Day) | Foreground time per local hour, stacked by category. On daylight-saving days the 23 or 25 hours are folded into 24 by hour of day. | UsageStats |
 | Chart (Week, Trend) | Foreground time per day, stacked by category. The dashed line is the average per day over days with data. | UsageStats |
 | Most used apps | Apps with at least 1 minute in the range, by foreground time; the bar is the app's share of the range's screen time. Five are shown, More shows up to 20. Each row also shows blocked attempts; the app sheet shows opens (separate openings, see `launches`) and blocked attempts. | UsageStats, `block_logs` |
 | Balance | Screen time ÷ (16 awake hours × days in the range), as a percentage. Awake hours are fixed at 07:00–23:00. | UsageStats |
-| Peak time | The local hour of day with the most counted foreground time in the range (ties go to the earlier hour) | UsageStats |
+| Peak time | The local hour of day with the most counted foreground time in the range (ties go to the earlier hour); needs at least 1 minute in that hour | UsageStats |
 | Usage split | Each category's share of counted foreground time, in whole percent that add up to 100 (largest remainder) | UsageStats |
 | Longest focus | The longest time without using the phone while awake (07:00–23:00) between two stretches of use. On today, the time since the last use counts up to now. Time before the first use of the day is not counted. Week and Trend show the longest single day. | UsageStats |
-| Continuous use | The longest stretch of phone use. Foreground intervals of every app, including the launcher, are merged when the gap between them is at most 1 minute. | UsageStats |
+| Continuous use | The longest stretch of phone use. Foreground intervals of every app, including the launcher, are merged when the gap between them is at most 1 minute. Never shown above that day's counted screen time. | UsageStats |
 | Pickups | Unlocks (`KEYGUARD_HIDDEN`) in the range. Phones that never report an unlock (no lock screen) count screen-on events (`SCREEN_INTERACTIVE`) instead. | UsageStats |
 | Week by week (Trend) | Each 7-day week's total, its average per day over days with data, and its change from the week before | UsageStats |
-| Blocks: Finished / Not yet / Extended / Unanswered / Ended early | Count of `block_sessions` started in the period, grouped by `outcome`. Active blocks, history migrated from older versions (`endReason = LEGACY`) and the first-run test block (`endReason = TEST`) are not counted. | `block_sessions` |
+| Blocks: Finished / Not finished / Extended / No answer / Ended early, and Total | Count of `block_sessions` started in the period, grouped by `outcome`. Active blocks, history migrated from older versions (`endReason = LEGACY`) and the first-run test block (`endReason = TEST`) are not counted. A stopped quick block counts under the answer to "Did you finish?", not as ended early. | `block_sessions` |
 | Blocked attempts by hour | Count of `block_logs` rows in the period, grouped by the local hour of `timestamp` | `block_logs` |
 | Emergency (and, before it was removed, Open anyway) unlocks | `unlock_events` requested in the period whose status is not `CANCELLED`, newest first | `unlock_events` |
-| Rules working / bypassed | For each rule: attempts = `block_logs` rows in the period with that reason and rule id; bypasses = `GRANTED` `unlock_events` with the same reason type and rule id. A rule is **often bypassed** when it has 3 or more bypasses **and** bypasses ≥ ⅓ of its attempts. | `block_logs`, `unlock_events` |
+| What blocked apps / bypassed | For each rule: attempts = `block_logs` rows in the period with that reason and rule id; bypasses = `GRANTED` `unlock_events` with the same reason type and rule id. A rule is **often bypassed** when it has 3 or more bypasses **and** bypasses ≥ ⅓ of its attempts. | `block_logs`, `unlock_events` |
 
 ## Rules tab
 

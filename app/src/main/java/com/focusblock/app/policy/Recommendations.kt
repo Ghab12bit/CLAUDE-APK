@@ -46,6 +46,8 @@ object RecommendationEngine {
         val exempt: Set<String>,
         /** Signature → time until which it is hidden ("Not now" for 7 days). */
         val snoozedUntil: Map<String, Long>,
+        /** Apps the user does not count in screen time: never suggested for a limit. */
+        val notCounted: Set<String> = emptySet(),
     )
 
     fun eligible(firstDataDay: LocalDate?, today: LocalDate): Boolean =
@@ -142,7 +144,7 @@ object RecommendationEngine {
         val limited = input.appLimits.filter { it.enabled }.flatMap { it.packages }.toSet()
         val perApp = HashMap<String, MutableList<Long>>()
         recent.values.forEach { day -> day.forEach { (pkg, ms) -> perApp.getOrPut(pkg) { mutableListOf() } += ms } }
-        val best = perApp.filterKeys { it !in input.exempt && it !in limited }.mapNotNull { (pkg, values) ->
+        val best = perApp.filterKeys { it !in input.exempt && it !in input.notCounted && it !in limited }.mapNotNull { (pkg, values) ->
             val heavyDays = values.count { it >= HEAVY_USE_MINUTES * SessionClock.MINUTE }
             if (heavyDays < MIN_PATTERN_DAYS) return@mapNotNull null
             val sorted = values.sorted()

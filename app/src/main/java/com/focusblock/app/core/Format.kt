@@ -20,7 +20,8 @@ object Fmt {
         if (zdt.hour == 0 && zdt.minute == 0) return context.getString(R.string.time_midnight)
         val format = android.text.format.DateFormat.getTimeFormat(context)
         format.timeZone = java.util.TimeZone.getTimeZone(zone)
-        return format.format(Date(millis))
+        // No-break space so "8:58 PM" never wraps before the AM/PM marker (newer Android already emits U+202F).
+        return format.format(Date(millis)).replace(' ', '\u00A0')
     }
 
     /** A minute of the day (0..1439) formatted like [time]. */

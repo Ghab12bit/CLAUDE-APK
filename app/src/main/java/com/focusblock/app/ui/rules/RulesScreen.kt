@@ -126,7 +126,7 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
             CoverageStrip(
                 segments = state.segments.map { StripSegment(it.startMinute, it.endMinute, if (it.type == com.focusblock.app.policy.ReasonType.BEDTIME) "bedtime" else "routine:${it.ruleId}") },
                 nowMinute = nowMinute,
-                hourLabel = { h -> Fmt.minuteOfDay(context, h * 60) },
+                hourLabel = { h -> Fmt.hourShort(context, h) },
                 description = stringResource(R.string.coverage_cd, stripDescription),
                 onSegment = { key ->
                     when {
@@ -158,8 +158,10 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                 state.cycle == null && state.imported.isEmpty()
             SectionGap()
             if (nothing) {
-                // The Add a rule button below is the one action; no second button here.
+                // With no rules, Add a rule sits right under the empty text instead of at the bottom.
                 EmptyState(stringResource(R.string.rules_empty))
+                AddRuleButton { addOpen = true }
+                SectionGap()
             }
 
             // Routines.
@@ -209,7 +211,11 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                     Spacer(Modifier.height(10.dp))
                     val exempt = state.snapshot?.exempt.orEmpty()
                     val packages = csv(l.packages).filter { it !in exempt }
-                    val used = state.usageToday?.let { u -> packages.sumOf { u[it] ?: 0L } }
+                    // Show what enforcement counts (it also leaves out apps not counted in screen time);
+                    // sum here only when the snapshot has no usage for this limit.
+                    val used = state.usageToday?.let { u ->
+                        state.snapshot?.appLimits?.firstOrNull { it.id == l.id && it.enabled }?.usedMillisToday ?: packages.sumOf { u[it] ?: 0L }
+                    }
                     RuleRow(
                         name = l.name,
                         summary = RuleText.appLimit(context, l, vm::label),
@@ -286,9 +292,7 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                 SectionGap()
             }
 
-            // Essential apps.
-            SectionHeader(stringResource(R.string.section_essentials))
-            Spacer(Modifier.height(10.dp))
+            // Essential apps (the row names itself; no section header over it).
             FbCard(contentPadding = 0.dp) {
                 DividerRow(
                     title = stringResource(R.string.section_essentials),
@@ -298,9 +302,9 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
             }
             Spacer(Modifier.height(10.dp))
 
-            Spacer(Modifier.height(24.dp))
-            Column(Modifier.padding(horizontal = Fb.gutter)) {
-                PrimaryButton(stringResource(R.string.add_a_rule), { addOpen = true }, leadingIcon = Icons.Outlined.Add)
+            if (!nothing) {
+                Spacer(Modifier.height(24.dp))
+                AddRuleButton { addOpen = true }
             }
             Spacer(Modifier.height(32.dp))
             }
@@ -323,6 +327,13 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
             text = { Text(stringResource(msg), style = FbType.body) },
             confirmButton = { TextButton(onClick = vm::clearMessage) { Text(stringResource(R.string.action_close), color = Fb.accent) } },
         )
+    }
+}
+
+@Composable
+private fun AddRuleButton(onClick: () -> Unit) {
+    Column(Modifier.padding(horizontal = Fb.gutter)) {
+        PrimaryButton(stringResource(R.string.add_a_rule), onClick, leadingIcon = Icons.Outlined.Add)
     }
 }
 

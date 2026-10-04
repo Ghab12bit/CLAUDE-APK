@@ -20,7 +20,8 @@ class EmergencyReadyWorker(context: Context, params: WorkerParameters) : Corouti
     override suspend fun doWork(): Result {
         val pkg = inputData.getString(KEY_PKG) ?: return Result.success()
         val graph = AppGraph.get(applicationContext)
-        val pending = graph.db.unlockEventDao().pending(pkg) ?: return Result.success()
+        // Drops a request whose block is already over, so it is never announced as ready.
+        val pending = graph.overrides.pendingEmergency(pkg) ?: return Result.success()
         val now = graph.clock.now()
         if (pending.status != UnlockEventEntity.PENDING || now < pending.readyAt) return Result.success()
         val until = FrictionPolicy.emergencyUsableUntil(pending.readyAt, graph.clock.zone())

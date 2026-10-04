@@ -3,6 +3,7 @@ package com.focusblock.app.core
 import com.focusblock.app.R
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.AppLimitEntity
+import com.focusblock.app.database.entity.ExclusionType
 import com.focusblock.app.database.entity.RecommendationEntity
 import com.focusblock.app.database.entity.Schedule
 import com.focusblock.app.database.entity.UnlockEventEntity
@@ -58,7 +59,8 @@ class RecommendationRepository(
             }
         }
         val rec = RecommendationEngine.recommend(
-            RecommendationEngine.Input(now, zone, firstDay, attempts, unlocks, usageByDay, snap.routines, snap.bedtime, snap.appLimits, snap.exempt, hidden),
+            RecommendationEngine.Input(now, zone, firstDay, attempts, unlocks, usageByDay, snap.routines, snap.bedtime, snap.appLimits, snap.exempt, hidden,
+                notCounted = db.excludedAppDao().getExcludedPackageNames(ExclusionType.SCREEN_TIME_REPORT).toSet()),
         ) ?: return@withContext null
         val existing = records.firstOrNull { it.signature == rec.signature }
         db.recommendationDao().upsert(

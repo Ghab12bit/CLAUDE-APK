@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
  */
 class AlarmScheduler(private val context: Context) {
     private val manager = context.getSystemService(AlarmManager::class.java)
+    private var caughtUp: Long? = null
 
     @Volatile var nextAt: Long? = null
         private set
@@ -39,10 +40,25 @@ class AlarmScheduler(private val context: Context) {
         }
     }
 
+    /**
+     * True once per alarm, when it is more than [LATE_MS] overdue. Without exact-alarm access Android
+     * can deliver it much later; the enforcement services then run [AppGraph.tick] themselves, which
+     * re-registers (and so replaces) the late alarm.
+     */
+    @Synchronized
+    fun claimLate(now: Long): Boolean {
+        val due = nextAt ?: return false
+        if (now < due + LATE_MS || due == caughtUp) return false
+        caughtUp = due
+        return true
+    }
+
     private fun pendingIntent(): PendingIntent = PendingIntent.getBroadcast(
         context, 1, Intent(context, PolicyAlarmReceiver::class.java).setAction(PolicyAlarmReceiver.ACTION),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
+
+    companion object { const val LATE_MS = 30_000L }
 }
 
 class PolicyAlarmReceiver : BroadcastReceiver() {

@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Tune
@@ -42,7 +43,10 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -172,6 +177,11 @@ fun DividerRow(
             Text(value, style = FbType.body.copy(color = Fb.textSecondary), maxLines = 1, softWrap = false)
         }
         if (trailing != null) { Spacer(Modifier.width(12.dp)); trailing() }
+        else if (onClick != null) {
+            // A tappable row without its own trailing control gets a chevron so it reads as tappable.
+            Spacer(Modifier.width(4.dp))
+            Icon(Icons.Outlined.KeyboardArrowRight, null, tint = Fb.textSecondary, modifier = Modifier.size(20.dp))
+        }
     }
 }
 
@@ -316,6 +326,7 @@ fun FbSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, enabled: B
  */
 @Composable
 fun <T> SegmentedControl(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, trackColor: Color = Fb.surface) {
+    val selectedState = stringResource(R.string.state_selected)
     Row(
         modifier.fillMaxWidth().padding(horizontal = LocalRowInset.current).clip(RoundedCornerShape(26.dp)).background(trackColor).padding(4.dp),
     ) {
@@ -325,7 +336,7 @@ fun <T> SegmentedControl(options: List<Pair<T, String>>, selected: T, onSelect: 
                 Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp))
                     .then(if (isSelected) Modifier.background(Brush.horizontalGradient(listOf(Fb.buttonPrimaryBg, Fb.buttonPrimaryBgEnd))) else Modifier)
                     .clickable(enabled = enabled, role = Role.Tab) { onSelect(value) }
-                    .semantics { stateDescription = if (isSelected) "Selected" else "" },
+                    .semantics { stateDescription = if (isSelected) selectedState else "" },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -341,6 +352,8 @@ fun <T> SegmentedControl(options: List<Pair<T, String>>, selected: T, onSelect: 
 /** Choice chips such as 25 · 45 · 60 · Custom. Selected is filled; all are 48 dp tall. */
 @Composable
 fun ChoiceChips(options: List<String>, selectedIndex: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val selectedState = stringResource(R.string.state_selected)
+    val notSelectedState = stringResource(R.string.state_not_selected)
     Row(modifier.fillMaxWidth().padding(horizontal = LocalRowInset.current), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         options.forEachIndexed { i, label ->
             val selected = i == selectedIndex
@@ -349,16 +362,16 @@ fun ChoiceChips(options: List<String>, selectedIndex: Int, onSelect: (Int) -> Un
                     .background(if (selected) Fb.accent.copy(alpha = 0.22f) else Fb.surfaceHigh)
                     .border(BorderStroke(1.5.dp, if (selected) Fb.accent else Color.Transparent), RoundedCornerShape(14.dp))
                     .clickable(enabled = enabled, role = Role.RadioButton) { onSelect(i) }
-                    .semantics { stateDescription = if (selected) "Selected" else "Not selected" },
+                    .semantics { stateDescription = if (selected) selectedState else notSelectedState },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(label, style = FbType.body.copy(color = Fb.textPrimary, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal), maxLines = 1)
+                Text(label, style = FbType.body.copy(color = Fb.textPrimary, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
         }
     }
 }
 
-/** Single-line field with a visible label; Done only closes the keyboard. */
+/** Single-line field with a visible label; Done (or Search) only closes the keyboard. */
 @Composable
 fun LabeledField(
     label: String,
@@ -383,7 +396,7 @@ fun LabeledField(
             textStyle = FbType.body,
             cursorBrush = SolidColor(Fb.accent),
             keyboardOptions = keyboardOptions,
-            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }, onSearch = { focusManager.clearFocus() }),
             modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
             decorationBox = { inner ->
                 Column {
@@ -480,7 +493,21 @@ fun StatTile(value: String, label: String, icon: ImageVector, tint: Color, modif
             Icon(icon, null, tint = tint, modifier = Modifier.size(20.dp))
         }
         Spacer(Modifier.height(12.dp))
-        Text(value, style = FbType.title.copy(fontSize = FbType.heading.fontSize * 1.3f), maxLines = 1)
+        // At large font sizes the value shrinks to fit its line (down to 60 %), then wraps, rather than being cut off.
+        val valueStyle = FbType.title.copy(fontSize = FbType.heading.fontSize * 1.3f)
+        var valueScale by remember(value.length, LocalDensity.current.fontScale) { mutableFloatStateOf(1f) }
+        Text(
+            value,
+            style = valueStyle.copy(fontSize = valueStyle.fontSize * valueScale, lineHeight = valueStyle.lineHeight * valueScale),
+            maxLines = 2,
+            onTextLayout = { result ->
+                val available = result.layoutInput.constraints.maxWidth
+                val needed = result.multiParagraph.intrinsics.maxIntrinsicWidth
+                if (needed > available && valueScale > MIN_VALUE_SCALE) {
+                    valueScale = (valueScale * available / needed * 0.98f).coerceAtLeast(MIN_VALUE_SCALE)
+                }
+            },
+        )
         Spacer(Modifier.height(2.dp))
         Text(label, style = FbType.overline, maxLines = 2)
         if (sub != null) {
@@ -489,6 +516,8 @@ fun StatTile(value: String, label: String, icon: ImageVector, tint: Color, modif
         }
     }
 }
+
+private const val MIN_VALUE_SCALE = 0.6f
 
 /** Placeholder shapes for loading states: a skeleton of the real layout, not a spinner (spec 4.11). */
 @Composable

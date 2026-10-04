@@ -2,12 +2,16 @@ package com.focusblock.app.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.view.accessibility.AccessibilityEvent
+import androidx.core.content.ContextCompat
+import com.focusblock.app.core.AlarmScheduler
 import com.focusblock.app.core.AppGraph
 import com.focusblock.app.core.Enforcer
 import com.focusblock.app.core.ServiceHeartbeat
@@ -36,10 +40,34 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
     @Volatile private var foreground: String? = null
     @Volatile private var foregroundSince: Long = 0L
+    /** Start of the current stretch of use: the app change, or the screen coming back on. */
+    @Volatile private var usageSince: Long = 0L
     private var remindersSent = 0
 
     private val recheckRunnable = Runnable { scope.launch { recheck(fresh = true) } }
     private val reminderRunnable = Runnable { scope.launch { usageReminder() } }
+
+    /**
+     * Locked time is not use: usage reminders and Focus Cycles stop counting while the screen is off.
+     * Handler timers also stop in deep sleep, so screen-on re-checks the app in front (and a late
+     * policy alarm) at once.
+     */
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    handler.removeCallbacks(reminderRunnable)
+                    val pkg = foreground ?: return
+                    scope.launch { mutex.withLock { runCatching { graph.focusCycles.onForeground(null, pkg) } } }
+                }
+                Intent.ACTION_SCREEN_ON -> {
+                    usageSince = System.currentTimeMillis()
+                    remindersSent = 0
+                    recheckNow()
+                }
+            }
+        }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -52,7 +80,12 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         ServiceHeartbeat.owner = this
         ServiceHeartbeat.connected = true
         ServiceHeartbeat.connectedAt = System.currentTimeMillis()
-        ServiceHeartbeat.recheck = { handler.post { handler.removeCallbacks(recheckRunnable); scope.launch { recheck(fresh = false) } } }
+        ServiceHeartbeat.recheck = { handler.post { recheckNow() } }
+        val screen = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        runCatching { ContextCompat.registerReceiver(this, screenReceiver, screen, ContextCompat.RECEIVER_NOT_EXPORTED) }
         scope.launch {
             graph.diagnostics.log("SERVICE_CONNECTED")
             graph.tick("service_connected")
@@ -72,14 +105,20 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Leaving an app ends its Open anyway (it covers one visit only).
         if (previous != null && previous != packageName) scope.launch { runCatching { graph.overrides.onLeft(previous) } }
         foregroundSince = System.currentTimeMillis()
+        usageSince = foregroundSince
         remindersSent = 0
         handler.removeCallbacks(reminderRunnable)
-        if (pkg == packageName) return
+        if (pkg == packageName) {
+            // FocusBlock itself is never checked, but a Focus Cycle must still count the time in the app just left.
+            if (previous != null) scope.launch { mutex.withLock { runCatching { graph.focusCycles.onForeground(null, previous) } } }
+            return
+        }
         scope.launch { handle(pkg, previous, fresh = false) }
     }
 
     private suspend fun handle(pkg: String, previous: String?, fresh: Boolean) = mutex.withLock {
-        val cycleRunsOut = runCatching { graph.focusCycles.onForeground(pkg, previous) }.getOrNull()
+        // With the screen off nothing is in use: the previous app's time ends, [pkg]'s starts at screen-on.
+        val cycleRunsOut = runCatching { graph.focusCycles.onForeground(pkg.takeIf { interactive() }, previous) }.getOrNull()
         val blocked = runCatching { graph.enforcer.check(pkg, fresh) }.getOrNull()
         if (blocked != null && foreground == pkg) {
             withContext(Dispatchers.Main) { showIntervention(pkg, blocked) }
@@ -89,10 +128,26 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         scheduleRecheck(pkg, cycleRunsOut)
     }
 
+    /** Re-checks the app in front now, replacing the pending timer. */
+    private fun recheckNow() {
+        handler.removeCallbacks(recheckRunnable)
+        scope.launch { recheck(fresh = false) }
+    }
+
     private suspend fun recheck(fresh: Boolean) {
+        catchUpAlarm()
         val pkg = foreground ?: return scheduleRecheck(null, null)
         if (pkg == packageName || pkg in graph.safety.packages()) return scheduleRecheck(null, null)
         handle(pkg, pkg, fresh)
+    }
+
+    /**
+     * Without exact-alarm access Android can deliver the policy alarm late, leaving session ends,
+     * rule-start notices and the ongoing notification stale. Once it is overdue, run its tick here;
+     * the tick re-registers the alarm and asks for another re-check.
+     */
+    private fun catchUpAlarm() {
+        if (graph.alarms.claimLate(graph.clock.now())) graph.scope.launch { runCatching { graph.tick("alarm_late") } }
     }
 
     /**
@@ -126,6 +181,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             BlockPolicyEngine.nextChangeAt(snap, now, graph.clock.zone()),
             pkg?.let { BlockPolicyEngine.limitReachedAt(it, snap, now) },
             cycleRunsOut,
+            // Shortly after the policy alarm is due, in case Android delivers it late (catchUpAlarm).
+            graph.alarms.nextAt?.plus(AlarmScheduler.LATE_MS)?.takeIf { it > now },
         )
         // Usage data can lag; never wait more than 15 minutes while an app is open.
         val next = (candidates + (now + 15 * 60_000L)).minOrNull()!!
@@ -138,21 +195,22 @@ class FocusBlockAccessibilityService : AccessibilityService() {
     private suspend fun scheduleReminder(pkg: String) {
         if (pkg in graph.policy.exempt()) return
         val minutes = if (remindersSent == 0) 30 else 60
-        val delay = foregroundSince + minutes * 60_000L - System.currentTimeMillis()
+        val delay = usageSince + minutes * 60_000L - System.currentTimeMillis()
         handler.removeCallbacks(reminderRunnable)
         if (delay > 0) handler.postDelayed(reminderRunnable, delay)
     }
 
     private suspend fun usageReminder() {
         val pkg = foreground ?: return
-        val power = getSystemService(Context.POWER_SERVICE) as PowerManager
-        if (!power.isInteractive || pkg == packageName) return
-        val minutes = ((System.currentTimeMillis() - foregroundSince) / 60_000L).toInt()
+        if (!interactive() || pkg == packageName) return
+        val minutes = ((System.currentTimeMillis() - usageSince) / 60_000L).toInt()
         if (minutes < 30) return
         graph.notifier.showUsageReminder(pkg, if (minutes >= 60) 60 else 30)
         remindersSent++
         if (remindersSent < 2) scheduleReminder(pkg)
     }
+
+    private fun interactive(): Boolean = (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
 
     override fun onInterrupt() {}
 
@@ -169,6 +227,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
     private fun disconnect() {
         handler.removeCallbacksAndMessages(null)
+        runCatching { unregisterReceiver(screenReceiver) }
         // Only the instance that is currently connected may report the service as gone.
         if (ServiceHeartbeat.owner !== this || !ServiceHeartbeat.connected) return
         ServiceHeartbeat.owner = null

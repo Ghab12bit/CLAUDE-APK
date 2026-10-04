@@ -1,6 +1,7 @@
 package com.focusblock.app.ui.rules
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,14 +14,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.Call
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +36,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.focusblock.app.R
@@ -87,25 +98,36 @@ fun LimitTodayCard(insight: LimitInsight?, allowanceMinutes: Int, savedMinutes: 
     }
 }
 
-/** Plain-language explanation, different for App limit and Daily limit. */
+/** Plain-language explanation, different for App limit and Daily limit. The title row folds it away. */
 @Composable
-fun LimitHowItWorksCard(kind: RuleKind, countsAll: Boolean, appCount: Int, allowanceMinutes: Int) {
+fun LimitHowItWorksCard(kind: RuleKind, countsAll: Boolean, appCount: Int, allowanceMinutes: Int, initiallyExpanded: Boolean = true) {
     val context = LocalContext.current
     val allowance = Fmt.minutes(context, allowanceMinutes)
+    var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+    val stateText = stringResource(if (expanded) R.string.state_expanded else R.string.state_collapsed)
     FbCard {
-        Text(stringResource(R.string.limit_how_title), style = FbType.heading)
-        Spacer(Modifier.height(10.dp))
-        if (kind == RuleKind.APP_LIMIT) {
-            HowRow(Icons.Outlined.Timer, pluralRes(R.plurals.limit_how_app_1, appCount))
-            HowRow(Icons.Outlined.Block, context.resources.getQuantityString(R.plurals.limit_how_app_2, appCount, appCount, allowance))
-        } else {
-            HowRow(Icons.Outlined.Timer, if (countsAll) stringResource(R.string.limit_how_daily_all_1) else pluralRes(R.plurals.limit_how_daily_chosen_1, appCount))
-            HowRow(Icons.Outlined.Block, stringResource(R.string.limit_how_daily_2, allowance))
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = Fb.touch).clip(RoundedCornerShape(8.dp))
+                .clickable(role = Role.Button) { expanded = !expanded }.semantics { stateDescription = stateText },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(stringResource(R.string.limit_how_title), style = FbType.heading, modifier = Modifier.weight(1f))
+            Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, tint = Fb.textSecondary, modifier = Modifier.size(20.dp))
         }
-        HowRow(Icons.Outlined.Schedule, stringResource(R.string.limit_how_reset))
-        HowRow(Icons.Outlined.Call, stringResource(R.string.limit_how_essentials))
-        Spacer(Modifier.height(6.dp))
-        Text(stringResource(if (kind == RuleKind.APP_LIMIT) R.string.limit_how_vs_daily else R.string.limit_how_vs_app), style = FbType.caption)
+        if (expanded) {
+            Spacer(Modifier.height(4.dp))
+            if (kind == RuleKind.APP_LIMIT) {
+                HowRow(Icons.Outlined.Timer, pluralRes(R.plurals.limit_how_app_1, appCount))
+                HowRow(Icons.Outlined.Block, context.resources.getQuantityString(R.plurals.limit_how_app_2, appCount, appCount, allowance))
+            } else {
+                HowRow(Icons.Outlined.Timer, if (countsAll) stringResource(R.string.limit_how_daily_all_1) else pluralRes(R.plurals.limit_how_daily_chosen_1, appCount))
+                HowRow(Icons.Outlined.Block, stringResource(R.string.limit_how_daily_2, allowance))
+            }
+            HowRow(Icons.Outlined.Schedule, stringResource(R.string.limit_how_reset))
+            HowRow(Icons.Outlined.Call, stringResource(R.string.limit_how_essentials))
+            Spacer(Modifier.height(6.dp))
+            Text(stringResource(if (kind == RuleKind.APP_LIMIT) R.string.limit_how_vs_daily else R.string.limit_how_vs_app), style = FbType.caption)
+        }
     }
 }
 
@@ -162,10 +184,12 @@ fun LimitWeekCard(insight: LimitInsight, allowanceMinutes: Int) {
             Box(Modifier.fillMaxWidth().height(150.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).background(Fb.surfaceHigh))
             return@FbCard
         }
+        // Today is the last bar; called "Today" like the Activity week chart.
+        val todayLabel = stringResource(R.string.range_today_short)
         StackedBarChart(
             values = week.map { longArrayOf(it.second) },
             colors = listOf(Fb.accent),
-            xLabel = { i -> week.getOrNull(i)?.first?.let { Fmt.weekdayShort(it) } },
+            xLabel = { i -> week.getOrNull(i)?.first?.let { if (i == week.lastIndex) todayLabel else Fmt.weekdayShort(it) } },
             yLabel = { v -> if (v == 0L) "0" else Fmt.duration(context, v) },
             description = stringResource(R.string.limit_week_cd, insight.overDays),
             height = 150.dp,

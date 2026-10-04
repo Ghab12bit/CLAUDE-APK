@@ -19,7 +19,11 @@ import java.time.LocalDate
 class UsageRepository(private val context: Context, private val clock: AppClock) {
     private val mutex = Mutex()
     private var todayCache: Triple<Long, LocalDate, Map<String, Long>>? = null
-    private var eventsCache: Triple<Long, Long, List<UsageCalculator.Event>>? = null
+    private var todayEventsCache: Read? = null
+    private var eventsCache: Read? = null
+
+    /** Events from [from] to [readAt]: all read at [fullAt], the later ones added since. */
+    private class Read(val from: Long, val fullAt: Long, val readAt: Long, val events: List<UsageCalculator.Event>)
 
     fun hasAccess(): Boolean = PermissionUtils.hasUsageStatsPermission(context)
 
@@ -47,15 +51,42 @@ class UsageRepository(private val context: Context, private val clock: AppClock)
         out
     }
 
-    /** Events for the last [days] days plus today, cached for five minutes. */
+    /**
+     * Events from [from] until [now]. A [cached] read that starts by [from] and was read in full less
+     * than [maxAgeMs] ago is reused, with only the events since its last read added.
+     */
+    private suspend fun readEvents(from: Long, now: Long, cached: Read?, maxAgeMs: Long): Read? {
+        if (cached != null && cached.from <= from && now >= cached.readAt && now - cached.fullAt < maxAgeMs) {
+            // The last minute is read again: Android can store an event a moment after its time.
+            val cut = cached.readAt - OVERLAP
+            val added = events(cut, now) ?: return null
+            return Read(cached.from, cached.fullAt, now, cached.events.filter { it.time < cut } + added)
+        }
+        val events = events(from, now) ?: return null
+        return Read(from, now, now, events)
+    }
+
+    /**
+     * Events for the last [days] days plus today, up to now and the time they were read. Read in
+     * full every [maxAgeMs], with only newer events added in between.
+     */
     private suspend fun recentEvents(days: Int, maxAgeMs: Long): Pair<Long, List<UsageCalculator.Event>>? {
         val now = clock.now()
-        val from = PolicyTime.startOfDay(now, clock.zone()) - days * DAY
-        eventsCache?.let { (at, cachedFrom, events) -> if (now - at < maxAgeMs && cachedFrom <= from) return now to events }
         // Start a day earlier so an app that was already open at the window start is counted.
-        val events = events(from - DAY, now) ?: return null
-        eventsCache = Triple(now, from, events)
-        return now to events
+        val from = PolicyTime.startOfDay(now, clock.zone()) - days * DAY - DAY
+        val read = readEvents(from, now, eventsCache, maxAgeMs) ?: return null
+        eventsCache = read
+        return read.readAt to read.events
+    }
+
+    /**
+     * Events from a day before local midnight until [now], so an app that was already open at
+     * midnight is counted from then. Read in full every 15 minutes, with only newer events added in
+     * between, so the frequent fresh reads while an app is open stay small. Call with [mutex] held.
+     */
+    private suspend fun todayEvents(now: Long): Read? {
+        val from = PolicyTime.startOfDay(now, clock.zone()) - DAY
+        return readEvents(from, now, todayEventsCache, 15 * 60_000)?.also { todayEventsCache = it }
     }
 
     /** Foreground time per app since local midnight. Cached for 30 s unless [maxAgeMs] is smaller. */
@@ -65,17 +96,20 @@ class UsageRepository(private val context: Context, private val clock: AppClock)
         val today = PolicyTime.localDate(now, zone)
         todayCache?.let { (at, day, totals) -> if (day == today && now - at < maxAgeMs) return totals }
         val start = PolicyTime.startOfDay(now, zone)
-        val events = events(start - 2 * HOUR, now) ?: return null
+        val events = todayEvents(now)?.events ?: return null
         val totals = UsageCalculator.totals(UsageCalculator.intervals(events, now), start, now)
         todayCache = Triple(now, today, totals)
         return totals
     } }
 
-    /** Foreground time per app in an arbitrary window (imported hourly rules). */
-    suspend fun windowTotals(from: Long, to: Long): Map<String, Long>? {
-        val events = events(from - 2 * HOUR, to) ?: return null
+    /** Foreground time per app in a window that ends by now (imported hourly rules). */
+    suspend fun windowTotals(from: Long, to: Long): Map<String, Long>? { mutex.withLock {
+        val now = clock.now()
+        // Today's events reach back a day before midnight, so an app open since long before [from] is counted.
+        val today = todayEvents(now) ?: return null
+        val events = if (today.from <= from - 2 * HOUR && to <= now) today.events else events(from - DAY, to) ?: return null
         return UsageCalculator.totals(UsageCalculator.intervals(events, to), from, to)
-    }
+    } }
 
     suspend fun launches(from: Long, to: Long): Map<String, Int>? {
         val events = events(from - HOUR, to) ?: return null
@@ -95,8 +129,8 @@ class UsageRepository(private val context: Context, private val clock: AppClock)
     } }
 
     /**
-     * Raw events for the Activity tab: the last [days] days plus today (cached for five minutes),
-     * and the time they were read. Null without Usage access.
+     * Raw events for the Activity tab: the last [days] days plus today (read in full every five
+     * minutes, newer events added in between), and the time they were read. Null without Usage access.
      */
     suspend fun insightEvents(days: Int = INSIGHT_DAYS): Pair<Long, List<UsageCalculator.Event>>? { mutex.withLock {
         return recentEvents(days, 5 * 60_000)
@@ -108,12 +142,13 @@ class UsageRepository(private val context: Context, private val clock: AppClock)
         return events.minOfOrNull { it.time }?.let { PolicyTime.localDate(it, clock.zone()) }
     } }
 
-    fun invalidate() { todayCache = null; eventsCache = null }
+    fun invalidate() { todayCache = null; todayEventsCache = null; eventsCache = null }
 
     companion object {
         const val INSIGHT_DAYS = 27
         private const val HOUR = 3_600_000L
         private const val DAY = 24 * HOUR
+        private const val OVERLAP = 60_000L
         // UsageEvents.Event constants, inlined so they read on API 26 (they are compile-time ints).
         private const val RESUMED = 1 // ACTIVITY_RESUMED / MOVE_TO_FOREGROUND
         private const val PAUSED = 2 // ACTIVITY_PAUSED / MOVE_TO_BACKGROUND

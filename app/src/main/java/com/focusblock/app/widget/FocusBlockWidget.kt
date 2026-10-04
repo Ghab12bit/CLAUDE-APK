@@ -58,8 +58,12 @@ class FocusBlockWidget : AppWidgetProvider() {
         }
     }
 
+    /** The last block, or before the first one, the apps chosen in onboarding or the picker. */
+    private suspend fun lastOrChosen(graph: AppGraph): BlockSetup? =
+        graph.sessions.lastSetup() ?: graph.sessions.savedSelection().takeIf { it.isNotEmpty() }?.let { BlockSetup(it) }
+
     private suspend fun widgetSetup(graph: AppGraph): BlockSetup? {
-        val last = graph.sessions.lastSetup() ?: return null
+        val last = lastOrChosen(graph) ?: return null
         if (graph.db.settingsDao().getValue(PrefKeys.WIDGET_ACTION) != "default") return last
         val s = graph.db.settingsDao()
         val type = SessionType.values().firstOrNull { it.name == s.getValue(PrefKeys.DEFAULT_TYPE) } ?: last.type
@@ -109,7 +113,7 @@ class FocusBlockWidget : AppWidgetProvider() {
                 }
                 else -> {
                     views.setTextViewText(R.id.widget_status, context.getString(R.string.widget_idle))
-                    val last = graph.sessions.lastSetup()
+                    val last = lastOrChosen(graph)
                     views.setTextViewText(R.id.widget_detail, last?.let { context.resources.getQuantityString(R.plurals.apps_count, it.packages.size, it.packages.size) } ?: "")
                     views.setTextViewText(R.id.widget_button, context.getString(if (last == null) R.string.widget_setup else R.string.widget_start))
                 }

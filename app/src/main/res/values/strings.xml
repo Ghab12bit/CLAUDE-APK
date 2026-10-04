@@ -153,9 +153,9 @@
     <string name="iv_blocked_open">%s is blocked until you end this block</string>
     <string name="iv_app_limit">%1$s limit reached · available again at %2$s</string>
     <string name="iv_daily_limit">Daily limit reached · apps available again at %s</string>
-    <string name="reason_session_timed">Blocked by your %d-min block</string>
-    <string name="reason_session_intervals">Blocked by your intervals</string>
-    <string name="reason_session_open">Blocked by your block</string>
+    <string name="reason_session_timed">Part of your %d-min block</string>
+    <string name="reason_session_intervals">Part of your Focus intervals</string>
+    <string name="reason_session_open">Part of your block</string>
     <string name="reason_rule">Blocked by %s</string>
     <string name="reason_bedtime">Blocked by Bedtime</string>
     <string name="reason_app_limit">Blocked by your %s limit</string>
@@ -326,8 +326,8 @@
     <string name="screen_time_week">Screen time this week %1$s — %2$s a day on average.</string>
     <string name="section_blocks">Blocks</string>
     <string name="outcome_finished">Finished</string>
-    <string name="outcome_not_finished">Not yet</string>
-    <string name="outcome_unanswered">Unanswered</string>
+    <string name="outcome_not_finished">Not finished</string>
+    <string name="outcome_unanswered">No answer</string>
     <string name="outcome_ended_early">Ended early</string>
     <string name="outcome_extended">Extended</string>
     <string name="section_attempts_by_hour">Blocked attempts by hour</string>
@@ -340,7 +340,7 @@
     <string name="unlock_emergency">Emergency</string>
     <string name="unlock_pending">Waiting</string>
     <string name="unlocks_none">No unlocks in this period.</string>
-    <string name="section_rules_working">Rules working</string>
+    <string name="section_rules_working">What blocked apps</string>
     <string name="rule_working">Working</string>
     <string name="rule_often_bypassed">Often bypassed · %1$d of %2$d attempts unlocked</string>
     <string name="rules_none_active">No rule blocked anything in this period.</string>
@@ -368,7 +368,10 @@
     <string name="settings_troubleshooting">Troubleshooting</string>
     <string name="settings_about">About</string>
     <string name="health_all_ok">Everything FocusBlock needs is working</string>
-    <string name="health_problems">%s needs attention</string>
+    <plurals name="health_problems">
+        <item quantity="one">%s needs attention</item>
+        <item quantity="other">%s need attention</item>
+    </plurals>
     <string name="perm_accessibility">Accessibility</string>
     <string name="perm_usage">Usage access</string>
     <string name="perm_notifications">Notifications</string>
@@ -675,7 +678,7 @@
         <item quantity="one">When it reaches %2$s, it is blocked for the rest of the day.</item>
         <item quantity="other">When the total reaches %2$s, all of them are blocked for the rest of the day.</item>
     </plurals>
-    <string name="limit_how_daily_all_1">Counts your total time in every app except essential apps.</string>
+    <string name="limit_how_daily_all_1">Counts your total time in every app except essential apps and apps not counted in screen time.</string>
     <plurals name="limit_how_daily_chosen_1">
         <item quantity="one">Counts your total time in this app.</item>
         <item quantity="other">Counts your total time in these %d apps.</item>
@@ -696,5 +699,30 @@
     <string name="limit_is_on">Limit is on</string>
     <string name="limit_is_on_yes">Counting and blocking today</string>
     <string name="limit_is_on_no">Off · nothing is counted or blocked</string>
-    <string name="limit_delete">Delete this limit</string>
+    <string name="limit_delete">Delete limit</string>
+    <string name="blocks_none">No blocks in this period.</string>
+    <string name="outcome_total">Total</string>
+    <string name="stat_started">STARTED</string>
+    <string name="block_extended_until">Added 15 minutes · until %s</string>
+    <plurals name="block_apps_added">
+        <item quantity="one">Added %d app to this block</item>
+        <item quantity="other">Added %d apps to this block</item>
+    </plurals>
+    <plurals name="picker_add_apps">
+        <item quantity="one">Add %d app</item>
+        <item quantity="other">Add %d apps</item>
+    </plurals>
+    <string name="routine_delete">Delete routine</string>
+    <string name="bedtime_turn_off">Turn off Bedtime</string>
+    <string name="focus_cycle_turn_off">Turn off Focus Cycle</string>
+    <string name="state_expanded">Expanded</string>
+    <string name="state_collapsed">Collapsed</string>
+    <string name="onb_test_no_apps">No apps chosen, so there is nothing to test yet. You can test later from Settings › Troubleshooting.</string>
+    <string name="state_selected">Selected</string>
+    <string name="state_not_selected">Not selected</string>
+    <plurals name="apps_more_cd">
+        <item quantity="one">%d more app</item>
+        <item quantity="other">%d more apps</item>
+    </plurals>
+    <string name="history_some_no_detail">Pickups, focus and continuous use were not recorded for some of these days.</string>
 </resources>

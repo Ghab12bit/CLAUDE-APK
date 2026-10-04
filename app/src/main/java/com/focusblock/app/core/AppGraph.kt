@@ -70,6 +70,8 @@ class AppGraph private constructor(appContext: Context) {
     private val refreshMutex = Mutex()
     private var pendingRefresh: Job? = null
     @Volatile private var problemShown = false
+    /** elapsedRealtime of the last backup service start. */
+    @Volatile private var backupStartedAt = 0L
 
     /** Coalesces bursts of changes into one refresh. */
     fun requestRefresh() {
@@ -135,8 +137,15 @@ class AppGraph private constructor(appContext: Context) {
     /** The foreground fallback runs only while Accessibility is not running and something needs enforcing. */
     private fun ensureBackupBlocking(protecting: Boolean) {
         val accessibilityOk = PermissionHealth.accessibilityState(context) == HealthState.OK && ServiceHeartbeat.connected
-        if (protecting && !accessibilityOk && usage.hasAccess()) AppBlockingService.start(context)
-        else if (accessibilityOk || !protecting) AppBlockingService.stop(context)
+        if (protecting && !accessibilityOk && usage.hasAccess()) {
+            backupStartedAt = clock.elapsed()
+            AppBlockingService.start(context)
+        } else if (!protecting || (accessibilityOk && clock.elapsed() - backupStartedAt > BACKUP_SETTLE_MS)) {
+            // When Accessibility connects just after a start (process start), stopping the backup could
+            // come before it is in the foreground, which crashes the app. It stops itself once it sees
+            // Accessibility running.
+            AppBlockingService.stop(context)
+        }
     }
 
     /** Degraded protection is always reported honestly (spec 4.11, 12.1). */
@@ -146,13 +155,17 @@ class AppGraph private constructor(appContext: Context) {
             problemShown = true
             notifier.showProblem(Requirement.ACCESSIBILITY)
             diagnostics.log("DEGRADED", "Accessibility not running while blocking is expected")
-        } else if (!broken && problemShown) {
+        } else if (!broken) {
+            // Always: a notice shown before the process restarted is not tracked by [problemShown].
             problemShown = false
             notifier.cancelProblem()
         }
     }
 
     companion object {
+        /** Android's limit for a started foreground service to call startForeground. */
+        private const val BACKUP_SETTLE_MS = 10_000L
+
         @Volatile private var instance: AppGraph? = null
 
         fun get(context: Context): AppGraph = instance ?: synchronized(this) {

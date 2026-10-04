@@ -3,6 +3,7 @@ package com.focusblock.app.ui
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -52,6 +53,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -94,8 +96,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        openRequest.value = intent?.getStringExtra(EXTRA_OPEN)
+        // The app is dark only: light status and navigation bar icons whatever the system theme.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
+        // After rotation, process restore or reopening from Recents the intent is the old one: handling
+        // its request again would reopen the end-early sheet or push Health a second time.
+        val fromHistory = ((intent?.flags ?: 0) and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+        if (savedInstanceState == null && !fromHistory) takeOpenRequest(intent)
         setContent {
             FbTheme {
                 Box(Modifier.fillMaxSize().background(Fb.bg)) { Root(openRequest.value) { openRequest.value = null } }
@@ -106,7 +115,13 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        openRequest.value = intent.getStringExtra(EXTRA_OPEN)
+        takeOpenRequest(intent)
+    }
+
+    /** Reads the screen to open once; the extra is removed so a retained intent never replays it. */
+    private fun takeOpenRequest(intent: Intent?) {
+        openRequest.value = intent?.getStringExtra(EXTRA_OPEN)
+        intent?.removeExtra(EXTRA_OPEN)
     }
 
     override fun onResume() {
@@ -168,7 +183,7 @@ private fun MainNav(open: String?, onOpened: () -> Unit) {
 
     LaunchedEffect(open) {
         when (open) {
-            MainActivity.OPEN_HEALTH -> nav.navigate(SettingsRoutes.HEALTH)
+            MainActivity.OPEN_HEALTH -> nav.navigate(SettingsRoutes.HEALTH) { launchSingleTop = true }
             MainActivity.OPEN_ACTIVITY -> selectTab(nav, Tabs.ACTIVITY)
             MainActivity.OPEN_END_SHEET -> selectTab(nav, Tabs.BLOCK)
             MainActivity.OPEN_END_EARLY -> {
@@ -184,10 +199,10 @@ private fun MainNav(open: String?, onOpened: () -> Unit) {
         bottomBar = { if (route in Tabs.all) BottomBar(route) { selectTab(nav, it) } },
     ) { padding ->
         NavHost(nav, startDestination = Tabs.BLOCK, modifier = Modifier.padding(padding).imePadding()) {
-            composable(Tabs.BLOCK) {
+            composable(Tabs.BLOCK) { entry ->
                 val state by blockVm.state.collectAsStateWithLifecycle()
-                BlockScreen(state, blockVm, onSettings = { nav.navigate(SettingsRoutes.HOME) },
-                    onEssentials = { nav.navigate(SettingsRoutes.ESSENTIALS) }, onHealth = { nav.navigate(SettingsRoutes.HEALTH) })
+                BlockScreen(state, blockVm, onSettings = { nav.openFrom(entry, SettingsRoutes.HOME) },
+                    onEssentials = { nav.openFrom(entry, SettingsRoutes.ESSENTIALS) }, onHealth = { nav.openFrom(entry, SettingsRoutes.HEALTH) })
             }
             composable(Tabs.RULES) { entry ->
                 val vm: RulesViewModel = viewModel(factory = viewModelFactory { initializer { RulesViewModel(graph) } })
@@ -199,63 +214,80 @@ private fun MainNav(open: String?, onOpened: () -> Unit) {
                     onDispose { entry.lifecycle.removeObserver(observer) }
                 }
                 // A double tap would open two editors; the second could save stale values over the first.
-                val resumed = { entry.lifecycle.currentState == Lifecycle.State.RESUMED }
-                RulesScreen(state, vm, onSettings = { if (resumed()) nav.navigate(SettingsRoutes.HOME) }, onEdit = { if (resumed()) nav.navigate(editorRoute(it)) },
-                    onEssentials = { if (resumed()) nav.navigate(SettingsRoutes.ESSENTIALS) })
+                RulesScreen(state, vm, onSettings = { nav.openFrom(entry, SettingsRoutes.HOME) }, onEdit = { nav.openFrom(entry, editorRoute(it)) },
+                    onEssentials = { nav.openFrom(entry, SettingsRoutes.ESSENTIALS) })
             }
-            composable(Tabs.ACTIVITY) {
+            composable(Tabs.ACTIVITY) { entry ->
                 val vm: ActivityViewModel = viewModel(factory = viewModelFactory { initializer { ActivityViewModel(graph) } })
                 val state by vm.state.collectAsStateWithLifecycle()
-                ActivityScreen(state, vm, onSettings = { nav.navigate(SettingsRoutes.HOME) })
+                // The tab keeps its state, so coming back to it (or to the app) recounts the minutes. Skipped
+                // while a load is still running, such as the first one from init when the tab opens.
+                DisposableEffect(entry) {
+                    val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME && !vm.state.value.loading) vm.load() }
+                    entry.lifecycle.addObserver(observer)
+                    onDispose { entry.lifecycle.removeObserver(observer) }
+                }
+                ActivityScreen(state, vm, onSettings = { nav.openFrom(entry, SettingsRoutes.HOME) })
             }
             composable(
                 EDITOR,
                 arguments = listOf("kind", "id", "template", "start", "end", "days", "apps", "name").map { name ->
                     navArgument(name) { type = NavType.StringType; nullable = true; defaultValue = null }
                 },
-            ) {
+            ) { entry ->
                 val vm: RuleEditorViewModel = viewModel(factory = viewModelFactory { initializer { RuleEditorViewModel(graph, createSavedStateHandle()) } })
                 val state by vm.state.collectAsStateWithLifecycle()
-                RuleEditorScreen(state, vm, onClose = { nav.popBackStack() })
+                RuleEditorScreen(state, vm, onClose = { nav.closeFrom(entry) })
             }
-            composable(SettingsRoutes.HOME) {
+            composable(SettingsRoutes.HOME) { entry ->
                 val state by settingsVm.state.collectAsStateWithLifecycle()
-                SettingsHome(state, settingsVm, onBack = { nav.popBackStack() }, onOpen = { nav.navigate(it) })
+                SettingsHome(state, settingsVm, onBack = { nav.closeFrom(entry) }, onOpen = { nav.openFrom(entry, it) })
             }
-            composable(SettingsRoutes.HEALTH) {
+            composable(SettingsRoutes.HEALTH) { entry ->
                 val state by settingsVm.state.collectAsStateWithLifecycle()
-                HealthScreen(state, settingsVm, onBack = { nav.popBackStack() })
+                HealthScreen(state, settingsVm, onBack = { nav.closeFrom(entry) })
             }
-            composable(SettingsRoutes.ESSENTIALS) {
+            composable(SettingsRoutes.ESSENTIALS) { entry ->
                 val state by settingsVm.state.collectAsStateWithLifecycle()
-                EssentialsScreen(state, settingsVm, onBack = { nav.popBackStack() })
+                EssentialsScreen(state, settingsVm, onBack = { nav.closeFrom(entry) })
             }
-            composable(SettingsRoutes.SETS) {
+            composable(SettingsRoutes.SETS) { entry ->
                 val state by settingsVm.state.collectAsStateWithLifecycle()
-                SavedSetsScreen(state, settingsVm, onBack = { nav.popBackStack() })
+                SavedSetsScreen(state, settingsVm, onBack = { nav.closeFrom(entry) })
             }
-            composable(SettingsRoutes.DEFAULT) {
+            composable(SettingsRoutes.DEFAULT) { entry ->
                 val state by settingsVm.state.collectAsStateWithLifecycle()
-                DefaultBlockScreen(state, settingsVm, onBack = { nav.popBackStack() })
+                DefaultBlockScreen(state, settingsVm, onBack = { nav.closeFrom(entry) })
             }
-            composable(SettingsRoutes.NOTIFICATIONS) {
+            composable(SettingsRoutes.NOTIFICATIONS) { entry ->
                 val state by settingsVm.state.collectAsStateWithLifecycle()
-                NotificationsScreen(state, settingsVm, onBack = { nav.popBackStack() })
+                NotificationsScreen(state, settingsVm, onBack = { nav.closeFrom(entry) })
             }
-            composable(SettingsRoutes.WIDGET) {
+            composable(SettingsRoutes.WIDGET) { entry ->
                 val state by settingsVm.state.collectAsStateWithLifecycle()
-                WidgetScreen(state, settingsVm, onBack = { nav.popBackStack() })
+                WidgetScreen(state, settingsVm, onBack = { nav.closeFrom(entry) })
             }
-            composable(SettingsRoutes.DATA) {
+            composable(SettingsRoutes.DATA) { entry ->
                 val state by settingsVm.state.collectAsStateWithLifecycle()
-                DataScreen(state, settingsVm, onBack = { nav.popBackStack() })
+                DataScreen(state, settingsVm, onBack = { nav.closeFrom(entry) })
             }
-            composable(SettingsRoutes.TROUBLESHOOTING) {
+            composable(SettingsRoutes.TROUBLESHOOTING) { entry ->
                 val state by settingsVm.state.collectAsStateWithLifecycle()
-                TroubleshootingScreen(state, settingsVm, onBack = { nav.popBackStack() }, onTested = { selectTab(nav, Tabs.BLOCK) })
+                TroubleshootingScreen(state, settingsVm, onBack = { nav.closeFrom(entry) }, onTested = { selectTab(nav, Tabs.BLOCK) })
             }
         }
     }
+}
+
+// A quick double tap must not push a screen twice or pop twice (a blank screen without the bottom bar).
+// A screen opens another only once settled (resumed) and closes only while it is still on top; the
+// editor also closes itself after saving, which must not be dropped mid-transition.
+private fun NavHostController.openFrom(entry: NavBackStackEntry, route: String) {
+    if (entry.lifecycle.currentState == Lifecycle.State.RESUMED) navigate(route)
+}
+
+private fun NavHostController.closeFrom(entry: NavBackStackEntry) {
+    if (currentBackStackEntry?.id == entry.id) popBackStack()
 }
 
 private fun selectTab(nav: NavHostController, route: String) {

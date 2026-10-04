@@ -140,10 +140,10 @@ class RuleEditorViewModel(private val graph: AppGraph, private val saved: SavedS
                 if (c != null) {
                     isNew = false
                     draft = RuleDraft(name = c.name, windowMinutes = c.usageWindowMinutes.coerceAtLeast(1), breakMinutes = c.breakDurationMinutes.coerceAtLeast(1),
-                        apps = csv(c.selectedPackages).ifEmpty { graph.sessions.lastSetup()?.packages ?: emptyList() })
+                        apps = csv(c.selectedPackages).ifEmpty { graph.sessions.savedSelection().ifEmpty { graph.sessions.lastSetup()?.packages.orEmpty() } })
                 } else {
                     draft = RuleDraft(name = graph.context.getString(R.string.type_focus_cycle), windowMinutes = 10, breakMinutes = 30,
-                        apps = graph.sessions.lastSetup()?.packages ?: emptyList())
+                        apps = graph.sessions.savedSelection().ifEmpty { graph.sessions.lastSetup()?.packages.orEmpty() })
                 }
             }
             RuleKind.IMPORTED -> {
@@ -208,8 +208,9 @@ class RuleEditorViewModel(private val graph: AppGraph, private val saved: SavedS
         insightJob?.cancel()
         insightJob = viewModelScope.launch(Dispatchers.IO) {
             val d = mutable.value.draft
-            // Essential apps are never counted (the same set enforcement uses).
-            val exempt = graph.policy.exempt()
+            // Essential apps and apps not counted in screen time never count (as in enforcement, which
+            // still counts the latter while a Hard Mode lock is on).
+            val exempt = graph.policy.exempt() + (if (mutable.value.lockedUntil == null) graph.history.userExcluded() else emptySet<String>())
             val counted: Set<String> = (if (kind == RuleKind.DAILY_LIMIT && d.countsAll) graph.apps.packages() else d.apps.toSet()) - exempt
             val zone = graph.clock.zone()
             val today = com.focusblock.app.policy.PolicyTime.localDate(graph.clock.now(), zone)

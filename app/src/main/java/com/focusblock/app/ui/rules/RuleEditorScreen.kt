@@ -1,6 +1,5 @@
 package com.focusblock.app.ui.rules
 
-import com.focusblock.app.ui.components.SecondaryButton
 import com.focusblock.app.ui.components.SectionHeader
 import com.focusblock.app.ui.components.FbCard
 import android.app.TimePickerDialog
@@ -92,7 +91,8 @@ fun RuleEditorScreen(state: EditorUi, vm: RuleEditorViewModel, onClose: () -> Un
             val noApps = d.apps.isEmpty() && !(kind == RuleKind.DAILY_LIMIT && d.countsAll)
             LimitTodayCard(state.insight, d.minutes, state.savedMinutes, state.enabled, state.usageAccess, noApps)
             Spacer(Modifier.height(12.dp))
-            LimitHowItWorksCard(kind, d.countsAll, d.apps.size, d.minutes)
+            // Folded on a saved limit so Settings stays near the top; open while setting one up.
+            LimitHowItWorksCard(kind, d.countsAll, d.apps.size, d.minutes, initiallyExpanded = state.isNew)
             state.insight?.takeIf { it.usedToday != null && !noApps }?.let { insight ->
                 Spacer(Modifier.height(12.dp))
                 LimitTodayByAppCard(insight, vm::label)
@@ -160,7 +160,7 @@ fun RuleEditorScreen(state: EditorUi, vm: RuleEditorViewModel, onClose: () -> Un
                 TextLink(stringResource(R.string.action_edit), { picker = true }, enabled = !locked)
             }
             if (d.apps.isEmpty()) DividerRow(title = stringResource(R.string.editor_choose_apps), onClick = if (locked) null else ({ picker = true }))
-            else AppIconRow(d.apps, vm::label)
+            else AppIconRow(d.apps, vm::label, onMore = if (locked) null else ({ picker = true }))
             SectionGap()
         }
 
@@ -214,13 +214,16 @@ fun RuleEditorScreen(state: EditorUi, vm: RuleEditorViewModel, onClose: () -> Un
         Column(Modifier.padding(horizontal = Fb.gutter), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PrimaryButton(stringResource(R.string.action_save), vm::save, enabled = !locked && !state.saving)
             if (!state.isNew && kind != RuleKind.IMPORTED && !locked) {
-                when (kind) {
+                // One destructive link for every kind; Bedtime and Focus Cycle are only switched off, so they say so.
+                val remove = when (kind) {
                     // The switch above turns the daily limit off; there is only one, so nothing to delete.
-                    RuleKind.DAILY_LIMIT -> Unit
-                    RuleKind.APP_LIMIT -> SecondaryButton(stringResource(R.string.limit_delete), vm::delete)
-                    RuleKind.ROUTINE -> TextLink(stringResource(R.string.action_delete), vm::delete, accent = false)
-                    else -> TextLink(stringResource(R.string.state_off), vm::delete, accent = false)
+                    RuleKind.DAILY_LIMIT, RuleKind.IMPORTED -> null
+                    RuleKind.APP_LIMIT -> R.string.limit_delete
+                    RuleKind.ROUTINE -> R.string.routine_delete
+                    RuleKind.BEDTIME -> R.string.bedtime_turn_off
+                    RuleKind.FOCUS_CYCLE -> R.string.focus_cycle_turn_off
                 }
+                remove?.let { DestructiveLink(stringResource(it), vm::delete, Modifier.align(Alignment.CenterHorizontally)) }
             }
         }
         Spacer(Modifier.height(32.dp))
@@ -250,6 +253,15 @@ private fun summaryText(state: EditorUi, vm: RuleEditorViewModel): String {
         RuleKind.BEDTIME -> context.getString(R.string.bedtime_summary, Fmt.minuteOfDay(context, d.start), Fmt.minuteOfDay(context, d.end), Fmt.days(context, d.days))
         RuleKind.FOCUS_CYCLE -> context.getString(R.string.focus_cycle_summary, Fmt.minutes(context, d.windowMinutes), apps, Fmt.minutes(context, d.breakMinutes))
     } + if (d.strict && (state.kind == RuleKind.ROUTINE || state.kind == RuleKind.BEDTIME)) " · " + context.getString(R.string.strength_strict) else ""
+}
+
+/** A [TextLink] in the warning colour, for delete and turn-off actions. */
+@Composable
+private fun DestructiveLink(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier.heightIn(min = Fb.touch).clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(text, style = FbType.label.copy(color = Fb.warning)) }
 }
 
 @Composable

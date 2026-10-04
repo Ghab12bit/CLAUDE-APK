@@ -6,18 +6,22 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
@@ -29,9 +33,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -73,7 +79,11 @@ class InterventionActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Dark only, like the main screen: light bar icons whatever the system theme.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         bindIntent(intent)
         setContent {
             FbTheme {
@@ -101,10 +111,21 @@ class InterventionActivity : ComponentActivity() {
         bindIntent(intent)
     }
 
+    override fun onStart() {
+        super.onStart()
+        viewModel.onScreenStart()
+    }
+
     override fun onResume() {
         super.onResume()
         com.focusblock.app.core.ServiceHeartbeat.interventionShownAt = android.os.SystemClock.elapsedRealtime()
         viewModel.refresh(resetWait = false)
+    }
+
+    /** Home leaves this screen in its own task; it stays (keeping the emergency panel) but idles. */
+    override fun onStop() {
+        super.onStop()
+        viewModel.onScreenStop()
     }
 
     private fun bindIntent(intent: Intent?) {
@@ -153,7 +174,7 @@ class InterventionActivity : ComponentActivity() {
     }
 }
 
-/** "Blocked by your 45-min block" / "Blocked by Evening routine" (spec 3.2). */
+/** "Part of your 45-min block" / "Blocked by Evening routine" (spec 3.2). */
 @Composable
 fun reasonLine(reason: BlockReason, session: SessionInput?): String = when (reason.type) {
     ReasonType.SESSION -> when (session?.type) {
@@ -192,10 +213,12 @@ fun InterventionScreen(
 ) {
     val context = LocalContext.current
     val decision = state.decision
-    Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+    BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
+        // Centred when it fits; scrolls when taller (emergency panel, large font sizes).
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 24.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).heightIn(min = maxHeight).padding(vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
             Spacer(Modifier.height(24.dp))
             AppIcon(state.pkg, null, 72.dp)
@@ -280,9 +303,15 @@ private fun BlockedBody(
                     TextLink(stringResource(if (quick) R.string.iv_stop_quick_block else R.string.iv_end_block), onEndBlock, accent = false)
                 }
                 if (state.offer.emergency) {
-                    // Low emphasis, with its cost visible underneath (spec 2.5).
-                    TextLink(stringResource(R.string.emergency_access), onEmergency, accent = false)
-                    Text(stringResource(R.string.emergency_cost), style = FbType.caption)
+                    // Low emphasis, with its cost visible underneath (spec 2.5); one tap target for both lines.
+                    Column(
+                        Modifier.heightIn(min = Fb.touch).clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onEmergency).padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(stringResource(R.string.emergency_access), style = FbType.label.copy(color = Fb.textSecondary))
+                        Text(stringResource(R.string.emergency_cost), style = FbType.caption)
+                    }
                 }
             }
         }

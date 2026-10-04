@@ -587,3 +587,59 @@ the block screen asked for a new 10-minute wait.
 
 Verified on the emulator: a request that became ready 90 minutes earlier is offered without a new
 wait, and tapping it opens the app with emergency access.
+
+## Round 8: full audit — bugs, UI and UX (2026-10-04)
+
+Four read-only audits (enforcement, Activity numbers, Block tab/onboarding/settings, UI/UX from the
+emulator screenshots), then fixes in file-disjoint groups, each checked by a second reviewer, and a
+final cross-file review.
+
+Bugs fixed
+- **Strict Lock bypass through Essentials:** the Essentials screen used a stale "Strict active"
+  flag, so during a Strict block a blocked app could be added as essential (= unblocked). It now
+  refreshes on resume and re-checks Strict from a fresh policy snapshot right before saving.
+- **Crash:** a routine whose name contains "|" crashed the Block tab while it overlapped a block.
+- **Usage numbers:** recent-event cache stretched the last app to "now" and missed apps used in the
+  last five minutes; today's totals looked back only two hours before midnight (an app open across
+  midnight counted 0); Settings was excluded from screen time as if it were a launcher.
+- **Activity:** reloads when you return to it (it kept showing the morning's numbers); overlapping
+  loads are cancelled; "usual" no longer inflated early in the day; Week/Trend averages and
+  "% vs the week before" compare per-day averages over days with data; pickups average over days
+  that recorded them; near-empty days no longer show a peak hour or a usage split.
+- **Limits:** apps left out of screen time no longer use up limits (until the limit is reached, so
+  they cannot be used to dodge it); the Rules tab shows the same "used" as enforcement; hourly
+  imported rules use the local hour (not UTC).
+- **Emergency access:** a request is tied to the block that caused it, so it cannot skip the wait in
+  a later, different block (coming back later in the same block still works); one countdown
+  notification per app.
+- **Quick block:** stopping it now completes it (asks "Did you finish?") instead of counting as
+  ended early.
+- **Navigation and system:** notification/widget requests no longer re-run after rotation; double
+  taps cannot pop or push twice; Back closes sheets on Android 13+ (predictive-back flag removed);
+  light status-bar icons in system light mode; onboarding handles Back, discards its test block and
+  pads for system bars; a permanently denied notification permission opens notification settings.
+- **Background:** the block screen's ticker pauses when it is not visible; the emergency panel no
+  longer carries over to another app; backup mode without "Display over other apps" no longer logs a
+  blocked attempt every 15 s; usage reminders ignore screen-off time; the policy catches up on a
+  late alarm (no exact-alarm permission) and on screen-on; a stale "Blocking stopped working"
+  notification is cleared after a restart.
+- **Setup:** picking apps no longer becomes "Repeat last block"; Settings' troubleshooting test is a
+  test block; the Block draft follows Settings › Default block or the last block, never a mix; a stale
+  end-early request no longer opens on the next block; the Block tab refreshes on return.
+
+UI and UX
+- Activity has a page title; empty charts look empty (and say "No data"); peak and usage split
+  hidden on near-empty days; outcome labels read "Not finished" / "No answer" with a Total.
+- Block tab: one way to start an until-you-stop block (the Quick block card); quieter Repeat last;
+  one "Add apps"; a quick block shows when it started; confirmation after +15 min and adding apps.
+- Block screen: "Part of your 30-min block"; emergency access is one clear tappable unit; content
+  centred.
+- App picker: apps already in the block are not listed again; "Add N apps"; essentials are never
+  pre-ticked; Search key closes the keyboard.
+- Rows that open something show a chevron; times never wrap before AM/PM; health problems shown in
+  warning colour; consistent "Delete limit / Delete routine / Turn off …" in editors; "How it works"
+  folds on existing limits; Rules timeline uses "12 AM / 6 AM" labels centred on their ticks.
+
+Not changed (design decisions for the owner): Strict mode can still be escaped by turning off
+Accessibility, force-stopping or uninstalling FocusBlock from Settings, and by changing the phone's
+clock or time zone.

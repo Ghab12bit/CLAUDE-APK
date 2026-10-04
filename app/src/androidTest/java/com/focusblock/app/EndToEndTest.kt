@@ -91,6 +91,8 @@ class EndToEndTest {
         runBlocking {
             graph.db.settingsDao().insert(AppSettings(PrefKeys.ONBOARDING_DONE, "true"))
             graph.db.openHelper.writableDatabase.execSQL("UPDATE block_sessions SET isActive = 0, endReason = 'ENDED_EARLY', outcome = 'ENDED_EARLY' WHERE isActive = 1")
+            // A stopped quick block waits for "Did you finish?"; settle it so that sheet never covers a later test.
+            graph.db.openHelper.writableDatabase.execSQL("UPDATE block_sessions SET outcome = 'UNANSWERED' WHERE isActive = 0 AND outcome IS NULL")
             graph.db.openHelper.writableDatabase.execSQL("DELETE FROM unlock_events")
             graph.essentials.ensureSeeded()
             graph.policy.invalidate()
@@ -133,7 +135,7 @@ class EndToEndTest {
         start(Strength.NORMAL)
         openTarget()
         waitForBlockScreen()
-        assertNotNull(device.findObject(By.text("Blocked by your 30-min block")))
+        assertNotNull(device.findObject(By.text("Part of your 30-min block")))
         assertNotNull(device.findObject(By.text("You're working on: Finish the Q3 report")))
         assertNotNull(device.findObject(By.textContains("try in this block")))
         val logs = runBlocking { graph.db.attemptDao().since(since) }
@@ -327,6 +329,12 @@ class EndToEndTest {
         val deadline = System.currentTimeMillis() + 5_000
         while (runBlocking { graph.sessions.active() } != null && System.currentTimeMillis() < deadline) Thread.sleep(200)
         assertNull("Stop ends the quick block", runBlocking { graph.sessions.active() })
+        // Stopping is how a quick block completes: it asks how it went instead of counting as ended early.
+        check(device.wait(Until.hasObject(By.text("Did you finish?")), 5_000), "Did you finish? after stopping")
+        tap("Finished")
+        val answered = System.currentTimeMillis() + 5_000
+        while (runBlocking { graph.db.blockSessionDao().get(running.id) }?.outcome == null && System.currentTimeMillis() < answered) Thread.sleep(200)
+        assertEquals("FINISHED", runBlocking { graph.db.blockSessionDao().get(running.id) }?.outcome)
     }
 
     @Test fun aLimitPageShowsTodayHowItWorksAndTheWeek() {
@@ -347,7 +355,7 @@ class EndToEndTest {
             screenshot("15-limit-page-2")
             scrollTo("Last 7 days")
             check(device.hasObject(By.text("Last 7 days")), "Week card")
-            scrollTo("Delete this limit")
+            scrollTo("Delete limit")
             screenshot("15-limit-page-3")
             check(device.hasObject(By.text("Limit is on")), "On/off switch")
         } finally {
@@ -382,7 +390,8 @@ class EndToEndTest {
         assertTrue("A newly added app is blocked at once", decision.blocked)
         openMain()
         check(device.wait(Until.hasObject(By.textStartsWith("Blocking until")), 15_000), "Active block title")
-        device.findObject(By.text("Add apps"))?.click()
+        scrollTo("Add apps")
+        tap("Add apps")
         check(device.wait(Until.hasObject(By.text("Add apps to this block")), 5_000), "Add apps picker")
         screenshot("11-add-apps-picker")
     }
@@ -393,10 +402,12 @@ class EndToEndTest {
             graph.apps.all().map { it.packageName }.filter { it !in exempt }.take(3)
         }
         runBlocking {
+            val last = graph.sessions.lastSetup()
             graph.sessions.saveSelection(chosen)
             val r = graph.sessions.start(StartRequest(BlockSetup(listOf(chosen.first()), SessionType.TIMED, 1), test = true))
             assertTrue(r is StartResult.Started)
-            assertEquals(chosen, graph.sessions.lastSetup()!!.packages)
+            // Neither choosing apps nor the test block becomes "Repeat last block".
+            assertEquals(last, graph.sessions.lastSetup())
             graph.sessions.discardTest((r as StartResult.Started).id)
             assertNull(graph.sessions.active())
             assertNull("The test block never asks Did you finish?", graph.db.blockSessionDao().awaitingOutcome())
@@ -410,7 +421,8 @@ class EndToEndTest {
         check(device.wait(Until.hasObject(By.text("Block distractions")), 15_000), "Idle Block tab")
         assertNotNull(device.findObject(By.text("What are you working on?")))
         assertNotNull(device.findObject(By.text("Intervals")))
-        assertNotNull(device.findObject(By.text("Until I stop")))
+        assertNotNull(device.findObject(By.text("Timed")))
+        assertNull("Until I stop is the Quick block card, not a duration", device.findObject(By.text("Until I stop")))
         assertNull(device.findObject(By.text("Cycles")))
         screenshot("00-block-idle")
         scrollDown()

@@ -28,8 +28,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +55,8 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -65,6 +65,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -113,8 +114,10 @@ import com.focusblock.app.ui.components.VisualState
 import com.focusblock.app.ui.components.pluralRes
 import com.focusblock.app.ui.picker.AppPickerSheet
 import com.focusblock.app.ui.picker.PickerContext
+import com.focusblock.app.ui.settings.RefreshOnResume
 import com.focusblock.app.ui.theme.Fb
 import com.focusblock.app.ui.theme.FbType
+import kotlinx.coroutines.launch
 
 @Composable
 fun BlockScreen(
@@ -132,6 +135,15 @@ fun BlockScreen(
     val input = state.input
     val running = input != null && !SessionClock.state(input, now).ended
 
+    // Coming back from system settings (Accessibility, usage access) updates the status and Start straight away.
+    RefreshOnResume(vm::refreshDerived)
+
+    // "End early" from a notification or widget after the block ended: nothing to end, and the
+    // next block must not open the end-early sheet by itself.
+    LaunchedEffect(state.endEarlyRequested, state.loading, running) {
+        if (state.endEarlyRequested && !state.loading && !running) vm.clearEndEarlyRequest()
+    }
+
     // Announce block state changes for TalkBack (spec 11.5).
     val view = LocalView.current
     var wasRunning by rememberSaveable { mutableStateOf<Boolean?>(null) }
@@ -146,15 +158,33 @@ fun BlockScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        AppHeader(onSettings)
-        Spacer(Modifier.height(12.dp))
-        when {
-            state.loading -> LoadingSkeleton()
-            running -> ActiveBlock(state, vm, now, onEssentials)
-            else -> IdleBlock(state, vm, onEssentials, onHealth)
+    // Short confirmations (+15 min, apps added). Shown from their own scope so clearing the
+    // notice does not cancel the snackbar.
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(state.notice) {
+        val text = when (val n = state.notice) {
+            is Notice.Extended -> context.getString(R.string.block_extended_until, Fmt.time(context, n.until))
+            is Notice.AppsAdded -> context.resources.getQuantityString(R.plurals.block_apps_added, n.count, n.count)
+            null -> return@LaunchedEffect
         }
-        Spacer(Modifier.height(32.dp))
+        vm.clearNotice()
+        snackbar.currentSnackbarData?.dismiss()
+        scope.launch { snackbar.showSnackbar(text) }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            AppHeader(onSettings)
+            Spacer(Modifier.height(12.dp))
+            when {
+                state.loading -> LoadingSkeleton()
+                running -> ActiveBlock(state, vm, now, onEssentials)
+                else -> IdleBlock(state, vm, onEssentials, onHealth)
+            }
+            Spacer(Modifier.height(32.dp))
+        }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(16.dp))
     }
 
     state.awaitingOutcome?.let { ended ->
@@ -245,9 +275,9 @@ private fun IdleBlock(state: BlockUi, vm: BlockViewModel, onEssentials: () -> Un
                 leading = { IconWell(Icons.Outlined.Replay, Fb.accent) },
                 trailing = {
                     Box(
-                        Modifier.size(40.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Fb.buttonPrimaryBg, Fb.buttonPrimaryBgEnd))),
+                        Modifier.size(40.dp).clip(CircleShape).background(Fb.surfaceHigh),
                         contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Outlined.PlayArrow, null, tint = Fb.buttonPrimaryText, modifier = Modifier.size(24.dp)) }
+                    ) { Icon(Icons.Outlined.PlayArrow, null, tint = Fb.accent, modifier = Modifier.size(24.dp)) }
                 },
             )
         }
@@ -300,7 +330,6 @@ private fun IdleBlock(state: BlockUi, vm: BlockViewModel, onEssentials: () -> Un
             options = listOf(
                 SessionType.TIMED to stringResource(R.string.session_timed),
                 SessionType.INTERVALS to stringResource(R.string.session_intervals),
-                SessionType.INDEFINITE to stringResource(R.string.session_until_stop),
             ),
             selected = d.type,
             onSelect = vm::setType,
@@ -311,7 +340,8 @@ private fun IdleBlock(state: BlockUi, vm: BlockViewModel, onEssentials: () -> Un
                 Spacer(Modifier.height(14.dp))
                 val presets = BlockViewModel.PRESETS
                 val index = presets.indexOf(d.minutes).let { if (it < 0) 3 else it }
-                val custom = if (index == 3) Fmt.minutes(context, d.minutes) else stringResource(R.string.duration_custom)
+                // Minutes like the presets ("150 min"): "2 h 30 min" does not fit a quarter-width chip.
+                val custom = if (index == 3) stringResource(R.string.duration_min, d.minutes) else stringResource(R.string.duration_custom)
                 ChoiceChips(
                     options = presets.map { stringResource(R.string.duration_min, it) } + custom,
                     selectedIndex = index,
@@ -568,15 +598,15 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
     Spacer(Modifier.height(12.dp))
     Row(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         StatTile(state.blockedOpenings.toString(), stringResource(R.string.stat_blocked_openings), Icons.Outlined.Block, Fb.warning, Modifier.weight(1f))
-        StatTile(Fmt.duration(context, (now - input.startedAt).coerceAtLeast(0)), stringResource(R.string.stat_focused_for), Icons.Outlined.Timer, Fb.success, Modifier.weight(1f))
+        // A quick block just started would read "0 min"; its start time says more.
+        if (quick) StatTile(Fmt.time(context, input.startedAt), stringResource(R.string.stat_started), Icons.Outlined.Schedule, Fb.success, Modifier.weight(1f))
+        else StatTile(Fmt.duration(context, (now - input.startedAt).coerceAtLeast(0)), stringResource(R.string.stat_focused_for), Icons.Outlined.Timer, Fb.success, Modifier.weight(1f))
     }
 
-    // Blocked apps, with Add apps.
+    // Blocked apps; "Add apps" is the button below.
     Spacer(Modifier.height(12.dp))
     FbCard {
-        SectionLabel(pluralRes(R.plurals.apps_blocked_count, input.packages.size)) {
-            TextLink(stringResource(R.string.action_add_apps), { addApps = true })
-        }
+        SectionLabel(pluralRes(R.plurals.apps_blocked_count, input.packages.size))
         Spacer(Modifier.height(4.dp))
         AppIconRow(input.packages.toList(), vm::label, onMore = { addApps = true })
         Spacer(Modifier.height(10.dp))
@@ -591,8 +621,7 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
         )
         if (state.alsoBlockedBy.isNotEmpty()) {
             FbDivider()
-            val text = state.alsoBlockedBy.joinToString(", ") { entry ->
-                val (name, start) = entry.split('|').let { it[0] to it[1].toLong() }
+            val text = state.alsoBlockedBy.joinToString(", ") { (name, start) ->
                 val label = name.ifBlank { context.getString(R.string.name_bedtime) }
                 if (start <= now) label else context.getString(R.string.status_rule_starts, label, Fmt.time(context, start))
             }
@@ -662,10 +691,16 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
 @Composable
 private fun EndEarlySheet(left: String?, intention: String?, onKeep: () -> Unit, onEnd: () -> Unit) {
     var wait by rememberSaveable { mutableIntStateOf(END_EARLY_WAIT_SECONDS) }
-    LaunchedEffect(Unit) {
-        while (wait > 0) { kotlinx.coroutines.delay(1_000); wait-- }
-    }
     FbSheet(onDismiss = onKeep) {
+        // The sheet's own window, which TalkBack is reading.
+        val view = LocalView.current
+        val ready = stringResource(R.string.end_early_hold_cd)
+        LaunchedEffect(Unit) {
+            if (wait == 0) return@LaunchedEffect
+            while (wait > 0) { kotlinx.coroutines.delay(1_000); wait-- }
+            // One announcement when ending becomes possible, rather than a live region read out every second.
+            view.announceForAccessibility(ready)
+        }
         Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
             Text(stringResource(R.string.end_early_title), style = FbType.title, modifier = Modifier.padding(horizontal = Fb.gutter))
             Spacer(Modifier.height(8.dp))
@@ -683,8 +718,7 @@ private fun EndEarlySheet(left: String?, intention: String?, onKeep: () -> Unit,
                 PrimaryButton(stringResource(R.string.end_early_keep), onKeep)
                 if (wait > 0) {
                     Box(
-                        Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(Fb.radius)).background(Fb.surfaceHigh)
-                            .semantics { liveRegion = LiveRegionMode.Polite },
+                        Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(Fb.radius)).background(Fb.surfaceHigh),
                         contentAlignment = Alignment.Center,
                     ) { Text(stringResource(R.string.end_early_wait, wait), style = FbType.body.copy(color = Fb.textSecondary)) }
                 } else {

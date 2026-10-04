@@ -173,6 +173,11 @@ class SessionManager(
                 return@withTransaction EndResult.ENDED
             }
             if (input.strength == Strength.STRICT) return@withTransaction EndResult.STRICT_LOCKED
+            // A quick block has no end time: stopping it is how it completes, so it is not "ended early".
+            if (input.type == SessionType.INDEFINITE) {
+                finishCompleted(e)
+                return@withTransaction EndResult.ENDED
+            }
             val now = clock.now()
             dao.update(e.copy(isActive = false, endedAt = now, endReason = END_EARLY, outcome = SessionOutcome.ENDED_EARLY.name, outcomeAt = now))
             EndResult.ENDED
@@ -272,12 +277,12 @@ class SessionManager(
         result
     }
 
-    /** Saves the picker selection without starting anything. Never written into a permanent blocklist. */
+    /**
+     * Saves the picker selection without starting anything. Never written into a permanent blocklist,
+     * nor into "Repeat last block", which only a started block sets.
+     */
     suspend fun saveSelection(packages: List<String>) {
-        val current = lastSetup()
-        val setup = (current ?: BlockSetup(packages)).copy(packages = packages)
         db.settingsDao().insert(AppSettings(PrefKeys.SAVED_APPS, packages.joinToString(",")))
-        if (packages.isNotEmpty()) db.settingsDao().insert(AppSettings(PrefKeys.LAST_SETUP, setup.toJson()))
     }
 
     suspend fun savedSelection(): List<String> = csv(db.settingsDao().getValue(PrefKeys.SAVED_APPS))

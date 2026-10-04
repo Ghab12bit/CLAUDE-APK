@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
@@ -37,7 +39,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -158,15 +162,22 @@ fun AppPickerSheet(
     LaunchedEffect(Unit) { vm.load() }
     val data by vm.data.collectAsStateWithLifecycle()
     var selectedCsv by rememberSaveable { mutableStateOf(initial.joinToString(",")) }
-    val selected = remember(selectedCsv) { csv(selectedCsv).toSet() }
     var query by rememberSaveable { mutableStateOf("") }
     var savingSet by rememberSaveable { mutableStateOf(false) }
 
     val essentialsSelectable = context == PickerContext.ESSENTIALS
     fun locked(pkg: String) = pkg in data.safety || (!essentialsSelectable && pkg in data.essentials)
+    val chosen = remember(selectedCsv) { csv(selectedCsv).toSet() }
+    // Apps that are never blocked can't be unticked, so they are left out of the selection and the
+    // count even when they arrive with [initial]; otherwise the block would start with fewer apps
+    // than shown. The essentials list keeps its always-available entries (such as the phone app).
+    val selected = remember(chosen, data.safety, data.essentials) { chosen.filterNot { locked(it) }.toSet() }
+    val kept = if (essentialsSelectable) chosen - selected else emptySet<String>()
+    // Kept apps still read as selected to TalkBack (they stay in the essentials list).
+    fun ticked(pkg: String) = pkg in selected || pkg in fixed || pkg in kept
     fun toggle(pkg: String) {
         if (locked(pkg) || pkg in fixed) return
-        val next = if (pkg in selected) selected - pkg else selected + pkg
+        val next = if (pkg in chosen) chosen - pkg else chosen + pkg
         selectedCsv = next.joinToString(",")
     }
     val title = when (context) {
@@ -180,13 +191,15 @@ fun AppPickerSheet(
         PickerContext.ONBOARDING -> stringResource(R.string.picker_title_onboarding)
     }
     val byPkg = remember(data.apps) { data.apps.associateBy { it.packageName } }
+    // Adding to a running block: only apps not already in it count (a saved set may re-add fixed ones).
+    val addMode = context == PickerContext.BLOCK_ADD
+    val newCount = (selected - fixed).size
 
     FbSheet(onDismiss = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f)) {
             Text(title, style = FbType.heading, modifier = Modifier.padding(horizontal = Fb.gutter))
             Spacer(Modifier.height(12.dp))
-            LabeledField(stringResource(R.string.picker_search), query, { query = it }, stringResource(R.string.picker_search),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
+            SearchField(query) { query = it }
             Spacer(Modifier.height(8.dp))
             Box(Modifier.weight(1f)) {
                 if (!data.loaded) {
@@ -198,56 +211,61 @@ fun AppPickerSheet(
                         if (q.isEmpty()) {
                             val showSets = context != PickerContext.ESSENTIALS && context != PickerContext.SET
                             val showSuggested = context != PickerContext.ESSENTIALS && context != PickerContext.SET && context != PickerContext.DAILY_LIMIT
-                            val suggested = if (showSuggested) data.suggested.mapNotNull { s -> byPkg[s.pkg]?.let { it to s } } else emptyList()
+                            val suggested = if (showSuggested) data.suggested.filter { it.pkg !in fixed }.mapNotNull { s -> byPkg[s.pkg]?.let { it to s } } else emptyList()
                             if (suggested.isNotEmpty()) {
                                 item(key = "h_suggested") { SectionLabel(stringResource(R.string.picker_suggested)) }
                                 items(suggested, key = { "g_" + it.first.packageName }) { (app, s) ->
                                     val note = if (s.dailyAverage >= 60_000L) stringResource(R.string.per_day_duration, com.focusblock.app.core.Fmt.duration(LocalContext.current, s.dailyAverage))
                                         else pluralRes(R.plurals.attempts_short, s.attempts)
-                                    AppRow(app, app.packageName in selected || app.packageName in fixed, locked(app.packageName), app.packageName in data.safety, app.packageName in fixed, note) { toggle(app.packageName) }
+                                    AppRow(app, ticked(app.packageName), locked(app.packageName), app.packageName in data.safety, app.packageName in fixed, note) { toggle(app.packageName) }
                                 }
                             }
-                            val recent = data.recent.mapNotNull(byPkg::get)
+                            val recent = data.recent.filter { it !in fixed }.mapNotNull(byPkg::get)
                             if (recent.isNotEmpty() && context != PickerContext.ESSENTIALS) {
                                 item(key = "h_recent") { SectionLabel(stringResource(R.string.picker_recent)) }
-                                items(recent, key = { "r_" + it.packageName }) { app -> AppRow(app, app.packageName in selected || app.packageName in fixed, locked(app.packageName), app.packageName in data.safety, app.packageName in fixed) { toggle(app.packageName) } }
+                                items(recent, key = { "r_" + it.packageName }) { app -> AppRow(app, ticked(app.packageName), locked(app.packageName), app.packageName in data.safety, app.packageName in fixed) { toggle(app.packageName) } }
                             }
                             if (showSets && data.sets.isNotEmpty()) {
                                 item(key = "h_sets") { SectionLabel(stringResource(R.string.picker_saved_sets)) }
                                 items(data.sets, key = { "s_" + it.id }) { set ->
                                     val packages = csv(set.packages)
                                     SetRow(set.name, packages.size) {
-                                        selectedCsv = (selected + packages.filter { !locked(it) }).joinToString(",")
+                                        selectedCsv = (chosen + packages.filter { !locked(it) }).joinToString(",")
                                     }
                                 }
                             }
-                            val often = data.often.mapNotNull(byPkg::get)
+                            val often = data.often.filter { it !in fixed }.mapNotNull(byPkg::get)
                             if (often.isNotEmpty() && context != PickerContext.ESSENTIALS) {
                                 item(key = "h_often") { SectionLabel(stringResource(R.string.picker_often_blocked)) }
-                                items(often, key = { "o_" + it.packageName }) { app -> AppRow(app, app.packageName in selected || app.packageName in fixed, locked(app.packageName), app.packageName in data.safety, app.packageName in fixed) { toggle(app.packageName) } }
+                                items(often, key = { "o_" + it.packageName }) { app -> AppRow(app, ticked(app.packageName), locked(app.packageName), app.packageName in data.safety, app.packageName in fixed) { toggle(app.packageName) } }
                             }
                             item(key = "h_all") { SectionLabel(stringResource(R.string.picker_all_apps)) }
                         }
                         if (matches.isEmpty()) {
                             item(key = "empty") { Text(stringResource(R.string.picker_no_results, query), style = FbType.body.copy(color = Fb.textSecondary), modifier = Modifier.padding(Fb.gutter)) }
                         }
-                        items(matches, key = { "a_" + it.packageName }) { app -> AppRow(app, app.packageName in selected || app.packageName in fixed, locked(app.packageName), app.packageName in data.safety, app.packageName in fixed) { toggle(app.packageName) } }
+                        items(matches, key = { "a_" + it.packageName }) { app -> AppRow(app, ticked(app.packageName), locked(app.packageName), app.packageName in data.safety, app.packageName in fixed) { toggle(app.packageName) } }
                     }
                 }
             }
             FbDivider(inset = 0.dp)
             Row(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter, vertical = 10.dp).navigationBarsPadding(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(pluralRes(R.plurals.apps_selected, (selected + fixed).size), style = FbType.label)
+                    Text(pluralRes(R.plurals.apps_selected, if (addMode) newCount else (selected + fixed).size), style = FbType.label)
                     if (context == PickerContext.BLOCK || context == PickerContext.RULE || context == PickerContext.APP_LIMIT) {
                         TextLink(stringResource(R.string.picker_save_set), { savingSet = true }, enabled = selected.isNotEmpty(), accent = true, modifier = Modifier.padding(start = 0.dp))
                     }
                 }
-                Box(Modifier.width(140.dp)) {
-                    PrimaryButton(stringResource(R.string.action_done), {
-                        val all = selected + fixed
+                Box(Modifier.width(if (addMode) 160.dp else 140.dp)) {
+                    val doneLabel = when {
+                        !addMode -> stringResource(R.string.action_done)
+                        newCount == 0 -> stringResource(R.string.action_add_apps)
+                        else -> pluralRes(R.plurals.picker_add_apps, newCount)
+                    }
+                    PrimaryButton(doneLabel, {
+                        val all = selected + fixed + kept
                         onDone(data.apps.map { it.packageName }.filter { it in all } + all.filter { s -> data.apps.none { it.packageName == s } })
-                    })
+                    }, enabled = !addMode || newCount > 0)
                 }
             }
         }
@@ -268,6 +286,33 @@ fun AppPickerSheet(
             dismissButton = { TextButton(onClick = { savingSet = false }) { Text(stringResource(R.string.action_cancel), color = Fb.textSecondary) } },
         )
     }
+}
+
+/** Search box without a visible label: the placeholder says what it is, the content description names it for TalkBack. */
+@Composable
+private fun SearchField(value: String, onValueChange: (String) -> Unit) {
+    val focusManager = LocalFocusManager.current
+    val hint = stringResource(R.string.picker_search)
+    BasicTextField(
+        value = value,
+        onValueChange = { onValueChange(it.take(80)) },
+        singleLine = true,
+        textStyle = FbType.body,
+        cursorBrush = SolidColor(Fb.accent),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        // Clearing focus closes the keyboard; some keyboards send Done instead of Search.
+        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }, onSearch = { focusManager.clearFocus() }),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Fb.gutter).semantics { contentDescription = hint },
+        decorationBox = { inner ->
+            Box(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp)).background(Fb.surfaceHigh).padding(horizontal = 14.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (value.isEmpty()) Text(hint, style = FbType.body.copy(color = Fb.textSecondary.copy(alpha = 0.8f)))
+                inner()
+            }
+        },
+    )
 }
 
 @Composable

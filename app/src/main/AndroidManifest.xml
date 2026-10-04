@@ -18,6 +18,8 @@
     <!-- Ends blocks and sends "Did you finish?" on time (Android 12+). Enforcement does not depend on it. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
+    <!-- No enableOnBackInvokedCallback: Material3 1.1 bottom sheets close only on the Back key event,
+         which predictive back never sends, so Back would leave the app instead of closing the sheet. -->
     <application
         android:name=".FocusBlockApp"
         android:allowBackup="true"
@@ -26,7 +28,6 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.FocusBlock"
-        android:enableOnBackInvokedCallback="true"
         tools:targetApi="34">
 
         <!-- Main Activity -->

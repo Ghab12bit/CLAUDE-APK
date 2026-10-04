@@ -46,13 +46,40 @@ class InterventionViewModel(private val graph: AppGraph, private val saved: Save
 
     private var logId: Long = 0
     private var ticker: kotlinx.coroutines.Job? = null
+    /** The screen is started (visible). Left with Home it stays alive in its own task, but idle. */
+    private var started = false
 
     fun bind(pkg: String, logId: Long, attempt: Int) {
         if (pkg == mutable.value.pkg && logId == this.logId) return
         this.logId = logId
+        // Reused for another app (onNewIntent): the previous app's emergency panel, reason and
+        // request do not carry over. The same app again (or a restore after process death) keeps them.
+        if (pkg != saved.get<String>(KEY_PKG)) {
+            saved[KEY_PKG] = pkg
+            saved.remove<String>(KEY_REASON)
+            mutable.update { it.copy(emergencyOpen = false, emergencyReason = "", pending = null) }
+        }
         saved.get<String>(KEY_REASON)?.let { r -> mutable.update { it.copy(emergencyReason = r) } }
         mutable.update { it.copy(pkg = pkg, attempt = attempt.coerceAtLeast(1), loading = true, openedUntil = null, showOpenConfirm = false) }
         refresh()
+        if (started) startTicker()
+    }
+
+    /** The screen is visible again: resume the countdown (the activity's onResume refreshes the policy). */
+    fun onScreenStart() {
+        started = true
+        mutable.update { it.copy(now = System.currentTimeMillis()) }
+        startTicker()
+    }
+
+    /** Left (e.g. with Home): stop ticking and re-checking the policy in the background. */
+    fun onScreenStop() {
+        started = false
+        ticker?.cancel()
+        ticker = null
+    }
+
+    private fun startTicker() {
         ticker?.cancel()
         ticker = viewModelScope.launch {
             while (isActive) {
@@ -70,6 +97,8 @@ class InterventionViewModel(private val graph: AppGraph, private val saved: Save
             val offer = FrictionPolicy.offer(decision, mutable.value.attempt)
             val pending = graph.overrides.pendingEmergency(pkg)
             mutable.update {
+                // Rebound to another app meanwhile: this result is the previous app's.
+                if (it.pkg != pkg) return@update it
                 it.copy(
                     loading = false,
                     appName = graph.apps.label(pkg),
@@ -107,11 +136,12 @@ class InterventionViewModel(private val graph: AppGraph, private val saved: Save
     }
 
     fun useEmergency() {
+        val s = mutable.value
         viewModelScope.launch {
-            when (val r = graph.overrides.useEmergency(mutable.value.pkg)) {
+            when (val r = graph.overrides.useEmergency(s.pkg)) {
                 is OverrideManager.Result.Granted -> {
-                    graph.notifier.showUnlocked(mutable.value.appName, r.until)
-                    mutable.update { it.copy(openedUntil = r.until) }
+                    graph.notifier.showUnlocked(s.appName, r.until, pkg = s.pkg)
+                    mutable.update { if (it.pkg == s.pkg) it.copy(openedUntil = r.until) else it }
                 }
                 else -> refresh(resetWait = false)
             }
@@ -119,11 +149,16 @@ class InterventionViewModel(private val graph: AppGraph, private val saved: Save
     }
 
     fun cancelEmergency() {
+        val pkg = mutable.value.pkg
         viewModelScope.launch {
-            graph.overrides.cancelEmergency(mutable.value.pkg)
-            mutable.update { it.copy(pending = null, emergencyOpen = false) }
+            graph.overrides.cancelEmergency(pkg)
+            mutable.update { if (it.pkg == pkg) it.copy(pending = null, emergencyOpen = false) else it }
         }
     }
 
-    companion object { private const val KEY_REASON = "reason" }
+    companion object {
+        private const val KEY_REASON = "reason"
+        /** Not "package": the intent's extras seed this handle. */
+        private const val KEY_PKG = "bound_pkg"
+    }
 }

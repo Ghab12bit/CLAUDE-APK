@@ -149,7 +149,8 @@ class OverrideManager(
         if (!decision.blocked) return@withContext Result.NotNeeded
         val result = db.withTransaction {
             val existing = db.unlockEventDao().pending(pkg)
-            if (existing != null && clock.now() < FrictionPolicy.emergencyUsableUntil(existing.readyAt, clock.zone())) return@withTransaction Result.Waiting(existing.readyAt)
+            if (existing != null && clock.now() < FrictionPolicy.emergencyUsableUntil(existing.readyAt, clock.zone()) &&
+                sameBlock(pkg, existing, decision, snap)) return@withTransaction Result.Waiting(existing.readyAt)
             existing?.let { db.unlockEventDao().update(it.copy(status = UnlockEventEntity.CANCELLED)) }
             val now = clock.now()
             val times = FrictionPolicy.emergency(now)
@@ -172,18 +173,51 @@ class OverrideManager(
 
     /**
      * The emergency request for [pkg] that is waiting or ready to use, or null. A request past its
-     * last usable moment (midnight) is cancelled here, so the screen never offers a dead button.
+     * last usable moment (midnight) is cancelled here, so the screen never offers a dead button, and
+     * so is one made in a block that is over, so it cannot skip the wait in a later block.
      */
     suspend fun pendingEmergency(pkg: String): UnlockEventEntity? = withContext(Dispatchers.IO) {
         val pending = db.unlockEventDao().pending(pkg) ?: return@withContext null
         if (clock.now() >= FrictionPolicy.emergencyUsableUntil(pending.readyAt, clock.zone())) {
             db.unlockEventDao().update(pending.copy(status = UnlockEventEntity.CANCELLED))
-            null
-        } else pending
+            return@withContext null
+        }
+        val (decision, snap) = enforcer.decide(pkg)
+        if (!sameBlock(pkg, pending, decision, snap)) {
+            db.unlockEventDao().update(pending.copy(status = UnlockEventEntity.CANCELLED))
+            EmergencyReadyWorker.cancel(context, pkg)
+            return@withContext null
+        }
+        pending
+    }
+
+    /**
+     * Whether [request] was made in a block that still covers [pkg]: the block that was running then,
+     * or the same rule in the same occurrence. Coming back later in that block keeps the request.
+     * Rows saved before the reason was recorded are kept.
+     */
+    private suspend fun sameBlock(pkg: String, request: UnlockEventEntity, decision: BlockDecision, snap: PolicySnapshot): Boolean {
+        val type = ReasonType.values().firstOrNull { it.name == request.reasonType } ?: return true
+        val id = request.ruleId ?: return true
+        // An Intervals break pauses a block without ending it, so the session only has to be the same.
+        val session = snap.session
+        if (session != null && pkg in session.packages && session.id == (request.sessionId ?: id.takeIf { type == ReasonType.SESSION })) return true
+        if (type == ReasonType.SESSION || decision.reasons.none { it.type == type && it.ruleId == id }) return false
+        // The same routine, bedtime or Focus Cycle break can start again later the same day.
+        val now = clock.now()
+        val startedAt = when (type) {
+            ReasonType.ROUTINE -> snap.routines.firstOrNull { it.id == id }?.window?.occurrenceAt(now, clock.zone())?.start
+            ReasonType.BEDTIME -> snap.bedtime?.window?.occurrenceAt(now, clock.zone())?.start
+            ReasonType.FOCUS_CYCLE -> db.focusCycleDao().getFocusCycle(id)?.breakStartTime
+            else -> null
+        }
+        return startedAt == null || startedAt <= request.requestedAt
     }
 
     /** After the wait: opens the app for five minutes. */
     suspend fun useEmergency(pkg: String): Result = withContext(Dispatchers.IO) {
+        // Also cancels a request from a block that is over.
+        if (pendingEmergency(pkg) == null) return@withContext Result.NotAllowed
         val result = db.withTransaction {
             val pending = db.unlockEventDao().pending(pkg) ?: return@withTransaction Result.NotAllowed
             val now = clock.now()

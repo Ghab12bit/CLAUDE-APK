@@ -18,11 +18,13 @@ import com.focusblock.app.policy.SessionOutcome
 import com.focusblock.app.policy.UsageCalculator
 import com.focusblock.app.core.AppGraph
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 enum class Period { DAY, WEEK, TREND }
@@ -40,7 +42,8 @@ data class UnlockRow(val pkg: String, val label: String, val kind: String, val s
 data class RuleRowStat(val name: String, val attempts: Int, val bypasses: Int) {
     val oftenBypassed: Boolean get() = Metrics.RuleBypass(name, attempts, bypasses).oftenBypassed
 }
-data class WeekStat(val from: LocalDate, val to: LocalDate, val total: Long, val daysWithData: Int, val change: Int?)
+/** One week of Trend: its total, average per day ([Metrics.dailyAverage]) and change from the week before. */
+data class WeekStat(val from: LocalDate, val to: LocalDate, val total: Long, val average: Long?, val change: Int?)
 
 data class ActivityUi(
     val loading: Boolean = true,
@@ -52,10 +55,12 @@ data class ActivityUi(
     val usageAccess: Boolean = true,
     /** Screen time in the range, or null when Usage access is missing (never shown as zero). */
     val screenTime: Long? = null,
-    /** Day: usual screen time by this time of day (2-week average). Week: the week before. */
+    /** Day: usual screen time by this time of day (2-week average). */
     val compareTo: Long? = null,
-    /** Trend: average per day over days with data. */
+    /** Week and Trend: average per day over days with data ([Metrics.dailyAverage]). */
     val dailyAverage: Long? = null,
+    /** Week: change in average per day from the week before. Trend: the latest week's change ([Metrics.averageChange]). */
+    val change: Int? = null,
     val chart: List<LongArray> = emptyList(),
     val chartLabels: List<String?> = emptyList(),
     val chartAverage: Long? = null,
@@ -64,12 +69,16 @@ data class ActivityUi(
     val byCategory: LongArray = LongArray(3),
     val shares: IntArray = IntArray(3),
     val balancePercent: Int = 0,
+    /** Days the per-day averages are taken over (1 for Day). */
     val daysInRange: Int = 1,
     val hourTotals: LongArray = LongArray(24),
     val peakHour: Int? = null,
     val longestFocus: Long = 0,
     val longestUse: Long = 0,
+    /** Pickups in the range, over the days that recorded them. */
     val pickups: Int = 0,
+    /** Week and Trend: average pickups per day over the days that recorded them. */
+    val pickupsPerDay: Int? = null,
     val weeks: List<WeekStat> = emptyList(),
     /** Apps the user chose not to count, with their time in the range. */
     val excludedApps: List<AppStat> = emptyList(),
@@ -77,6 +86,8 @@ data class ActivityUi(
     val hourlyMissing: Boolean = false,
     /** Pickups, continuous use and focus are unknown for this range (no saved detail). */
     val detailMissing: Boolean = false,
+    /** Some days in the range (from an earlier version) have no pickups, continuous use or focus. */
+    val detailPartial: Boolean = false,
     val outcomes: Metrics.OutcomeCounts = Metrics.OutcomeCounts(0, 0, 0, 0, 0),
     val attemptsByHour: IntArray = IntArray(24),
     val totalAttempts: Int = 0,
@@ -96,6 +107,9 @@ data class ActivityUi(
 class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
     private val mutable = MutableStateFlow(ActivityUi())
     val state: StateFlow<ActivityUi> = mutable.asStateFlow()
+
+    /** The load in progress. A newer one cancels it, so an older range never lands last. */
+    private var loadJob: Job? = null
 
     init { load() }
 
@@ -119,6 +133,8 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
     fun setCounted(pkg: String, label: String, counted: Boolean) {
         viewModelScope.launch {
             graph.history.setCounted(pkg, label, counted)
+            // Limits stop (or start) counting this app: re-check the open app, notification and widget now.
+            graph.requestRefresh()
             load()
         }
     }
@@ -131,7 +147,8 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
     }
 
     fun load() {
-        viewModelScope.launch(Dispatchers.IO) {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch(Dispatchers.IO) {
             val ctx = graph.context
             val now = graph.clock.now()
             val zone = graph.clock.zone()
@@ -182,6 +199,7 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
             var screen: Long? = null
             var comparison: Long? = null
             var dailyAverage: Long? = null
+            var change: Int? = null
             var chart: List<LongArray> = emptyList()
             var chartLabels: List<String?> = emptyList()
             var chartAverage: Long? = null
@@ -192,12 +210,14 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
             var longestFocus = 0L
             var longestUse = 0L
             var pickups = 0
+            var pickupsPerDay: Int? = null
             var weeks: List<WeekStat> = emptyList()
             var daysInRange = dates.size
             var hourlyMissing = false
 
             if (access || inRange.isNotEmpty()) {
                 val dayTotals = dates.map { d -> byDate[d]?.total(counted) ?: 0L }
+                val rangeTotals = dates.zip(dayTotals).toMap()
                 when (period) {
                     Period.DAY -> {
                         val day = byDate[dates.first()]
@@ -205,46 +225,53 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
                         hourlyMissing = day != null && day.hourly == null
                         chartLabels = List(24) { h -> if (h % 6 == 0) Fmt.hourShort(ctx, h) else null }
                         // Usual screen time: today is compared at the same time of day; past days whole.
+                        // Whether a day has data is decided from its whole day, so days with no use yet by now count as zero.
                         val cutoff = if (offset == 0) ((now - from) / 60_000L).toInt().coerceIn(0, 1439) else null
-                        val totals = (14 downTo 0).map { dates.first().minusDays(it.toLong()) }.associateWith { d ->
-                            byDate[d]?.let { u -> if (cutoff != null) Insights.totalBefore(u, cutoff, counted) else u.total(counted) } ?: 0L
-                        }
-                        comparison = Metrics.baseline(totals, dates.first())
+                        val window = (14 downTo 0).map { dates.first().minusDays(it.toLong()) }
+                        val full = window.associateWith { d -> byDate[d]?.total(counted) ?: 0L }
+                        val totals = if (cutoff == null) full else window.associateWith { d -> byDate[d]?.let { Insights.totalBefore(it, cutoff, counted) } ?: 0L }
+                        comparison = Metrics.baseline(totals, dates.first(), full)
                         daysInRange = 1
                     }
                     Period.WEEK -> {
                         chart = dates.map { d -> byDate[d]?.let { Insights.dayStack(it, categoryOf, counted) } ?: LongArray(3) }
                         chartLabels = dates.map { if (it == today) ctx.getString(R.string.range_today_short) else Fmt.weekdayShort(it) }
-                        val withData = dayTotals.count { it > 0 }.coerceAtLeast(1)
-                        chartAverage = dayTotals.sum() / withData
-                        comparison = dates.sumOf { byDate[it.minusDays(7)]?.total(counted) ?: 0L }.takeIf { it > 0 }
-                        daysInRange = dates.count { !it.isAfter(today) }
+                        // One average per day for the hero, the dashed line and Balance: days with data, today only when alone.
+                        dailyAverage = Metrics.dailyAverage(rangeTotals, today)
+                        chartAverage = dailyAverage
+                        change = Metrics.averageChange(rangeTotals, extra.associateWith { byDate[it]?.total(counted) ?: 0L }, today)
+                        daysInRange = Metrics.averagedDays(rangeTotals, today).size.coerceAtLeast(1)
                     }
                     Period.TREND -> {
                         chart = dates.map { d -> byDate[d]?.let { Insights.dayStack(it, categoryOf, counted) } ?: LongArray(3) }
                         chartLabels = dates.mapIndexed { i, d -> if ((dates.size - 1 - i) % 7 == 0) Fmt.dayMonth(d) else null }
-                        val withData = dayTotals.filter { it > 0 }
-                        dailyAverage = if (withData.isEmpty()) null else withData.sum() / withData.size
+                        dailyAverage = Metrics.dailyAverage(rangeTotals, today)
                         chartAverage = dailyAverage
-                        // Four weeks, newest first, each compared with the week before it.
+                        // Four weeks, newest first, each compared with the week before it (average per day).
                         val weekSlices = (0 until 4).map { w ->
-                            val range = (dates.size - 7 * (w + 1)) until (dates.size - 7 * w)
-                            Triple(dates[range.first], dates[range.last], range.map { dayTotals[it] })
+                            dates.subList(dates.size - 7 * (w + 1), dates.size - 7 * w).associateWith { rangeTotals[it] ?: 0L }
                         }
-                        weeks = weekSlices.mapIndexed { i, (start, end, slice) ->
-                            val total = slice.sum()
-                            val prev = weekSlices.getOrNull(i + 1)?.third?.sum()
-                            WeekStat(start, end, total, slice.count { it > 0 }, prev?.let { Insights.changePercent(total, it) })
+                        weeks = weekSlices.mapIndexed { i, slice ->
+                            val prev = weekSlices.getOrNull(i + 1)
+                            WeekStat(slice.keys.first(), slice.keys.last(), slice.values.sum(), Metrics.dailyAverage(slice, today),
+                                prev?.let { Metrics.averageChange(slice, it, today) })
                         }
-                        daysInRange = withData.size.coerceAtLeast(1)
+                        change = weeks.firstOrNull()?.change
+                        daysInRange = Metrics.averagedDays(rangeTotals, today).size.coerceAtLeast(1)
                     }
                 }
 
                 screen = dayTotals.sum()
                 byCategory = LongArray(3).also { sum -> inRange.forEach { d -> Insights.dayStack(d, categoryOf, counted).forEachIndexed { c, v -> sum[c] += v } } }
                 hourTotals = Insights.hourOfDay(inRange, counted)
-                pickups = inRange.sumOf { it.pickups ?: 0 }
-                longestUse = inRange.mapNotNull { it.longestUse }.maxOrNull() ?: 0L
+                // Older days (from an earlier version) have no pickups: total and average cover the days that do.
+                val recorded = inRange.mapNotNull { d -> d.pickups?.let { d.date to it.toLong() } }.toMap()
+                pickups = recorded.values.sum().toInt()
+                pickupsPerDay = Metrics.dailyAverage(recorded, today)?.toInt()
+                // Continuous use spans every foreground app (the launcher and FocusBlock too, so switching
+                // apps does not break a stretch) and gaps up to a minute, so on a day of little counted use
+                // it could exceed screen time. Each day's value is capped at that day's screen time.
+                longestUse = inRange.mapNotNull { d -> d.longestUse?.let { minOf(it, d.total(counted)) } }.maxOrNull() ?: 0L
                 longestFocus = inRange.mapNotNull { it.longestFocus }.maxOrNull() ?: 0L
 
                 val perApp = HashMap<String, Long>()
@@ -262,6 +289,7 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
                 }.sortedByDescending { it.millis }
             }
             val detailMissing = inRange.isNotEmpty() && inRange.all { it.pickups == null }
+            val detailPartial = !detailMissing && inRange.any { it.pickups == null }
 
             // Blocks, attempts, unlocks and rules in the same range.
             val sessions = graph.db.blockSessionDao().since(from)
@@ -281,6 +309,9 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
             (rec?.proposal as? RecommendationEngine.Proposal.AddRoutine)?.packages?.forEach { labels[it] = graph.apps.label(it) }
             (rec?.proposal as? RecommendationEngine.Proposal.AddAppLimit)?.pkg?.let { labels[it] = graph.apps.label(it) }
 
+            // A peak needs at least a minute of use; seconds would name an hour next to "0 min" of screen time.
+            val peakHour = Insights.peakHour(hourTotals)?.takeIf { hourTotals[it] >= 60_000L }
+
             val description = buildString {
                 append(ctx.getString(R.string.chart_usage_cd, title, Fmt.duration(ctx, screen ?: 0L)))
                 chart.forEachIndexed { i, b ->
@@ -291,8 +322,11 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
                     }
                 }
             }
+            val unlocks = unlockEvents.map { u -> UnlockRow(u.packageName, graph.apps.label(u.packageName), u.kind, u.status, u.grantedAt ?: u.requestedAt, u.reasonText) }
+            // Balance is per day: the day's screen time, or the average per day of a longer range.
+            val balance = Insights.balancePercent(if (period == Period.DAY) screen ?: 0L else dailyAverage ?: 0L, 1)
 
-            mutable.update {
+            val next: (ActivityUi) -> ActivityUi = {
                 it.copy(
                     loading = false,
                     offset = offset,
@@ -302,6 +336,7 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
                     screenTime = screen,
                     compareTo = comparison,
                     dailyAverage = dailyAverage,
+                    change = change,
                     chart = chart,
                     chartLabels = chartLabels,
                     chartAverage = chartAverage,
@@ -309,27 +344,31 @@ class ActivityViewModel(private val graph: AppGraph) : ViewModel() {
                     apps = apps,
                     byCategory = byCategory,
                     shares = Insights.sharePercents(byCategory),
-                    balancePercent = Insights.balancePercent(screen ?: 0L, daysInRange),
+                    balancePercent = balance,
                     daysInRange = daysInRange,
                     hourTotals = hourTotals,
-                    peakHour = Insights.peakHour(hourTotals),
+                    peakHour = peakHour,
                     longestFocus = longestFocus,
                     longestUse = longestUse,
                     pickups = pickups,
+                    pickupsPerDay = pickupsPerDay,
                     weeks = weeks,
                     excludedApps = excludedApps,
                     hourlyMissing = hourlyMissing,
                     detailMissing = detailMissing,
+                    detailPartial = detailPartial,
                     outcomes = outcomes,
                     attemptsByHour = Metrics.attemptsByHour(logs.map { l -> l.timestamp }, zone),
                     totalAttempts = logs.size,
-                    unlocks = unlockEvents.map { u -> UnlockRow(u.packageName, graph.apps.label(u.packageName), u.kind, u.status, u.grantedAt ?: u.requestedAt, u.reasonText) },
+                    unlocks = unlocks,
                     rules = rules,
                     recommendation = rec,
                     labels = labels,
                     hasAnyData = logs.isNotEmpty() || sessions.isNotEmpty() || (screen ?: 0L) > 0L,
                 )
             }
+            // Written on the main thread, where a newer load cancels this one, so a cancelled load never writes.
+            withContext(Dispatchers.Main) { mutable.update(next) }
         }
     }
 

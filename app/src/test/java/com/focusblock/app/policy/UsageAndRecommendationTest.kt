@@ -132,6 +132,14 @@ class UsageAndRecommendationTest {
 
     // ---- Recommendations -------------------------------------------------------------------------
 
+    @Test fun appsNotCountedInScreenTimeAreNotSuggestedForALimit() {
+        val usage = (3..9).associate { LocalDate.of(2026, 10, it) to mapOf("com.youtube" to 100 * min, "com.clock" to 300 * min) }
+        val i = input(usage = usage)
+        assertEquals(RecommendationEngine.Proposal.AddAppLimit("com.clock", 225), RecommendationEngine.appLimit(i)!!.proposal)
+        assertEquals(RecommendationEngine.Proposal.AddAppLimit("com.youtube", 75), RecommendationEngine.appLimit(i.copy(notCounted = setOf("com.clock")))!!.proposal)
+        assertNull(RecommendationEngine.appLimit(i.copy(notCounted = setOf("com.clock", "com.youtube"))))
+    }
+
     private fun input(attempts: List<RecommendationEngine.Attempt> = emptyList(), unlocks: List<RecommendationEngine.Unlock> = emptyList(),
                       usage: Map<LocalDate, Map<String, Long>> = emptyMap(), routines: List<RoutineInput> = emptyList(),
                       first: LocalDate? = LocalDate.of(2026, 9, 20), snoozed: Map<String, Long> = emptyMap()) =

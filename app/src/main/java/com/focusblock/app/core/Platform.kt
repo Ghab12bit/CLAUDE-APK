@@ -3,6 +3,7 @@ package com.focusblock.app.core
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.Settings
@@ -46,7 +47,8 @@ class SafetyApps(private val context: Context) {
         val out = HashSet<String>(FIXED)
         out += context.packageName
         runCatching { (context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager)?.defaultDialerPackage }.getOrNull()?.let(out::add)
-        out += launchers()
+        // Every HOME activity, including fallbacks such as Settings' FallbackHome.
+        out += homeActivities().map { it.activityInfo.packageName }
         out += keyboards()
         runCatching {
             pm.queryIntentActivities(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS), 0).forEach { out += it.activityInfo.packageName }
@@ -65,11 +67,17 @@ class SafetyApps(private val context: Context) {
         return result
     }
 
-    fun launchers(): Set<String> = runCatching {
+    /**
+     * Home-screen launchers (not counted in screen time). HOME activities with a negative priority
+     * are fallbacks, such as Settings' FallbackHome shown while the phone starts, not launchers.
+     */
+    fun launchers(): Set<String> = homeActivities().filter { it.priority >= 0 }.map { it.activityInfo.packageName }.toSet()
+
+    private fun homeActivities(): List<ResolveInfo> = runCatching {
         context.packageManager.queryIntentActivities(
             Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_DEFAULT_ONLY,
-        ).map { it.activityInfo.packageName }.toSet()
-    }.getOrDefault(emptySet())
+        )
+    }.getOrDefault(emptyList())
 
     private fun keyboards(): Set<String> = runCatching {
         (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).enabledInputMethodList.map { it.packageName }.toSet()

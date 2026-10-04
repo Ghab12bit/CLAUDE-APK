@@ -24,10 +24,12 @@ import com.focusblock.app.policy.SessionOutcome
 import com.focusblock.app.policy.SessionType
 import com.focusblock.app.policy.Strength
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -48,6 +50,15 @@ data class Draft(
 
 data class NextRule(val name: String, val at: Long)
 
+/** A rule that also covers the running block's apps, from [start]; a blank [name] is Bedtime. */
+data class AlsoBlocked(val name: String, val start: Long)
+
+/** A short confirmation the Block tab shows once, as a snackbar. */
+sealed interface Notice {
+    data class Extended(val until: Long) : Notice
+    data class AppsAdded(val count: Int) : Notice
+}
+
 data class BlockUi(
     val loading: Boolean = true,
     val draft: Draft = Draft(),
@@ -61,7 +72,7 @@ data class BlockUi(
     val accessibility: HealthState = HealthState.OK,
     val activeRule: BlockReason? = null,
     val nextRule: NextRule? = null,
-    val alsoBlockedBy: List<String> = emptyList(),
+    val alsoBlockedBy: List<AlsoBlocked> = emptyList(),
     val blockedOpenings: Int = 0,
     val busy: Boolean = false,
     val message: Int? = null,
@@ -69,6 +80,7 @@ data class BlockUi(
     val suggestions: List<com.focusblock.app.policy.SmartApps.Suggestion> = emptyList(),
     /** Set when the notification or widget asked to end the block; the screen opens the end-early sheet. */
     val endEarlyRequested: Boolean = false,
+    val notice: Notice? = null,
 )
 
 class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateHandle) : ViewModel() {
@@ -76,13 +88,15 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
     val state: StateFlow<BlockUi> = mutable.asStateFlow()
 
     init {
-        // Restore an in-progress draft after process death; otherwise start from the last setup.
-        restoreDraft()?.let { d -> mutable.update { it.copy(draft = d) } }
+        // Restore an in-progress draft after process death; otherwise see initialDraft().
+        val restored = restoreDraft()
+        restored?.let { d -> mutable.update { it.copy(draft = d) } }
         viewModelScope.launch {
+            // Decided before loading ends, so the first draft shown never jumps or mixes sources.
+            if (restored == null) runCatching { initialDraft() }.getOrNull()?.let { d -> mutable.update { it.copy(draft = d) } }
             combine(graph.sessions.activeFlow(), graph.sessions.awaitingOutcomeFlow(), graph.sessions.lastSetupFlow(), graph.essentials.flow()) { a, w, l, e ->
                 Quad(a, w, l, e)
             }.collect { (active, awaiting, last, essentials) ->
-                val hadDraft = saved.contains(KEY_DRAFT)
                 mutable.update { s ->
                     s.copy(
                         loading = false,
@@ -91,7 +105,8 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
                         awaitingOutcome = awaiting,
                         last = last,
                         essentials = essentials,
-                        draft = if (!hadDraft && last != null && s.draft.packages.isEmpty()) draftFrom(last, s.draft) else s.draft,
+                        // A stale "End early" (tapped after the block ended) must not reach the next block.
+                        endEarlyRequested = s.endEarlyRequested && active != null,
                     )
                 }
                 refreshDerived()
@@ -104,23 +119,67 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
                 refreshDerived()
             }
         }
-        viewModelScope.launch { applyDefaults() }
+        viewModelScope.launch { followDefaults() }
     }
 
     private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 
-    private suspend fun applyDefaults() {
-        if (saved.contains(KEY_DRAFT) || mutable.value.last != null) return
-        val s = graph.db.settingsDao()
-        val type = SessionType.values().firstOrNull { it.name == s.getValue(PrefKeys.DEFAULT_TYPE) } ?: SessionType.TIMED
-        val strict = s.getValue(PrefKeys.DEFAULT_STRENGTH) == Strength.STRICT.name
-        val minutes = s.getValue(PrefKeys.DEFAULT_MINUTES)?.toIntOrNull() ?: 45
-        val selection = graph.sessions.savedSelection()
-        mutable.update { it.copy(draft = it.draft.copy(type = type, strict = strict, minutes = minutes, packages = if (it.draft.packages.isEmpty()) selection else it.draft.packages)) }
+    /** Settings' Default block as stored; every field is null until the user sets one there. */
+    private data class Defaults(val type: String?, val minutes: String?, val strength: String?) {
+        val isSet get() = type != null || minutes != null || strength != null
     }
 
+    private fun Defaults.draftType() = SessionType.values().firstOrNull { it.name == type }?.forDraft() ?: SessionType.TIMED
+    private fun Defaults.draftMinutes() = minutes?.toIntOrNull()?.takeIf { it in 1..720 } ?: 45
+    private fun Defaults.draftStrict() = strength == Strength.STRICT.name
+
+    private fun defaultsFlow(): Flow<Defaults> {
+        val s = graph.db.settingsDao()
+        return combine(s.getValueFlow(PrefKeys.DEFAULT_TYPE), s.getValueFlow(PrefKeys.DEFAULT_MINUTES), s.getValueFlow(PrefKeys.DEFAULT_STRENGTH)) { t, m, st ->
+            Defaults(t, m, st)
+        }.distinctUntilChanged()
+    }
+
+    /**
+     * The draft a fresh Block tab starts from. A Default block saved in Settings defines it (type,
+     * length, strength; intervals at their standard 25/5/4); without one, the last block started
+     * does. Fields never mix between the two. Apps are the picker's saved selection, else the last
+     * block's apps.
+     */
+    private suspend fun initialDraft(): Draft {
+        val s = graph.db.settingsDao()
+        val defaults = Defaults(s.getValue(PrefKeys.DEFAULT_TYPE), s.getValue(PrefKeys.DEFAULT_MINUTES), s.getValue(PrefKeys.DEFAULT_STRENGTH))
+        val last = graph.sessions.lastSetup()
+        val base = Draft(packages = graph.sessions.savedSelection().ifEmpty { last?.packages.orEmpty() })
+        return when {
+            defaults.isSet -> base.copy(type = defaults.draftType(), minutes = defaults.draftMinutes(), strict = defaults.draftStrict())
+            last != null -> draftFrom(last, base)
+            else -> base
+        }
+    }
+
+    /** Changing the Default block in Settings while the app is open updates the draft's changed fields. */
+    private suspend fun followDefaults() {
+        var previous: Defaults? = null
+        defaultsFlow().collect { d ->
+            val before = previous
+            previous = d
+            if (before == null) return@collect // The value at launch, already used by initialDraft().
+            edit { draft ->
+                var next = draft
+                if (d.type != before.type) next = next.copy(type = d.draftType())
+                if (d.minutes != before.minutes) next = next.copy(minutes = d.draftMinutes())
+                if (d.strength != before.strength) next = next.copy(strict = d.draftStrict())
+                next
+            }
+        }
+    }
+
+    /** The Block tab sets up timed blocks and intervals; "until I stop" is the Quick block card. */
+    private fun SessionType.forDraft() = if (this == SessionType.INDEFINITE) SessionType.TIMED else this
+
     private fun draftFrom(last: BlockSetup, current: Draft) = current.copy(
-        packages = last.packages, type = last.type, minutes = last.minutes, focus = last.focusMinutes,
+        type = last.type.forDraft(), minutes = last.minutes.takeIf { it in 1..720 } ?: current.minutes, focus = last.focusMinutes,
         rest = last.breakMinutes, rounds = last.rounds.coerceAtLeast(2), strict = last.strength == Strength.STRICT,
     )
 
@@ -161,19 +220,19 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
     }
 
     /** Rules that also cover the block's apps during the block (spec 4.3 "Also blocked by"). */
-    private suspend fun overlapping(session: SessionInput, now: Long): List<String> {
+    private suspend fun overlapping(session: SessionInput, now: Long): List<AlsoBlocked> {
         val snap = graph.policy.snapshot()
         val zone = graph.clock.zone()
         val end = session.plannedEndAt ?: (now + 12 * 3_600_000L)
-        val out = ArrayList<String>()
+        val out = ArrayList<AlsoBlocked>()
         snap.routines.filter { it.enabled && it.packages.any { p -> p in session.packages } }.forEach { r ->
             val w = r.window ?: return@forEach
             val start = if (w.isActive(now, zone)) now else w.nextStartAfter(now, zone)
-            if (start != null && start < end) out += "${r.name}|$start"
+            if (start != null && start < end) out += AlsoBlocked(r.name, start)
         }
         snap.bedtime?.takeIf { it.enabled }?.window?.let { w ->
             val start = if (w.isActive(now, zone)) now else w.nextStartAfter(now, zone)
-            if (start != null && start < end) out += "|$start"
+            if (start != null && start < end) out += AlsoBlocked("", start)
         }
         return out
     }
@@ -255,18 +314,27 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
         }
     }
 
-    fun extend() { viewModelScope.launch { graph.sessions.extend() } }
+    fun extend() {
+        viewModelScope.launch {
+            if (!graph.sessions.extend()) return@launch
+            graph.sessions.active()?.plannedEndAt?.let { until -> mutable.update { it.copy(notice = Notice.Extended(until)) } }
+        }
+    }
 
-    fun requestEndEarly() = mutable.update { it.copy(endEarlyRequested = true) }
+    /** Ignored when nothing is running (a stale notification or widget); kept while loading, until the block is known. */
+    fun requestEndEarly() = mutable.update { if (!it.loading && it.session == null) it else it.copy(endEarlyRequested = true) }
     fun clearEndEarlyRequest() = mutable.update { it.copy(endEarlyRequested = false) }
 
     /** Adds apps to the running block (allowed in Strict Lock too: it only makes the block stricter). */
     fun addApps(packages: List<String>) {
         viewModelScope.launch {
-            graph.sessions.addApps(packages)
+            val added = graph.sessions.addApps(packages)
+            if (added > 0) mutable.update { it.copy(notice = Notice.AppsAdded(added)) }
             refreshDerived()
         }
     }
+
+    fun clearNotice() = mutable.update { it.copy(notice = null) }
 
     fun outcome(outcome: SessionOutcome) {
         val id = mutable.value.awaitingOutcome?.id ?: return
@@ -294,7 +362,7 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
         if (v.size < 8) return null
         return Draft(
             packages = v[0].split(',').filter { it.isNotBlank() },
-            type = SessionType.values().firstOrNull { it.name == v[1] } ?: SessionType.TIMED,
+            type = SessionType.values().firstOrNull { it.name == v[1] }?.forDraft() ?: SessionType.TIMED,
             minutes = v[2].toIntOrNull() ?: 45, focus = v[3].toIntOrNull() ?: 25, rest = v[4].toIntOrNull() ?: 5,
             rounds = v[5].toIntOrNull() ?: 4, strict = v[6].toBoolean(), intention = v[7],
         )

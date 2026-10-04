@@ -1,17 +1,28 @@
 package com.focusblock.app.ui.settings
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -21,10 +32,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.focusblock.app.BuildConfig
@@ -84,6 +98,13 @@ fun RefreshOnResume(onResume: () -> Unit) {
     }
 }
 
+/** The Activity behind a Compose [Context], which may be wrapped. */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 @Composable
 private fun Page(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -118,8 +139,13 @@ fun SettingsHome(state: SettingsUi, vm: SettingsViewModel, onBack: () -> Unit, o
         DividerRow(
             title = stringResource(R.string.settings_blocking_health),
             subtitle = if (problems.isEmpty()) stringResource(R.string.health_all_ok)
-            else stringResource(R.string.health_problems, problems.joinToString(", ") { context.getString(it.requirement.label) }),
+            else context.resources.getQuantityString(R.plurals.health_problems, problems.size, problems.joinToString(", ") { context.getString(it.requirement.label) }),
             onClick = { onOpen(SettingsRoutes.HEALTH) },
+            trailing = {
+                // Warning dot so "needs attention" does not read like the grey all-clear line.
+                if (problems.isNotEmpty()) { Box(Modifier.size(8.dp).clip(CircleShape).background(Fb.warning)); Spacer(Modifier.width(4.dp)) }
+                Icon(Icons.Outlined.KeyboardArrowRight, null, tint = Fb.textSecondary, modifier = Modifier.size(20.dp))
+            },
         )
         FbDivider()
         DividerRow(title = stringResource(R.string.settings_essentials), subtitle = pluralRes(R.plurals.essentials_count, state.essentials.size), onClick = { onOpen(SettingsRoutes.ESSENTIALS) })
@@ -147,7 +173,17 @@ fun HealthScreen(state: SettingsUi, vm: SettingsViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     RefreshOnResume(vm::refresh)
     var repair by rememberSaveable { mutableStateOf(false) }
-    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { vm.refresh() }
+    fun rationale() = context.findActivity()?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.POST_NOTIFICATIONS) } == true
+    // Rationale state when the request was made: true before or after means the dialog was shown.
+    var rationaleBefore by rememberSaveable { mutableStateOf(false) }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        // Once Android stops showing the dialog (denied twice, or turned off in system settings), the
+        // request comes back denied at once; the switch is then only in the app's notification settings.
+        // A dialog the user just declined (first or second time) is left as their answer.
+        val justDeclined = !granted && (rationaleBefore || rationale())
+        if (!justDeclined && !NotificationManagerCompat.from(context).areNotificationsEnabled()) PermissionHealth.open(context, Requirement.NOTIFICATIONS)
+        vm.refresh()
+    }
     Page(stringResource(R.string.settings_blocking_health), onBack) {
         state.health.forEach { item ->
             FbDivider()
@@ -168,8 +204,10 @@ fun HealthScreen(state: SettingsUi, vm: SettingsViewModel, onBack: () -> Unit) {
                             TextLink(stringResource(if (item.state == HealthState.NOT_RUNNING) R.string.health_repair else R.string.action_fix), {
                                 when {
                                     item.state == HealthState.NOT_RUNNING -> repair = true
-                                    r == Requirement.NOTIFICATIONS && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+                                    r == Requirement.NOTIFICATIONS && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
+                                        rationaleBefore = rationale()
                                         notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    }
                                     else -> PermissionHealth.open(context, r)
                                 }
                             })
@@ -193,6 +231,8 @@ fun HealthScreen(state: SettingsUi, vm: SettingsViewModel, onBack: () -> Unit) {
 
 @Composable
 fun EssentialsScreen(state: SettingsUi, vm: SettingsViewModel, onBack: () -> Unit) {
+    // Opened straight from the Block tab, so Strict Lock may have begun since Settings last looked.
+    RefreshOnResume(vm::refresh)
     var picker by rememberSaveable { mutableStateOf(false) }
     Page(stringResource(R.string.settings_essentials), onBack) {
         Text(stringResource(R.string.essentials_body), style = FbType.body.copy(color = Fb.textSecondary), modifier = Modifier.padding(horizontal = Fb.gutter))
@@ -265,9 +305,9 @@ fun DefaultBlockScreen(state: SettingsUi, vm: SettingsViewModel, onBack: () -> U
         Text(stringResource(R.string.default_block_body), style = FbType.body.copy(color = Fb.textSecondary), modifier = Modifier.padding(horizontal = Fb.gutter))
         SectionGap()
         SectionLabel(stringResource(R.string.session_type_label))
+        // No "Until I stop": like the Block tab, that is the Quick block card's job.
         SegmentedControl(
-            listOf(SessionType.TIMED to stringResource(R.string.session_timed), SessionType.INTERVALS to stringResource(R.string.session_intervals),
-                SessionType.INDEFINITE to stringResource(R.string.session_until_stop)),
+            listOf(SessionType.TIMED to stringResource(R.string.session_timed), SessionType.INTERVALS to stringResource(R.string.session_intervals)),
             state.defaultType, vm::setDefaultType,
         )
         SectionGap()
@@ -276,7 +316,7 @@ fun DefaultBlockScreen(state: SettingsUi, vm: SettingsViewModel, onBack: () -> U
         SectionLabel(stringResource(R.string.field_strength))
         SegmentedControl(
             listOf(Strength.NORMAL to stringResource(R.string.strength_normal), Strength.STRICT to stringResource(R.string.strength_strict)),
-            state.defaultStrength, vm::setDefaultStrength, enabled = state.defaultType != SessionType.INDEFINITE,
+            state.defaultStrength, vm::setDefaultStrength,
         )
         Text(stringResource(R.string.strict_lock_consequence), style = FbType.caption, modifier = Modifier.padding(horizontal = Fb.gutter, vertical = 8.dp))
     }

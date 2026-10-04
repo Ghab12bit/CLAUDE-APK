@@ -72,6 +72,7 @@ import com.focusblock.app.ui.components.FbSheet
 import com.focusblock.app.ui.components.HourBarChart
 import com.focusblock.app.ui.components.PrimaryButton
 import com.focusblock.app.ui.components.ProblemBanner
+import com.focusblock.app.ui.components.ScreenTitle
 import com.focusblock.app.ui.components.SecondaryButton
 import com.focusblock.app.ui.components.SectionHeader
 import com.focusblock.app.ui.components.SegmentedControl
@@ -102,7 +103,9 @@ fun ActivityScreen(state: ActivityUi, vm: ActivityViewModel, onSettings: () -> U
     var openApp by rememberSaveable { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         AppHeader(onSettings)
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(12.dp))
+        ScreenTitle(stringResource(R.string.tab_activity), subtitle = stringResource(R.string.activity_title))
+        Spacer(Modifier.height(16.dp))
         SegmentedControl(
             listOf(
                 Period.DAY to stringResource(R.string.period_day),
@@ -175,6 +178,8 @@ private fun ActivityContent(state: ActivityUi, vm: ActivityViewModel, onOpenApp:
                 description = state.chartDescription,
                 average = state.chartAverage,
                 highlight = null,
+                // Only under a minute in all, like Peak and Usage split: a day without hourly detail has no bars but does have a total.
+                emptyText = if (state.underAMinute) stringResource(R.string.data_none) else null,
             )
             Spacer(Modifier.height(10.dp))
             Legend()
@@ -240,8 +245,11 @@ private fun ActivityContent(state: ActivityUi, vm: ActivityViewModel, onOpenApp:
 
         // Focus.
         SectionHeader(stringResource(R.string.section_focus))
-        if (state.detailMissing) {
-            Text(stringResource(R.string.history_no_detail), style = FbType.caption, modifier = Modifier.padding(horizontal = Fb.gutter))
+        if (state.detailMissing || state.detailPartial) {
+            Text(
+                stringResource(if (state.detailMissing) R.string.history_no_detail else R.string.history_some_no_detail),
+                style = FbType.caption, modifier = Modifier.padding(horizontal = Fb.gutter),
+            )
             Spacer(Modifier.height(8.dp))
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -257,7 +265,7 @@ private fun ActivityContent(state: ActivityUi, vm: ActivityViewModel, onOpenApp:
     Row(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         val known = state.screenTime != null && !state.detailMissing
         val pickups = if (known) stringResource(R.string.times_count, state.pickups) else stringResource(R.string.data_unavailable)
-        val perDay = if (known && state.daysInRange > 1) stringResource(R.string.per_day, state.pickups / state.daysInRange) else null
+        val perDay = state.pickupsPerDay?.takeIf { known && state.period != Period.DAY }?.let { stringResource(R.string.per_day, it) }
         StatTile(pickups, stringResource(R.string.stat_pickups), Icons.Outlined.TouchApp, Fb.accentAlt, Modifier.weight(1f), sub = perDay)
         StatTile(stringResource(R.string.times_count, state.totalAttempts), stringResource(R.string.stat_blocked_attempts), Icons.Outlined.Block, Fb.warning, Modifier.weight(1f))
     }
@@ -298,17 +306,23 @@ private fun ActivityContent(state: ActivityUi, vm: ActivityViewModel, onOpenApp:
 
     // Blocks.
     SectionHeader(stringResource(R.string.section_blocks))
-    FbCard {
-        Row(Modifier.fillMaxWidth()) {
-            OutcomeCell(state.outcomes.finished, R.string.outcome_finished, Fb.success, Modifier.weight(1f))
-            OutcomeCell(state.outcomes.notFinished, R.string.outcome_not_finished, Fb.accent, Modifier.weight(1f))
-            OutcomeCell(state.outcomes.extended, R.string.outcome_extended, Fb.accentAlt, Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth()) {
-            OutcomeCell(state.outcomes.endedEarly, R.string.outcome_ended_early, Fb.warning, Modifier.weight(1f))
-            OutcomeCell(state.outcomes.unanswered, R.string.outcome_unanswered, Fb.textSecondary, Modifier.weight(1f))
-            Spacer(Modifier.weight(1f))
+    val outcomes = state.outcomes
+    val blocks = outcomes.finished + outcomes.notFinished + outcomes.extended + outcomes.endedEarly + outcomes.unanswered
+    if (blocks == 0) {
+        FbCard { Text(stringResource(R.string.blocks_none), style = FbType.body.copy(color = Fb.textSecondary)) }
+    } else {
+        FbCard {
+            Row(Modifier.fillMaxWidth()) {
+                OutcomeCell(outcomes.finished, R.string.outcome_finished, Fb.success, Modifier.weight(1f))
+                OutcomeCell(outcomes.notFinished, R.string.outcome_not_finished, Fb.accent, Modifier.weight(1f))
+                OutcomeCell(outcomes.extended, R.string.outcome_extended, Fb.accentAlt, Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(Modifier.fillMaxWidth()) {
+                OutcomeCell(outcomes.endedEarly, R.string.outcome_ended_early, Fb.warning, Modifier.weight(1f))
+                OutcomeCell(outcomes.unanswered, R.string.outcome_unanswered, Fb.textSecondary, Modifier.weight(1f))
+                OutcomeCell(blocks, R.string.outcome_total, Fb.textPrimary, Modifier.weight(1f))
+            }
         }
     }
 
@@ -338,7 +352,7 @@ private fun ActivityContent(state: ActivityUi, vm: ActivityViewModel, onOpenApp:
                 DividerRow(
                     title = stringResource(R.string.range_dates, Fmt.dayMonth(w.from), Fmt.dayMonth(w.to)),
                     subtitle = listOfNotNull(
-                        if (w.daysWithData > 0) stringResource(R.string.per_day_duration, Fmt.duration(context, w.total / w.daysWithData)) else stringResource(R.string.data_unavailable),
+                        w.average?.let { stringResource(R.string.per_day_duration, Fmt.duration(context, it)) } ?: stringResource(R.string.data_unavailable),
                         change,
                     ).joinToString(" · "),
                     value = Fmt.duration(context, w.total),
@@ -385,16 +399,16 @@ private fun Hero(state: ActivityUi) {
                 }
             }
             Period.WEEK -> {
-                val avg = if (state.daysInRange > 0) screen / state.daysInRange else 0L
-                val change = compare?.let { com.focusblock.app.policy.Insights.changePercent(screen, it) }
-                val base = stringResource(R.string.per_day_duration, Fmt.duration(context, avg))
+                // Average per day and its change, over days with data (the same average as the dashed line).
+                val change = state.change
+                val base = stringResource(R.string.per_day_duration, Fmt.duration(context, state.dailyAverage ?: 0L))
                 when {
                     change == null -> base to Fb.textSecondary
                     change <= 0 -> "$base · " + stringResource(R.string.change_down_vs_last_week, abs(change)) to Fb.success
                     else -> "$base · " + stringResource(R.string.change_up_vs_last_week, change) to Fb.warning
                 }
             }
-            Period.TREND -> state.weeks.firstOrNull()?.change?.let { c ->
+            Period.TREND -> state.change?.let { c ->
                 if (c <= 0) stringResource(R.string.change_down_vs_last_week, abs(c)) to Fb.success
                 else stringResource(R.string.change_up_vs_last_week, c) to Fb.warning
             }
@@ -464,12 +478,14 @@ private fun BalanceCard(state: ActivityUi) {
         FbProgressBar(state.balancePercent / 100f, Fb.accent, height = 12.dp,
             brush = androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Fb.accent, Fb.accentAlt)))
         Spacer(Modifier.height(12.dp))
-        val perDay = (state.screenTime ?: 0L) / state.daysInRange.coerceAtLeast(1)
+        // Week and Trend: the same average per day as the hero and the chart's dashed line.
+        val day = state.period == Period.DAY
+        val perDay = if (day) state.screenTime ?: 0L else state.dailyAverage ?: 0L
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.PhoneAndroid, null, tint = Fb.accent, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
             Text(
-                if (state.daysInRange > 1) stringResource(R.string.per_day_duration, Fmt.duration(context, perDay)) else Fmt.duration(context, perDay),
+                if (day) Fmt.duration(context, perDay) else stringResource(R.string.per_day_duration, Fmt.duration(context, perDay)),
                 style = FbType.label, modifier = Modifier.weight(1f),
             )
             Icon(Icons.Outlined.WbSunny, null, tint = Fb.warning, modifier = Modifier.size(16.dp))
@@ -481,16 +497,20 @@ private fun BalanceCard(state: ActivityUi) {
     }
 }
 
+/** Under a minute of screen time shows as "0 min", so a peak hour or category split would contradict it. */
+private val ActivityUi.underAMinute: Boolean get() = (screenTime ?: 0L) < 60_000L
+
 @Composable
 private fun PeakCard(state: ActivityUi) {
     val context = LocalContext.current
+    val peak = state.peakHour.takeIf { !state.underAMinute }
     FbCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.Whatshot, null, tint = Fb.peak, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.habit_peak), style = FbType.heading, modifier = Modifier.weight(1f))
             Text(
-                state.peakHour?.let { h -> stringResource(R.string.time_range, Fmt.minuteOfDay(context, h * 60), Fmt.minuteOfDay(context, ((h + 1) % 24) * 60)) }
+                peak?.let { h -> stringResource(R.string.time_range, Fmt.minuteOfDay(context, h * 60), Fmt.minuteOfDay(context, ((h + 1) % 24) * 60)) }
                     ?: stringResource(R.string.data_none),
                 style = FbType.label.copy(color = Fb.accent, fontWeight = FontWeight.SemiBold),
             )
@@ -501,9 +521,9 @@ private fun PeakCard(state: ActivityUi) {
             colors = listOf(Fb.accent),
             xLabel = { i -> if (i % 6 == 0) Fmt.hourShort(context, i) else null },
             yLabel = { "" },
-            description = state.peakHour?.let { stringResource(R.string.peak_cd, Fmt.minuteOfDay(context, it * 60)) } ?: stringResource(R.string.data_none),
+            description = peak?.let { stringResource(R.string.peak_cd, Fmt.minuteOfDay(context, it * 60)) } ?: stringResource(R.string.data_none),
             height = 96.dp,
-            highlight = state.peakHour,
+            highlight = peak,
             showYAxis = false,
         )
     }
@@ -515,22 +535,29 @@ private fun UsageSplitCard(state: ActivityUi) {
     FbCard {
         Text(stringResource(R.string.habit_usage), style = FbType.heading)
         Spacer(Modifier.height(6.dp))
-        // Largest first, like the reference layout.
-        AppCategory.values().sortedByDescending { state.byCategory[it.ordinal] }.forEach { c ->
-            Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(c.color()))
-                Spacer(Modifier.width(8.dp))
-                Text(c.label(), style = FbType.label, modifier = Modifier.width(96.dp))
-                Box(Modifier.weight(1f)) { FbProgressBar(state.shares[c.ordinal] / 100f, c.color(), height = 8.dp) }
-                Spacer(Modifier.width(10.dp))
-                Text(stringResource(R.string.percent, state.shares[c.ordinal]), style = FbType.label, modifier = Modifier.width(44.dp), textAlign = TextAlign.End)
+        if (state.underAMinute) {
+            Text(stringResource(R.string.data_none), style = FbType.body.copy(color = Fb.textSecondary))
+        } else {
+            // Largest first, like the reference layout.
+            AppCategory.values().sortedByDescending { state.byCategory[it.ordinal] }.forEach { c ->
+                Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(c.color()))
+                    Spacer(Modifier.width(8.dp))
+                    Text(c.label(), style = FbType.label, modifier = Modifier.width(96.dp))
+                    Box(Modifier.weight(1f)) { FbProgressBar(state.shares[c.ordinal] / 100f, c.color(), height = 8.dp) }
+                    Spacer(Modifier.width(10.dp))
+                    Text(stringResource(R.string.percent, state.shares[c.ordinal]), style = FbType.label, modifier = Modifier.width(44.dp), textAlign = TextAlign.End)
+                }
             }
         }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            stringResource(R.string.usage_split_explain, Fmt.duration(context, state.byCategory[AppCategory.DISTRACTING.ordinal])),
-            style = FbType.caption,
-        )
+        // The hint points at the app list above, so it only shows when that list has apps.
+        if (state.apps.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(R.string.usage_split_explain, Fmt.duration(context, state.byCategory[AppCategory.DISTRACTING.ordinal])),
+                style = FbType.caption,
+            )
+        }
     }
 }
 

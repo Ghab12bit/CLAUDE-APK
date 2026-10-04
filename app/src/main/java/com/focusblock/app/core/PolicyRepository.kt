@@ -5,6 +5,7 @@ import com.focusblock.app.blocking.ImportedRuleStore
 import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.entity.BedtimeModeSettings
 import com.focusblock.app.database.entity.BlockSessionEntity
+import com.focusblock.app.database.entity.ExclusionType
 import com.focusblock.app.database.entity.FocusCycle
 import com.focusblock.app.database.entity.Schedule
 import com.focusblock.app.policy.AppLimitInput
@@ -22,6 +23,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
 /**
  * Builds the engine's [PolicySnapshot] from persisted state. Room is the source of truth; nothing
@@ -46,6 +50,8 @@ class PolicyRepository(
         val cycle: FocusCycle?,
         val cyclePackages: Set<String>,
         val essentials: Set<String>,
+        /** Apps the user turned off in Activity's "Count in screen time". */
+        val notCounted: Set<String>,
         val imported: List<ImportedRuleStore.Rule>,
         val importedLock: Boolean,
     )
@@ -58,7 +64,7 @@ class PolicyRepository(
         db.invalidationTracker.addObserver(object : InvalidationTracker.Observer(
             arrayOf(
                 "block_sessions", "schedules", "bedtime_mode_settings", "app_limits", "global_daily_limit_settings",
-                "focus_cycles", "unlock_events", "essential_apps", "settings",
+                "focus_cycles", "unlock_events", "essential_apps", "excluded_apps", "settings",
             ),
         ) {
             override fun onInvalidated(tables: Set<String>) { dirty = true }
@@ -79,7 +85,8 @@ class PolicyRepository(
         val cyclePackages = when {
             cycle == null -> emptySet()
             cycle.selectedPackages.isNotBlank() && !cycle.useQuickBlockApps -> csv(cycle.selectedPackages).toSet()
-            else -> (sessions.lastSetup()?.packages ?: csv(cycle.selectedPackages)).toSet()
+            // The apps last chosen in the picker, which no longer always match the last block.
+            else -> sessions.savedSelection().ifEmpty { sessions.lastSetup()?.packages ?: csv(cycle.selectedPackages) }.toSet()
         }
         val fresh = Static(
             at = now,
@@ -91,6 +98,7 @@ class PolicyRepository(
             cycle = cycle,
             cyclePackages = cyclePackages,
             essentials = db.essentialAppDao().packages().toSet(),
+            notCounted = db.excludedAppDao().getExcludedPackageNames(ExclusionType.SCREEN_TIME_REPORT).toSet(),
             imported = runCatching { ImportedRuleStore.rules(db) }.getOrDefault(emptyList()),
             importedLock = runCatching { ImportedRuleStore.configurationLocked(db) }.getOrDefault(false),
         )
@@ -114,6 +122,13 @@ class PolicyRepository(
             s.imported.any { it.enabled && (it.usage || it.launches) }
         val today = if (needsUsage) usage.todayTotals(if (freshUsage) 0 else 30_000) else null
         val launchable by lazy { apps.packages() - exempt }
+        // Apps not counted in screen time (e.g. a clock left running) never use up an allowance.
+        fun usedToday(packages: Set<String>, notCounted: Set<String> = s.notCounted): Long =
+            packages.sumOf { if (it in notCounted) 0L else today?.get(it) ?: 0L }
+        // Chosen apps that are not counted join the block only once the allowance is used up: their
+        // time never runs it out, so the service must not keep re-checking while one is open.
+        fun blockable(packages: Set<String>, used: Long, minutes: Int, notCounted: Set<String> = s.notCounted): Set<String> =
+            if (used >= minutes * 60_000L) packages else packages - notCounted
 
         val routines = ArrayList<RoutineInput>()
         s.schedules.forEach { sch ->
@@ -143,17 +158,23 @@ class PolicyRepository(
         val limits = s.limits.map { l ->
             // Essential apps are never counted, even if they were chosen before they became essential.
             val packages = csv(l.packages).toSet() - exempt
-            AppLimitInput(l.id, l.name, packages, l.minutesPerDay, packages.sumOf { today?.get(it) ?: 0L }, l.isEnabled && today != null)
+            val used = usedToday(packages)
+            AppLimitInput(l.id, l.name, blockable(packages, used, l.minutesPerDay), l.minutesPerDay, used, l.isEnabled && today != null)
         }
 
         val daily = s.daily?.let { d ->
-            val counted = if (d.countsAllApps) launchable else csv(d.trackedPackages).toSet() - exempt
+            val lockedUntil = if (d.isHardModeEnabled) d.hardModeLockUntil else 0L
+            // Leaving apps out of screen time must not loosen a Hard Mode lock (like essentials during Strict).
+            val notCounted = if (lockedUntil > now) emptySet<String>() else s.notCounted
+            // "All apps" leaves out apps not counted in screen time; chosen ones stay in, only their time doesn't count.
+            val counted = if (d.countsAllApps) launchable - notCounted else csv(d.trackedPackages).toSet() - exempt
+            val used = usedToday(counted, notCounted)
             DailyLimitInput(
                 enabled = d.isEnabled && today != null,
                 limitMinutes = d.dailyLimitMinutes,
-                countedPackages = counted,
-                usedMillisToday = counted.sumOf { today?.get(it) ?: 0L },
-                lockedUntil = if (d.isHardModeEnabled) d.hardModeLockUntil else 0L,
+                countedPackages = blockable(counted, used, d.dailyLimitMinutes, notCounted),
+                usedMillisToday = used,
+                lockedUntil = lockedUntil,
             )
         }
 
@@ -196,12 +217,12 @@ class PolicyRepository(
             until = r.until
         }
         if (r.usage) {
-            val totals = if (r.hourly) usage.windowTotals(now - now % 3_600_000L, now) else today
+            val totals = if (r.hourly) usage.windowTotals(startOfHour(now, zone), now) else today
             met = met && totals != null && packages.sumOf { totals[it] ?: 0L } >= r.minutes * 60_000L
-            if (window == null && !r.manual) until = if (r.hourly) now - now % 3_600_000L + 3_600_000L else PolicyTime.nextMidnight(now, zone)
+            if (window == null && !r.manual) until = if (r.hourly) startOfHour(now, zone) + 3_600_000L else PolicyTime.nextMidnight(now, zone)
         }
         if (r.launches) {
-            val from = if (r.launchHourly) now - now % 3_600_000L else PolicyTime.startOfDay(now, zone)
+            val from = if (r.launchHourly) startOfHour(now, zone) else PolicyTime.startOfDay(now, zone)
             val counts = usage.launches(from, now)
             met = met && counts != null && packages.sumOf { counts[it] ?: 0 } >= r.launchLimit
             if (window == null && !r.manual) until = if (r.launchHourly) from + 3_600_000L else PolicyTime.nextMidnight(now, zone)
@@ -212,6 +233,10 @@ class PolicyRepository(
             enabled = true, conditionsMet = met, activeUntil = until, imported = true,
         )
     }
+
+    /** Start of the current local hour (a UTC hour would run from :30 to :30 in India). */
+    private fun startOfHour(now: Long, zone: ZoneId): Long =
+        Instant.ofEpochMilli(now).atZone(zone).truncatedTo(ChronoUnit.HOURS).toInstant().toEpochMilli()
 
     suspend fun configurationLocked(): Boolean = static().importedLock
 

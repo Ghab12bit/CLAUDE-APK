@@ -81,6 +81,8 @@ data class BlockUi(
     /** Set when the notification or widget asked to end the block; the screen opens the end-early sheet. */
     val endEarlyRequested: Boolean = false,
     val notice: Notice? = null,
+    /** Today's Strict emergency stop is used (one a day). */
+    val emergencyStopUsed: Boolean = false,
 )
 
 class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateHandle) : ViewModel() {
@@ -201,6 +203,7 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
             val also = if (session != null) overlapping(session, now) else emptyList()
             val openings = mutable.value.session?.let { graph.db.attemptDao().since(it.startedAt).count { log -> log.sessionId == it.id } } ?: 0
             val suggestions = runCatching { graph.smartApps.suggestions(8) }.getOrDefault(emptyList())
+            val emergencyUsed = graph.sessions.emergencyStopUsedToday()
             val labels = HashMap(mutable.value.labels)
             (mutable.value.draft.packages + (session?.packages ?: emptySet()) + (mutable.value.last?.packages ?: emptyList()) + suggestions.map { it.pkg })
                 .forEach { if (it !in labels) labels[it] = graph.apps.label(it) }
@@ -214,6 +217,7 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
                     blockedOpenings = openings,
                     labels = labels,
                     suggestions = suggestions,
+                    emergencyStopUsed = emergencyUsed,
                 )
             }
         }
@@ -311,6 +315,24 @@ class BlockViewModel(private val graph: AppGraph, private val saved: SavedStateH
     fun end() {
         viewModelScope.launch {
             if (graph.sessions.end() == EndResult.STRICT_LOCKED) mutable.update { it.copy(message = com.focusblock.app.R.string.strict_cannot_end) }
+        }
+    }
+
+    /** Turns the running Normal block (quick or timed) into a Strict one. */
+    fun makeStrict() {
+        viewModelScope.launch {
+            graph.sessions.makeStrict()
+            refreshDerived()
+        }
+    }
+
+    /** Once-a-day emergency stop of a Strict block (Block tab only). */
+    fun emergencyStop() {
+        viewModelScope.launch {
+            if (graph.sessions.emergencyStop() == com.focusblock.app.core.EmergencyStopResult.USED_TODAY) {
+                mutable.update { it.copy(message = com.focusblock.app.R.string.emergency_stop_used_message) }
+            }
+            refreshDerived()
         }
     }
 

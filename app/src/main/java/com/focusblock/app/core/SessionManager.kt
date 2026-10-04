@@ -5,6 +5,7 @@ import com.focusblock.app.database.FocusBlockDatabase
 import com.focusblock.app.database.PrefKeys
 import com.focusblock.app.database.entity.AppSettings
 import com.focusblock.app.database.entity.BlockSessionEntity
+import com.focusblock.app.policy.PolicyTime
 import com.focusblock.app.policy.SessionClock
 import com.focusblock.app.policy.SessionInput
 import com.focusblock.app.policy.SessionOutcome
@@ -74,6 +75,8 @@ sealed class StartResult {
 enum class Reject { NO_APPS, ALREADY_RUNNING, STRICT_NEEDS_END, INVALID_LENGTH }
 
 enum class EndResult { ENDED, STRICT_LOCKED, NOTHING_RUNNING }
+
+enum class EmergencyStopResult { STOPPED, USED_TODAY, NOT_STRICT, NOTHING_RUNNING }
 
 class SessionManager(
     private val db: FocusBlockDatabase,
@@ -183,6 +186,48 @@ class SessionManager(
             EndResult.ENDED
         }
         if (result == EndResult.ENDED) onChanged()
+        result
+    }
+
+    /** "Make Strict": the running Normal block (quick or timed) becomes Strict until it ends. Cannot be undone. */
+    suspend fun makeStrict(): Boolean = withContext(Dispatchers.IO) {
+        val ok = db.withTransaction {
+            val e = dao.active() ?: return@withTransaction false
+            if (e.strength == Strength.STRICT.name || SessionClock.state(toInput(e), clock.now()).ended) return@withTransaction false
+            dao.update(e.copy(strength = Strength.STRICT.name))
+            true
+        }
+        if (ok) onChanged()
+        ok
+    }
+
+    private fun today(): String = PolicyTime.localDate(clock.now(), clock.zone()).toString()
+
+    /** True when today's Strict emergency stop has already been used. */
+    suspend fun emergencyStopUsedToday(): Boolean = withContext(Dispatchers.IO) {
+        db.settingsDao().getValue(PrefKeys.STRICT_EMERGENCY_STOP_DATE) == today()
+    }
+
+    /**
+     * Strict emergency stop: once a day, a Strict block can be ended at once. Offered only on the
+     * Block tab (never on the block screen of a blocked app). Recorded as ended early.
+     */
+    suspend fun emergencyStop(): EmergencyStopResult = withContext(Dispatchers.IO) {
+        val result = db.withTransaction {
+            val e = dao.active() ?: return@withTransaction EmergencyStopResult.NOTHING_RUNNING
+            if (SessionClock.state(toInput(e), clock.now()).ended) {
+                finishCompleted(e)
+                return@withTransaction EmergencyStopResult.STOPPED
+            }
+            if (e.strength != Strength.STRICT.name) return@withTransaction EmergencyStopResult.NOT_STRICT
+            val today = today()
+            if (db.settingsDao().getValue(PrefKeys.STRICT_EMERGENCY_STOP_DATE) == today) return@withTransaction EmergencyStopResult.USED_TODAY
+            val now = clock.now()
+            dao.update(e.copy(isActive = false, endedAt = now, endReason = END_EARLY, outcome = SessionOutcome.ENDED_EARLY.name, outcomeAt = now))
+            db.settingsDao().insert(AppSettings(PrefKeys.STRICT_EMERGENCY_STOP_DATE, today))
+            EmergencyStopResult.STOPPED
+        }
+        if (result == EmergencyStopResult.STOPPED) onChanged()
         result
     }
 

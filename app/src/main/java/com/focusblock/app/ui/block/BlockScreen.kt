@@ -59,6 +59,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -534,9 +535,13 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
     var addApps by rememberSaveable { mutableStateOf(false) }
     val quick = input.type == SessionType.INDEFINITE
     var confirmStop by rememberSaveable { mutableStateOf(false) }
+    var confirmStrict by rememberSaveable { mutableStateOf(false) }
+    var confirmEmergency by rememberSaveable { mutableStateOf(false) }
+    val strict = input.strength == Strength.STRICT
     LaunchedEffect(state.endEarlyRequested) {
         if (state.endEarlyRequested) {
-            if (quick) confirmStop = true else if (input.strength == Strength.NORMAL) confirmEnd = true
+            // A Strict block (quick or timed) is never ended from the notification or widget.
+            if (!strict) { if (quick) confirmStop = true else confirmEnd = true }
             vm.clearEndEarlyRequest()
         }
     }
@@ -581,8 +586,9 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
     }
     val footer = stringResource(
         when {
+            quick && strict -> R.string.overline_quick_strict
             quick -> R.string.overline_quick
-            input.strength == Strength.STRICT -> R.string.overline_strict
+            strict -> R.string.overline_strict
             else -> R.string.overline_normal
         },
     )
@@ -637,21 +643,34 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
         }
         SecondaryButton(stringResource(R.string.action_add_apps), { addApps = true }, Modifier.weight(1f), leadingIcon = Icons.Outlined.Add)
     }
-    Spacer(Modifier.height(12.dp))
-    if (quick) {
-        // A quick block has no timer: it is meant to be turned off, with one confirmation.
+    if (!strict) {
+        // Making a running block stricter is easy; it cannot be undone.
+        Spacer(Modifier.height(12.dp))
         Column(Modifier.padding(horizontal = Fb.gutter)) {
-            SecondaryButton(stringResource(R.string.quick_block_stop), { confirmStop = true }, leadingIcon = Icons.Outlined.Stop)
+            SecondaryButton(stringResource(R.string.make_strict), { confirmStrict = true }, leadingIcon = Icons.Outlined.Lock)
         }
-    } else if (input.strength == Strength.NORMAL) {
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            TextLink(stringResource(R.string.end_early_link), { confirmEnd = true }, accent = false, style = FbType.caption.copy(fontWeight = FontWeight.Medium))
-        }
-    } else {
+    }
+    Spacer(Modifier.height(12.dp))
+    if (strict) {
         Row(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.Lock, null, tint = Fb.accentAlt, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(6.dp))
             Text(stringResource(R.string.strict_line), style = FbType.caption)
+        }
+        // Once a day a Strict block can be stopped in an emergency, here only (not on a blocked app's screen).
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().padding(horizontal = Fb.gutter), contentAlignment = Alignment.Center) {
+            if (state.emergencyStopUsed) Text(stringResource(R.string.emergency_stop_used_line), style = FbType.caption, textAlign = TextAlign.Center)
+            else TextLink(stringResource(R.string.emergency_stop_link), { confirmEmergency = true }, accent = false, style = FbType.caption.copy(fontWeight = FontWeight.Medium))
+        }
+    } else if (quick) {
+        // A quick block has no timer: it is meant to be turned off, with one confirmation.
+        Column(Modifier.padding(horizontal = Fb.gutter)) {
+            SecondaryButton(stringResource(R.string.quick_block_stop), { confirmStop = true }, leadingIcon = Icons.Outlined.Stop)
+        }
+    } else {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            TextLink(stringResource(R.string.end_early_link), { confirmEnd = true }, accent = false, style = FbType.caption.copy(fontWeight = FontWeight.Medium))
         }
     }
 
@@ -662,6 +681,21 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
             onKeep = { confirmEnd = false },
             onEnd = { confirmEnd = false; vm.end() },
         )
+    }
+    if (confirmStrict) {
+        val body = stringResource(if (quick) R.string.make_strict_body_quick else R.string.make_strict_body) +
+            if (state.emergencyStopUsed) "\n\n" + stringResource(R.string.make_strict_used_today) else ""
+        AlertDialog(
+            onDismissRequest = { confirmStrict = false },
+            containerColor = Fb.surface,
+            title = { Text(stringResource(R.string.make_strict_title), style = FbType.heading) },
+            text = { Text(body, style = FbType.body) },
+            confirmButton = { TextButton(onClick = { confirmStrict = false; vm.makeStrict() }) { Text(stringResource(R.string.make_strict), color = Fb.accent) } },
+            dismissButton = { TextButton(onClick = { confirmStrict = false }) { Text(stringResource(R.string.action_cancel), color = Fb.textSecondary) } },
+        )
+    }
+    if (confirmEmergency) {
+        EmergencyStopSheet(onKeep = { confirmEmergency = false }, onStop = { confirmEmergency = false; vm.emergencyStop() })
     }
     if (confirmStop) {
         AlertDialog(
@@ -681,6 +715,23 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
             onDismiss = { addApps = false },
             onDone = { vm.addApps(it); addApps = false },
         )
+    }
+}
+
+/** Strict emergency stop (once a day): "Keep blocking" stays the main action; stopping needs a hold. */
+@Composable
+private fun EmergencyStopSheet(onKeep: () -> Unit, onStop: () -> Unit) {
+    FbSheet(onDismiss = onKeep) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
+            Text(stringResource(R.string.emergency_stop_title), style = FbType.title, modifier = Modifier.padding(horizontal = Fb.gutter))
+            Spacer(Modifier.height(8.dp))
+            Text(stringResource(R.string.emergency_stop_body), style = FbType.body.copy(color = Fb.textSecondary), modifier = Modifier.padding(horizontal = Fb.gutter))
+            Spacer(Modifier.height(24.dp))
+            Column(Modifier.padding(horizontal = Fb.gutter), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                PrimaryButton(stringResource(R.string.end_early_keep), onKeep)
+                HoldToConfirmButton(stringResource(R.string.emergency_stop_hold), END_EARLY_HOLD_MS, onStop)
+            }
+        }
     }
 }
 

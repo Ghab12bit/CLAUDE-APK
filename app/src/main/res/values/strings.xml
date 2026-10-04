@@ -725,4 +725,16 @@
         <item quantity="other">%d more apps</item>
     </plurals>
     <string name="history_some_no_detail">Pickups, focus and continuous use were not recorded for some of these days.</string>
+    <string name="overline_quick_strict">QUICK BLOCK · STRICT</string>
+    <string name="make_strict">Make Strict</string>
+    <string name="make_strict_title">Make this block Strict?</string>
+    <string name="make_strict_body">Strict can\'t be undone: you won\'t be able to end this block early. Once a day you can use Emergency stop, here in FocusBlock.</string>
+    <string name="make_strict_body_quick">Strict can\'t be undone. A quick block has no end time, so after this only Emergency stop turns it off: once a day, here in FocusBlock.</string>
+    <string name="make_strict_used_today">Today\'s Emergency stop is already used. The next one is available after midnight.</string>
+    <string name="emergency_stop_link">Emergency stop · 1 left today</string>
+    <string name="emergency_stop_used_line">Emergency stop used today · available again after midnight</string>
+    <string name="emergency_stop_title">Emergency stop</string>
+    <string name="emergency_stop_body">Ends this Strict block now. You can do this once a day, and it is recorded as ended early.</string>
+    <string name="emergency_stop_hold">Hold to stop the block</string>
+    <string name="emergency_stop_used_message">Today\'s Emergency stop is already used. The next one is available after midnight.</string>
 </resources>

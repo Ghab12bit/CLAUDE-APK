@@ -181,6 +181,27 @@ class EndToEndTest {
         assertTrue(granted.any { it.packageName == target && it.kind == "EMERGENCY" })
     }
 
+    @Test fun aQuickBlockCanBeMadeStrictAndStoppedOnceADay() {
+        runBlocking {
+            graph.db.settingsDao().insert(AppSettings(PrefKeys.STRICT_EMERGENCY_STOP_DATE, ""))
+            try {
+                assertTrue(graph.sessions.start(StartRequest(BlockSetup(listOf(target), SessionType.INDEFINITE))) is StartResult.Started)
+                assertTrue("A running quick block can be made Strict", graph.sessions.makeStrict())
+                assertEquals(Strength.STRICT.name, graph.sessions.active()!!.strength)
+                assertEquals(EndResult.STRICT_LOCKED, graph.sessions.end())
+                assertEquals(com.focusblock.app.core.EmergencyStopResult.STOPPED, graph.sessions.emergencyStop())
+                assertNull(graph.sessions.active())
+                // The second Strict block today cannot use it again.
+                assertTrue(graph.sessions.start(StartRequest(BlockSetup(listOf(target), SessionType.INDEFINITE))) is StartResult.Started)
+                assertTrue(graph.sessions.makeStrict())
+                assertEquals(com.focusblock.app.core.EmergencyStopResult.USED_TODAY, graph.sessions.emergencyStop())
+                assertNotNull(graph.sessions.active())
+            } finally {
+                graph.db.settingsDao().insert(AppSettings(PrefKeys.STRICT_EMERGENCY_STOP_DATE, ""))
+            }
+        }
+    }
+
     @Test fun theBlockScreenOffersNoOpenAnywayOnlyEndingTheBlock() {
         start(Strength.NORMAL)
         openTarget()

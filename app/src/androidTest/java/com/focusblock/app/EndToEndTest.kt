@@ -156,6 +156,29 @@ class EndToEndTest {
         assertTrue(refused is com.focusblock.app.core.OverrideManager.Result.NotAllowed)
     }
 
+    @Test fun aForgottenEmergencyRequestIsStillReadyLater() {
+        start(Strength.NORMAL)
+        val now = System.currentTimeMillis()
+        // Ready 90 minutes ago: the old rule dropped a request an hour after its wait and made the
+        // user wait again. Never before today, because a request is kept until midnight.
+        val readyAt = maxOf(com.focusblock.app.policy.PolicyTime.startOfDay(now, graph.clock.zone()) + 60_000L, now - 90 * 60_000L)
+        runBlocking {
+            graph.db.unlockEventDao().insert(
+                UnlockEventEntity(packageName = target, appName = targetName, kind = "EMERGENCY", status = UnlockEventEntity.PENDING,
+                    requestedAt = readyAt - 10 * 60_000L, readyAt = readyAt, reasonText = "Need the boarding pass", strength = Strength.NORMAL.name),
+            )
+        }
+        openTarget()
+        waitForBlockScreen()
+        scrollTo("Open $targetName for 5 minutes")
+        check(device.hasObject(By.textStartsWith("Your wait is done")), "Ready emergency access is offered without a new wait")
+        screenshot("16-emergency-ready")
+        tap("Open $targetName for 5 minutes")
+        check(device.wait(Until.hasObject(By.pkg(target).depth(0)), 15_000), "$targetName opened with emergency access")
+        val granted = runBlocking { graph.db.unlockEventDao().activeOverrides(System.currentTimeMillis()) }
+        assertTrue(granted.any { it.packageName == target && it.kind == "EMERGENCY" })
+    }
+
     @Test fun theBlockScreenOffersNoOpenAnywayOnlyEndingTheBlock() {
         start(Strength.NORMAL)
         openTarget()

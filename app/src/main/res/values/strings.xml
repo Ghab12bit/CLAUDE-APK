@@ -179,9 +179,10 @@
     <string name="emergency_reason_label">Reason</string>
     <string name="emergency_request">Start 10-minute wait</string>
     <string name="emergency_waiting">Emergency access ready at %s</string>
-    <string name="emergency_waiting_body">You can leave this screen. Open %1$s again after %2$s.</string>
+    <string name="emergency_waiting_body">You can leave this screen. We\'ll notify you at %2$s; then open %1$s any time until midnight.</string>
     <string name="emergency_use">Open %s for 5 minutes</string>
     <string name="emergency_cancel">Cancel request</string>
+    <string name="emergency_ready_until">Your wait is done. Use it any time until %s; you won\'t have to wait again.</string>
     <string name="emergency_reason_short">Write a short reason</string>
     <string name="iv_footer">Calls and essential apps are still available.</string>
     <string name="iv_open_until">%1$s is open until you leave it, or until %2$s at the latest</string>
@@ -637,6 +638,8 @@
     <string name="unlock_toast">%1$s is open for %2$s, until %3$s</string>
     <string name="notif_unlocked_title">%s is open (emergency access)</string>
     <string name="notif_unlocked_text">Blocked again at %s</string>
+    <string name="notif_emergency_ready_title">Emergency access to %s is ready</string>
+    <string name="notif_emergency_ready_text">Open %1$s and tap "Open for 5 minutes". It stays ready until %2$s.</string>
     <string name="quick_block_title">Quick block</string>
     <string name="quick_block_subtitle">Blocks %s until you turn it off</string>
     <string name="quick_block_suggested">Blocks your most used apps (%s) until you turn it off</string>

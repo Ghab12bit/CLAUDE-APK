@@ -88,9 +88,12 @@ class SessionAndFrictionTest {
         val e = FrictionPolicy.emergency(start)
         assertEquals(start + 10 * min, e.readyAt)
         assertEquals(5 * min, e.expiresAfterGrantMs)
-        assertFalse(FrictionPolicy.emergencyUsable(e.readyAt, start + 9 * min))
-        assertTrue(FrictionPolicy.emergencyUsable(e.readyAt, start + 10 * min))
-        assertFalse(FrictionPolicy.emergencyUsable(e.readyAt, start + 71 * min))
+        assertFalse(FrictionPolicy.emergencyUsable(e.readyAt, start + 9 * min, zone))
+        assertTrue(FrictionPolicy.emergencyUsable(e.readyAt, start + 10 * min, zone))
+        // A forgotten request is still there hours later, until midnight.
+        assertTrue(FrictionPolicy.emergencyUsable(e.readyAt, start + 5 * 60 * min, zone))
+        val midnight = java.time.Instant.ofEpochMilli(start).atZone(zone).toLocalDate().plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        assertFalse(FrictionPolicy.emergencyUsable(e.readyAt, midnight, zone))
         assertFalse(FrictionPolicy.emergencyReasonValid("  "))
         assertTrue(FrictionPolicy.emergencyReasonValid("Need the boarding pass"))
     }

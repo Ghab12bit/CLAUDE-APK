@@ -59,8 +59,16 @@ object FrictionPolicy {
         expiresAfterGrantMs = EMERGENCY_UNLOCK_MINUTES * SessionClock.MINUTE,
     )
 
-    /** A pending emergency request is usable when its wait is over, for up to an hour afterwards. */
-    fun emergencyUsable(readyAt: Long, now: Long): Boolean = now >= readyAt && now < readyAt + 60 * SessionClock.MINUTE
+    /**
+     * A ready emergency request stays usable until midnight after it became ready (at least an
+     * hour), so a request the user forgot about is still there when they come back.
+     */
+    fun emergencyUsableUntil(readyAt: Long, zone: ZoneId): Long {
+        val midnight = java.time.Instant.ofEpochMilli(readyAt).atZone(zone).toLocalDate().plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        return maxOf(midnight, readyAt + 60 * SessionClock.MINUTE)
+    }
+
+    fun emergencyUsable(readyAt: Long, now: Long, zone: ZoneId): Boolean = now >= readyAt && now < emergencyUsableUntil(readyAt, zone)
 
     /** Reasons must be at least a few words, so emergency access stays deliberate. */
     fun emergencyReasonValid(reason: String): Boolean = reason.trim().length >= 3

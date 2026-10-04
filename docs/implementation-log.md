@@ -568,3 +568,22 @@ problems.
 - **Imported rules** without a time window can be saved (no days required), and a failed save says
   why instead of "locked".
 - **Saving only essential apps** now says so instead of saving a rule with no apps.
+
+## Round 7: emergency access is not lost when you come back late (2026-10-04)
+
+Feedback: after the 10-minute emergency wait the user forgot to open the app; coming back later,
+the block screen asked for a new 10-minute wait.
+
+- **Cause.** A ready request was kept for only one hour after its wait. After that the block screen
+  still showed "Open for 5 minutes", but tapping it silently cancelled the request and showed the
+  request form again (a new wait).
+- **Fix.** A ready request now stays usable until midnight (at least an hour), so coming back later
+  the same day opens the app without another wait. The ready panel says so ("Your wait is done. Use
+  it any time until …"). A request past midnight is cleared before the screen is drawn, so the
+  button is never a dead end.
+- **Ready notification.** When the wait ends, a notification says emergency access is ready; tapping
+  it opens the app, whose block screen offers "Open for 5 minutes". Cancelled or used requests
+  remove it.
+
+Verified on the emulator: a request that became ready 90 minutes earlier is offered without a new
+wait, and tapping it opens the app with emergency access.

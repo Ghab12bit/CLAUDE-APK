@@ -68,7 +68,7 @@ class InterventionViewModel(private val graph: AppGraph, private val saved: Save
         viewModelScope.launch {
             val (decision, snap) = graph.enforcer.decide(pkg)
             val offer = FrictionPolicy.offer(decision, mutable.value.attempt)
-            val pending = graph.db.unlockEventDao().pending(pkg)
+            val pending = graph.overrides.pendingEmergency(pkg)
             mutable.update {
                 it.copy(
                     loading = false,

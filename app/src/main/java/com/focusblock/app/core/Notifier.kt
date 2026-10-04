@@ -158,6 +158,24 @@ class Notifier(private val context: Context, private val db: FocusBlockDatabase,
             .build())
     }
 
+    /** The emergency wait is over: tapping opens the app, whose block screen offers "Open for 5 minutes". */
+    fun showEmergencyReady(pkg: String, appName: String, usableUntil: Long) {
+        val launch = context.packageManager.getLaunchIntentForPackage(pkg)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val tap = launch?.let { PendingIntent.getActivity(context, pkg.hashCode(), it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE) }
+        post(ID_EMERGENCY_READY + (pkg.hashCode() and 0xFF), NotificationCompat.Builder(context, CHANNEL_EVENTS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.notif_emergency_ready_title, appName))
+            .setContentText(context.getString(R.string.notif_emergency_ready_text, appName, Fmt.time(context, usableUntil)))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(context.getString(R.string.notif_emergency_ready_text, appName, Fmt.time(context, usableUntil))))
+            .apply { tap?.let { setContentIntent(it) } }
+            .setAutoCancel(true)
+            .setTimeoutAfter((usableUntil - clock.now()).coerceAtLeast(0))
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .build())
+    }
+
+    fun cancelEmergencyReady(pkg: String) = cancel(ID_EMERGENCY_READY + (pkg.hashCode() and 0xFF))
+
     suspend fun showRuleStarted(name: String, until: Long?) {
         if (!enabled(Kind.RULES)) return
         val title = if (until != null) context.getString(R.string.notif_rule_on, name, Fmt.time(context, until))
@@ -226,5 +244,7 @@ class Notifier(private val context: Context, private val db: FocusBlockDatabase,
         const val ID_PROBLEM = 4106
         const val ID_BACKUP = 4107
         const val ID_UNLOCKED = 4108
+        /** Plus 0–255 per app, so two apps' "ready" notices do not replace each other. */
+        const val ID_EMERGENCY_READY = 4200
     }
 }

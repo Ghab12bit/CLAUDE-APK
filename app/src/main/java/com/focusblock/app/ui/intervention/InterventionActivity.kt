@@ -335,6 +335,10 @@ private fun EmergencyPanel(
                 TextLink(stringResource(R.string.emergency_cancel), onCancel, accent = false)
             }
             else -> {
+                // Ready: it stays usable until midnight, so coming back later does not restart the wait.
+                val until = FrictionPolicy.emergencyUsableUntil(pending.readyAt, java.time.ZoneId.systemDefault())
+                Text(stringResource(R.string.emergency_ready_until, Fmt.time(context, until)), style = FbType.body, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                Spacer(Modifier.height(12.dp))
                 PrimaryButton(stringResource(R.string.emergency_use, state.appName), onUse)
                 TextLink(stringResource(R.string.emergency_cancel), onCancel, accent = false)
             }

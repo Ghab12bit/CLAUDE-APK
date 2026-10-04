@@ -16,6 +16,7 @@ import com.focusblock.app.policy.PolicySnapshot
 import com.focusblock.app.policy.ReasonType
 import com.focusblock.app.policy.SessionClock
 import com.focusblock.app.policy.Strength
+import com.focusblock.app.worker.EmergencyReadyWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -110,6 +111,7 @@ class Enforcer(
  * both re-check the policy at the moment they are granted.
  */
 class OverrideManager(
+    private val context: android.content.Context,
     private val db: FocusBlockDatabase,
     private val clock: AppClock,
     private val enforcer: Enforcer,
@@ -147,7 +149,7 @@ class OverrideManager(
         if (!decision.blocked) return@withContext Result.NotNeeded
         val result = db.withTransaction {
             val existing = db.unlockEventDao().pending(pkg)
-            if (existing != null && clock.now() < existing.readyAt + 60 * SessionClock.MINUTE) return@withTransaction Result.Waiting(existing.readyAt)
+            if (existing != null && clock.now() < FrictionPolicy.emergencyUsableUntil(existing.readyAt, clock.zone())) return@withTransaction Result.Waiting(existing.readyAt)
             existing?.let { db.unlockEventDao().update(it.copy(status = UnlockEventEntity.CANCELLED)) }
             val now = clock.now()
             val times = FrictionPolicy.emergency(now)
@@ -164,7 +166,20 @@ class OverrideManager(
             Result.Waiting(times.readyAt)
         }
         enforcer.setAction(logId, AttemptAction.EMERGENCY)
+        if (result is Result.Waiting) EmergencyReadyWorker.schedule(context, pkg, result.readyAt)
         result
+    }
+
+    /**
+     * The emergency request for [pkg] that is waiting or ready to use, or null. A request past its
+     * last usable moment (midnight) is cancelled here, so the screen never offers a dead button.
+     */
+    suspend fun pendingEmergency(pkg: String): UnlockEventEntity? = withContext(Dispatchers.IO) {
+        val pending = db.unlockEventDao().pending(pkg) ?: return@withContext null
+        if (clock.now() >= FrictionPolicy.emergencyUsableUntil(pending.readyAt, clock.zone())) {
+            db.unlockEventDao().update(pending.copy(status = UnlockEventEntity.CANCELLED))
+            null
+        } else pending
     }
 
     /** After the wait: opens the app for five minutes. */
@@ -173,7 +188,7 @@ class OverrideManager(
             val pending = db.unlockEventDao().pending(pkg) ?: return@withTransaction Result.NotAllowed
             val now = clock.now()
             if (now < pending.readyAt) return@withTransaction Result.Waiting(pending.readyAt)
-            if (!FrictionPolicy.emergencyUsable(pending.readyAt, now)) {
+            if (!FrictionPolicy.emergencyUsable(pending.readyAt, now, clock.zone())) {
                 db.unlockEventDao().update(pending.copy(status = UnlockEventEntity.CANCELLED))
                 return@withTransaction Result.NotAllowed
             }
@@ -181,12 +196,13 @@ class OverrideManager(
             db.unlockEventDao().update(pending.copy(status = UnlockEventEntity.GRANTED, grantedAt = now, expiresAt = until))
             Result.Granted(until)
         }
-        if (result is Result.Granted) onChanged()
+        if (result is Result.Granted) { onChanged(); EmergencyReadyWorker.cancel(context, pkg) }
         result
     }
 
     suspend fun cancelEmergency(pkg: String) = withContext(Dispatchers.IO) {
         db.unlockEventDao().pending(pkg)?.let { db.unlockEventDao().update(it.copy(status = UnlockEventEntity.CANCELLED)) }
+        EmergencyReadyWorker.cancel(context, pkg)
     }
 
     private suspend fun insertGrant(

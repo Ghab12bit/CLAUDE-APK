@@ -351,11 +351,12 @@ class EndToEndTest {
             check(device.wait(Until.hasObject(By.text("How it works")), 10_000), "How it works")
             check(device.hasObject(By.text("TODAY")), "Today card")
             screenshot("15-limit-page")
+            // With "How it works" folded on a saved limit, the week card's heading is on the first screen;
+            // scrollTo only scrolls when it is not.
+            scrollTo("Last 7 days")
+            check(device.hasObject(By.text("Last 7 days")), "Week card")
             scrollDown()
             screenshot("15-limit-page-2")
-            scrollTo("Last 7 days")
-            // The page is short now that "How it works" starts folded: the heading may already be above the fold.
-            check(device.hasObject(By.text("Last 7 days")) || device.hasObject(By.textStartsWith("Over the limit on")), "Week card")
             scrollTo("Delete limit")
             screenshot("15-limit-page-3")
             check(device.hasObject(By.text("Limit is on")), "On/off switch")

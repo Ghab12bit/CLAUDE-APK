@@ -237,8 +237,9 @@ fun HardModeUnlockScreen(
                                     database.blockedAppDao().setBlocked(packageName, false)
                                 }
 
-                                // Stop blocking service
-                                AppBlockingService.stop(context)
+                                // Keep the blocking host running for schedules/timers/limits;
+                                // just refresh its notification.
+                                AppBlockingService.update(context)
 
                                 // Notify accessibility service to refresh state
                                 val refreshIntent = Intent(FocusBlockAccessibilityService.ACTION_REFRESH_STRICT_MODE_CACHE)

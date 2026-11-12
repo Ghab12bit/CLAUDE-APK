@@ -289,8 +289,10 @@ fun SettingsScreen(
 
                 PermissionSettingsItem(
                     icon = Icons.Outlined.Accessibility,
-                    title = "Accessibility Service",
+                    title = "Faster blocking (Accessibility)",
+                    subtitle = "Optional. Blocking works fully without it. Many banking apps won't open while it's on.",
                     isGranted = uiState.permissionStatus.hasAccessibility,
+                    isOptional = true,
                     onClick = { PermissionUtils.openAccessibilitySettings(context) }
                 )
 
@@ -759,7 +761,9 @@ fun PermissionSettingsItem(
     icon: ImageVector,
     title: String,
     isGranted: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    subtitle: String? = null,
+    isOptional: Boolean = false
 ) {
     Row(
         modifier = Modifier
@@ -777,23 +781,47 @@ fun PermissionSettingsItem(
 
         Spacer(modifier = Modifier.width(16.dp))
 
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyLarge,
-            color = TextPrimary,
-            modifier = Modifier.weight(1f)
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = TextPrimary
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+        }
+
+        // Optional items are neutral when off, never a red "Required"
+        val badgeText = when {
+            isOptional && isGranted -> "On"
+            isOptional -> "Off"
+            isGranted -> "Granted"
+            else -> "Required"
+        }
+        val badgeColor = when {
+            isOptional && isGranted -> AccentOrange
+            isOptional -> TextSecondary
+            isGranted -> StatusActive
+            else -> AccentRed
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
 
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
-                .background(if (isGranted) StatusActive.copy(alpha = 0.2f) else AccentRed.copy(alpha = 0.2f))
+                .background(badgeColor.copy(alpha = 0.2f))
                 .padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
             Text(
-                text = if (isGranted) "Granted" else "Required",
+                text = badgeText,
                 style = MaterialTheme.typography.labelSmall,
-                color = if (isGranted) StatusActive else AccentRed
+                color = badgeColor
             )
         }
     }

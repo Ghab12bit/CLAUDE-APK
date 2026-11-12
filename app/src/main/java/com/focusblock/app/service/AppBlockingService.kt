@@ -8,28 +8,28 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.focusblock.app.FocusBlockApp
 import com.focusblock.app.R
-import com.focusblock.app.database.entity.BlockLog
-import com.focusblock.app.database.entity.BlockedByType
 import com.focusblock.app.database.repository.FocusBlockRepository
 import com.focusblock.app.ui.MainActivity
-import com.focusblock.app.ui.overlay.BlockedAppActivity
-import com.focusblock.app.utils.AppUtils
-import com.focusblock.app.utils.TimeUtils
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 
 private const val TAG = "AppBlockingService"
 
+/**
+ * Default blocking host. Needs only Usage Access + "Display over other apps".
+ *
+ * Runs [BlockingEngine] (every blocking mode) and feeds it the foreground app polled from
+ * UsageStatsManager, so FocusBlock works fully with Accessibility turned OFF. That matters
+ * because banking and payment apps refuse to run while a third-party Accessibility service
+ * is enabled. When the optional Accessibility add-on is connected it reports apps itself,
+ * and this host stops polling to avoid duplicate events.
+ */
 @AndroidEntryPoint
 class AppBlockingService : Service() {
 
@@ -39,8 +39,11 @@ class AppBlockingService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var wakeLock: PowerManager.WakeLock? = null
     private var isMonitoring = false
-    private var lastCheckedPackage: String? = null
-    private var lastBlockTime = 0L
+    private var monitorJob: Job? = null
+
+    private var lastReportedPackage: String? = null
+    private var lastReportTime = 0L
+    private var currentForeground: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -49,9 +52,10 @@ class AppBlockingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> startBlocking()
+            // null = sticky restart after the system killed the process: resume enforcement
+            ACTION_START, null -> startBlocking()
             ACTION_STOP -> stopBlocking()
-            ACTION_UPDATE -> updateNotification()
+            ACTION_UPDATE -> if (isMonitoring) updateNotification() else startBlocking()
         }
         return START_STICKY
     }
@@ -66,285 +70,102 @@ class AppBlockingService : Service() {
     }
 
     private fun startBlocking() {
+        // Always (re)enter the foreground promptly after startForegroundService()
+        try {
+            startForeground(NOTIFICATION_ID, createNotification())
+        } catch (e: Exception) {
+            // Android 12+ can refuse a foreground start from the background (e.g. alarm-driven
+            // update). The app restarts us next time it opens or on boot.
+            Log.w(TAG, "Could not enter foreground", e)
+            if (!isMonitoring) stopSelf()
+            return
+        }
         if (isMonitoring) return
         isMonitoring = true
+        isRunning = true
 
-        startForeground(NOTIFICATION_ID, createNotification())
+        BlockingEngine.get(this).start()
         startMonitoring()
+        Log.i(TAG, "Usage Access blocking started")
     }
 
     private fun stopBlocking() {
         isMonitoring = false
+        isRunning = false
+        monitorJob?.cancel()
+        monitorJob = null
+        // Keep enforcing if the optional Accessibility add-on still hosts the engine
+        if (!FocusBlockAccessibilityService.isServiceRunning) {
+            BlockingEngine.get(this).stop()
+        }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     private fun startMonitoring() {
-        serviceScope.launch {
-            var checkCount = 0
-            while (isMonitoring) {
+        monitorJob?.cancel()
+        monitorJob = serviceScope.launch {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            var elapsed = 0L
+            while (isActive && isMonitoring) {
+                val interactive = powerManager.isInteractive
                 try {
-                    checkCurrentApp()
-                    // Re-acquire wake lock every 5 minutes to prevent timeout
-                    checkCount++
-                    if (checkCount >= 600) { // 600 * 500ms = 5 minutes
-                        checkCount = 0
-                        reacquireWakeLock()
+                    // The Accessibility add-on reports apps itself when connected
+                    if (interactive && !FocusBlockAccessibilityService.isServiceRunning) {
+                        pollForegroundApp()
                     }
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    Log.w(TAG, "Foreground poll failed", e)
                 }
-                delay(CHECK_INTERVAL)
+                val interval = if (interactive) CHECK_INTERVAL else SCREEN_OFF_INTERVAL
+                delay(interval)
+                // Re-acquire wake lock every 5 minutes to prevent timeout
+                elapsed += interval
+                if (elapsed >= 5 * 60 * 1000L) {
+                    elapsed = 0L
+                    reacquireWakeLock()
+                }
             }
         }
     }
 
-    private fun reacquireWakeLock() {
-        releaseWakeLock()
-        acquireWakeLock()
-    }
-
-    private suspend fun checkCurrentApp() {
-        val currentPackage = getCurrentForegroundApp() ?: return
-
-        // Don't block our own app or system UI
-        if (currentPackage == packageName ||
-            currentPackage == "com.android.systemui" ||
-            currentPackage == "com.android.launcher" ||
-            currentPackage.startsWith("com.android.launcher") ||
-            currentPackage.startsWith("com.sec.android.app.launcher") ||
-            currentPackage.startsWith("com.google.android.apps.nexuslauncher")) {
-            return
-        }
-
-        // Debounce - don't block same app within a short time
-        if (currentPackage == lastCheckedPackage &&
-            System.currentTimeMillis() - lastBlockTime < BLOCK_COOLDOWN) {
-            return
-        }
-
-        if (shouldBlockApp(currentPackage)) {
-            lastCheckedPackage = currentPackage
-            lastBlockTime = System.currentTimeMillis()
-            blockApp(currentPackage)
+    private fun pollForegroundApp() {
+        val pkg = getCurrentForegroundApp() ?: currentForeground ?: return
+        currentForeground = pkg
+        val now = System.currentTimeMillis()
+        val changed = pkg != lastReportedPackage
+        // Re-report an unchanged app periodically so an app reopened from Recents during
+        // the engine's block cooldown still gets caught.
+        if (changed || now - lastReportTime >= REFEED_INTERVAL) {
+            lastReportedPackage = pkg
+            lastReportTime = now
+            BlockingEngine.get(this).onForegroundApp(pkg)
         }
     }
 
     private fun getCurrentForegroundApp(): String? {
         val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val endTime = System.currentTimeMillis()
-        val startTime = endTime - 10000
-
-        val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
+        val usageEvents = usageStatsManager.queryEvents(endTime - LOOKBACK_MS, endTime)
         var lastPackage: String? = null
         var lastTime = 0L
-
+        val event = UsageEvents.Event()
         while (usageEvents.hasNextEvent()) {
-            val event = UsageEvents.Event()
             usageEvents.getNextEvent(event)
             if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
                 event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
-                if (event.timeStamp > lastTime) {
+                if (event.timeStamp >= lastTime) {
                     lastTime = event.timeStamp
                     lastPackage = event.packageName
                 }
             }
         }
-
         return lastPackage
     }
 
-    private suspend fun shouldBlockApp(packageName: String): Boolean {
-        // Check if in allowlist
-        val blockedApp = repository.getBlockedApp(packageName)
-        if (blockedApp?.isInAllowlist == true) {
-            return false
-        }
-
-        // Check Quick Block
-        val quickBlockSession = repository.getActiveQuickBlockSessionSync()
-        if (quickBlockSession != null) {
-            val blockedPackages = quickBlockSession.blockedPackages.split(",")
-            if (blockedPackages.contains(packageName)) {
-                return true
-            }
-        }
-
-        // Check schedules
-        val currentMinute = TimeUtils.getCurrentMinuteOfDay()
-        val dayOfWeek = TimeUtils.getCurrentDayOfWeek().toString()
-        val activeSchedules = repository.getActiveSchedules(currentMinute, dayOfWeek)
-
-        for (schedule in activeSchedules) {
-            val blockedPackages = schedule.blockedPackages.split(",")
-            if (blockedPackages.contains(packageName)) {
-                return true
-            }
-        }
-
-        // Check if individually blocked
-        if (blockedApp?.isBlocked == true) {
-            return true
-        }
-
-        return false
-    }
-
-    private suspend fun blockApp(packageName: String) {
-        // If accessibility service is running, let it handle blocking
-        // This avoids duplicate blocking attempts
-        if (FocusBlockAccessibilityService.isServiceRunning) {
-            Log.d(TAG, "Accessibility service running, skipping blocking for: $packageName")
-            return
-        }
-
-        Log.i(TAG, "blockApp() called for: $packageName")
-        val appName = AppUtils.getAppName(this, packageName)
-
-        // Log the block
-        val blockedByType = determineBlockedByType(packageName)
-        Log.d(TAG, "Block type: $blockedByType")
-        repository.insertBlockLog(
-            BlockLog(
-                packageName = packageName,
-                appName = appName,
-                blockedBy = blockedByType
-            )
-        )
-
-        // Update block count
-        repository.incrementBlockCount(packageName)
-
-        // Vibrate
-        vibrateDevice()
-
-        // First go to home
-        Log.d(TAG, "Going to home before showing blocking screen")
-        withContext(Dispatchers.Main) {
-            AppUtils.goToHome(this@AppBlockingService)
-        }
-
-        // Small delay
-        delay(150)
-
-        // Show blocking screen
-        withContext(Dispatchers.Main) {
-            showBlockingScreen(packageName, appName, blockedByType)
-        }
-    }
-
-    private suspend fun determineBlockedByType(packageName: String): BlockedByType {
-        // Check if Hard Mode is enabled
-        if (repository.isLegacyHardModeEnabled()) {
-            return BlockedByType.HARD_MODE
-        }
-
-        // Check Global Daily Limit (high priority)
-        val globalSettings = repository.getGlobalDailyLimitSettingsSync()
-        if (globalSettings != null && globalSettings.isEnabled) {
-            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                .format(java.util.Date())
-            val globalUsage = repository.getGlobalDailyUsageSync(today)
-            if (globalUsage != null && globalUsage.totalUsageMinutes >= globalSettings.dailyLimitMinutes) {
-                // Check if excluded
-                if (!isExcludedFromGlobalLimit(packageName, globalSettings)) {
-                    return BlockedByType.GLOBAL_LIMIT
-                }
-            }
-        }
-
-        // Check if Strict Mode is enabled
-        if (repository.isStrictModeEnabled()) {
-            return BlockedByType.STRICT_MODE
-        }
-
-        // Check Quick Block
-        val quickBlockSession = repository.getActiveQuickBlockSessionSync()
-        if (quickBlockSession != null) {
-            val blockedPackages = quickBlockSession.blockedPackages.split(",")
-            if (blockedPackages.contains(packageName)) {
-                return BlockedByType.QUICK_BLOCK
-            }
-        }
-
-        return BlockedByType.SCHEDULE
-    }
-
-    /**
-     * Check if a package is excluded from global limit tracking
-     * Uses WHITELIST approach - only apps in tracked list are blocked
-     */
-    private fun isExcludedFromGlobalLimit(packageName: String, settings: com.focusblock.app.database.entity.GlobalDailyLimitSettings): Boolean {
-        // Always exclude FocusBlock itself
-        if (packageName == "com.focusblock.app") return true
-
-        // Always exclude system apps
-        if (com.focusblock.app.database.entity.GlobalDailyLimitSettings.SYSTEM_APPS.any {
-            packageName == it || packageName.startsWith("$it.")
-        }) return true
-
-        // Build tracked apps list (WHITELIST)
-        val trackedApps = mutableSetOf<String>()
-
-        // Add user-defined tracked packages
-        val userTracked = settings.trackedPackages.split(",").filter { it.isNotBlank() }
-        if (userTracked.isNotEmpty()) {
-            trackedApps.addAll(userTracked)
-        }
-
-        // If sharing with App Timer, add those apps too
-        if (settings.useAppTimerApps) {
-            runBlocking {
-                val appTimerSettings = repository.getAppTimerSettingsSync()
-                if (appTimerSettings != null && appTimerSettings.timerApps.isNotBlank()) {
-                    trackedApps.addAll(appTimerSettings.timerApps.split(",").filter { it.isNotBlank() })
-                }
-            }
-        }
-
-        // If no apps configured, use defaults
-        if (trackedApps.isEmpty()) {
-            trackedApps.addAll(com.focusblock.app.database.entity.GlobalDailyLimitSettings.DEFAULT_DISTRACTING_APPS)
-        }
-
-        // WHITELIST: If app is NOT in tracked list, exclude it
-        return !trackedApps.contains(packageName)
-    }
-
-    private fun showBlockingScreen(packageName: String, appName: String, blockedByType: BlockedByType) {
-        try {
-            val intent = Intent(this, BlockedAppActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
-                        Intent.FLAG_ACTIVITY_NO_ANIMATION
-                putExtra(BlockedAppActivity.EXTRA_PACKAGE_NAME, packageName)
-                putExtra(BlockedAppActivity.EXTRA_APP_NAME, appName)
-                putExtra(BlockedAppActivity.EXTRA_BLOCKED_BY, blockedByType.name)
-            }
-            Log.d(TAG, "Starting BlockedAppActivity for: $appName")
-            startActivity(intent)
-            Log.i(TAG, "BlockedAppActivity started successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start BlockedAppActivity", e)
-        }
-    }
-
-    private fun vibrateDevice() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-                val vibrator = vibratorManager.defaultVibrator
-                vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-                vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+    private fun reacquireWakeLock() {
+        releaseWakeLock()
+        acquireWakeLock()
     }
 
     private fun createNotification(): Notification {
@@ -403,12 +224,19 @@ class AppBlockingService : Service() {
     }
 
     companion object {
+        /** True while this Usage Access host is running. */
+        @Volatile
+        var isRunning = false
+            private set
+
         const val ACTION_START = "com.focusblock.app.action.START"
         const val ACTION_STOP = "com.focusblock.app.action.STOP"
         const val ACTION_UPDATE = "com.focusblock.app.action.UPDATE"
         private const val NOTIFICATION_ID = 1001
-        private const val CHECK_INTERVAL = 500L // Check every 500ms
-        private const val BLOCK_COOLDOWN = 2000L // Don't block same app within 2 seconds
+        private const val CHECK_INTERVAL = 500L // Poll foreground app every 500ms while screen is on
+        private const val SCREEN_OFF_INTERVAL = 2000L // Back off while the screen is off
+        private const val REFEED_INTERVAL = 3000L // Re-report an unchanged foreground app (beats the engine's 2s cooldown)
+        private const val LOOKBACK_MS = 10_000L
 
         fun start(context: Context) {
             val intent = Intent(context, AppBlockingService::class.java).apply {

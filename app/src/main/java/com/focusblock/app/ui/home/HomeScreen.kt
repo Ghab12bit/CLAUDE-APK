@@ -220,20 +220,17 @@ fun HomeScreen(
         // This is the foundation of daily discipline
         item(key = "app_timer_card") {
             var showAppTimerSetupDialog by remember { mutableStateOf(false) }
-            val isAccessibilityEnabled = PermissionUtils.hasAccessibilityServiceEnabled(context)
+            val hasUsageAccess = PermissionUtils.hasUsageStatsPermission(context)
 
             PrimaryAppTimerCard(
                 isEnabled = uiState.isAppTimerEnabled,
                 limitMinutes = uiState.appTimerLimitMinutes,
                 usageMinutes = uiState.appTimerUsageMinutes,
                 appsCount = uiState.appTimerAppsCount,
-                isAccessibilityEnabled = isAccessibilityEnabled,
+                hasUsageAccess = hasUsageAccess,
                 onSetupClick = { showAppTimerSetupDialog = true },
                 onDisableClick = { viewModel.disableAppTimer() },
-                onEnableAccessibility = {
-                    val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                    context.startActivity(intent)
-                }
+                onGrantUsageAccess = { PermissionUtils.openUsageAccessSettings(context) }
             )
 
             if (showAppTimerSetupDialog) {
@@ -413,7 +410,6 @@ fun HomeScreen(
                 ?.filter { it.isNotBlank() }
                 ?.size ?: 0
             val useQuickBlockApps = uiState.focusCycle?.useQuickBlockApps ?: true
-            val isAccessibilityEnabled = PermissionUtils.hasAccessibilityServiceEnabled(context)
 
             SecondaryModeCard(
                 title = "Focus Cycle",
@@ -2784,10 +2780,10 @@ fun FocusCycleCard(
     breakDurationMinutes: Int,
     trackedAppsCount: Int = 0,
     useQuickBlockApps: Boolean = true,
-    isAccessibilityEnabled: Boolean = true,
+    hasUsageAccess: Boolean = true,
     onStartClick: () -> Unit,
     onStopClick: () -> Unit,
-    onEnableAccessibility: () -> Unit = {}
+    onGrantUsageAccess: () -> Unit = {}
 ) {
     val cycleColor = Color(0xFF9C27B0) // Purple
     val warningColor = Color(0xFFFF5722) // Deep Orange for warning
@@ -2920,8 +2916,8 @@ fun FocusCycleCard(
                 }
             }
 
-            // Show accessibility warning if not enabled
-            if (isEnabled && !isAccessibilityEnabled) {
+            // Show Usage Access warning if not granted
+            if (isEnabled && !hasUsageAccess) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -2943,7 +2939,7 @@ fun FocusCycleCard(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Accessibility Service Required",
+                                text = "Usage Access Required",
                                 style = MaterialTheme.typography.titleSmall,
                                 color = warningColor,
                                 fontWeight = FontWeight.Bold
@@ -2951,13 +2947,13 @@ fun FocusCycleCard(
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Focus Cycle needs Accessibility permission to detect when you open apps and track usage time.",
+                            text = "Focus Cycle needs Usage Access to detect when you open apps and track usage time.",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
-                            onClick = onEnableAccessibility,
+                            onClick = onGrantUsageAccess,
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = warningColor)
@@ -2968,7 +2964,7 @@ fun FocusCycleCard(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Enable Accessibility Service")
+                            Text("Grant Usage Access")
                         }
                     }
                 }
@@ -3172,10 +3168,10 @@ fun AppTimerCard(
     limitMinutes: Int,
     usageMinutes: Int,
     appsCount: Int,
-    isAccessibilityEnabled: Boolean = true,
+    hasUsageAccess: Boolean = true,
     onSetupClick: () -> Unit,
     onDisableClick: () -> Unit,
-    onEnableAccessibility: () -> Unit = {}
+    onGrantUsageAccess: () -> Unit = {}
 ) {
     val timerColor = Color(0xFF00BCD4) // Cyan
     val warningColor = Color(0xFFFF5722) // Deep Orange for warning
@@ -3283,8 +3279,8 @@ fun AppTimerCard(
                 }
             }
 
-            // Show accessibility warning if service not enabled
-            if (!isAccessibilityEnabled && !isEnabled) {
+            // Show Usage Access warning if not granted
+            if (!hasUsageAccess && !isEnabled) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -3303,13 +3299,13 @@ fun AppTimerCard(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Enable Accessibility Service to use App Timer",
+                            text = "Grant Usage Access to use App Timer",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
                             modifier = Modifier.weight(1f)
                         )
                         TextButton(
-                            onClick = onEnableAccessibility,
+                            onClick = onGrantUsageAccess,
                             colors = ButtonDefaults.textButtonColors(contentColor = warningColor)
                         ) {
                             Text("Enable", fontWeight = FontWeight.Medium)
@@ -4489,10 +4485,10 @@ fun PrimaryAppTimerCard(
     limitMinutes: Int,
     usageMinutes: Int,
     appsCount: Int,
-    isAccessibilityEnabled: Boolean,
+    hasUsageAccess: Boolean,
     onSetupClick: () -> Unit,
     onDisableClick: () -> Unit,
-    onEnableAccessibility: () -> Unit
+    onGrantUsageAccess: () -> Unit
 ) {
     val progress = if (limitMinutes > 0) (usageMinutes.toFloat() / limitMinutes).coerceIn(0f, 1f) else 0f
     val isOverLimit = usageMinutes >= limitMinutes && limitMinutes > 0
@@ -4626,7 +4622,7 @@ fun PrimaryAppTimerCard(
             } else {
                 Spacer(modifier = Modifier.height(12.dp))
 
-                if (!isAccessibilityEnabled) {
+                if (!hasUsageAccess) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp),
@@ -4635,7 +4631,7 @@ fun PrimaryAppTimerCard(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onEnableAccessibility() }
+                                .clickable { onGrantUsageAccess() }
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -4647,7 +4643,7 @@ fun PrimaryAppTimerCard(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Enable accessibility for timer enforcement",
+                                text = "Grant Usage Access for timer enforcement",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = AccentOrange
                             )

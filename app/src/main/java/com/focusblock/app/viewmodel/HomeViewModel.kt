@@ -939,8 +939,9 @@ class HomeViewModel @Inject constructor(
 
             repository.deactivateAllQuickBlockSessions()
 
-            // Stop the blocking service
-            AppBlockingService.stop(application)
+            // Keep the blocking host running: schedules, timers and limits still need it.
+            // Just refresh its notification now that Quick Block ended.
+            AppBlockingService.update(application)
 
             // Notify accessibility service to refresh its state
             val refreshIntent = android.content.Intent(FocusBlockAccessibilityService.ACTION_REFRESH_STRICT_MODE_CACHE)

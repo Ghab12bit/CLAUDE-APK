@@ -24,8 +24,37 @@ android {
         }
     }
 
+    // Release signing. Reads, in order:
+    //  1. keystore.properties in the project root (local builds; gitignored)
+    //  2. FOCUSBLOCK_* environment variables (GitHub Actions secrets)
+    // If neither is present, release builds fall back to the debug key so they still
+    // install (non-debuggable), but you can't ship updates over a debug-signed build.
+    def keystorePropsFile = rootProject.file("keystore.properties")
+    def keystoreProps = new Properties()
+    if (keystorePropsFile.exists()) {
+        keystorePropsFile.withInputStream { keystoreProps.load(it) }
+    }
+    def signingValue = { String propKey, String envKey ->
+        keystoreProps.getProperty(propKey) ?: System.getenv(envKey)
+    }
+    def releaseStoreFile = signingValue("storeFile", "FOCUSBLOCK_KEYSTORE_FILE")
+    def hasReleaseSigning = releaseStoreFile != null && rootProject.file(releaseStoreFile).exists()
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile rootProject.file(releaseStoreFile)
+                storePassword signingValue("storePassword", "FOCUSBLOCK_KEYSTORE_PASSWORD")
+                keyAlias signingValue("keyAlias", "FOCUSBLOCK_KEY_ALIAS")
+                keyPassword signingValue("keyPassword", "FOCUSBLOCK_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            debuggable false
+            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'

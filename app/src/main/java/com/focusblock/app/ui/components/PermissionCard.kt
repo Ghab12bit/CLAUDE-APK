@@ -81,10 +81,10 @@ fun PermissionCard(
             if (permissionStatus.hasUsageStats && permissionStatus.hasOverlay) {
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Accessibility (Optional but recommended)
+                // Accessibility (optional add-on; off by default)
                 PermissionItem(
-                    title = "Accessibility Service",
-                    description = "Optional: For enhanced blocking",
+                    title = "Faster blocking (Accessibility)",
+                    description = "Optional. Not needed for blocking. Many banking apps won't open while it's on.",
                     isGranted = permissionStatus.hasAccessibility,
                     isOptional = true,
                     onClick = { PermissionUtils.openAccessibilitySettings(context) }

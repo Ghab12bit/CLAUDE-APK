@@ -1,0 +1,57 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ banking-safe-blocking ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.5'
+
+      - name: Decode release keystore (if secrets are set)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.FOCUSBLOCK_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > focusblock-release.jks
+            echo "FOCUSBLOCK_KEYSTORE_FILE=focusblock-release.jks" >> "$GITHUB_ENV"
+            echo "Signing with your release key."
+          else
+            echo "::warning::No FOCUSBLOCK_KEYSTORE_BASE64 secret. Release APK is signed with a throwaway debug key: fine for testing, but you cannot update over it later with your real key."
+          fi
+
+      - name: Build release APK
+        env:
+          FOCUSBLOCK_KEYSTORE_PASSWORD: ${{ secrets.FOCUSBLOCK_KEYSTORE_PASSWORD }}
+          FOCUSBLOCK_KEY_ALIAS: ${{ secrets.FOCUSBLOCK_KEY_ALIAS }}
+          FOCUSBLOCK_KEY_PASSWORD: ${{ secrets.FOCUSBLOCK_KEY_PASSWORD }}
+        run: gradle --no-daemon assembleRelease
+
+      - name: Verify APK is not debuggable
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt | tail -1)
+          if "$AAPT" dump badging "$APK" | grep -q "application-debuggable"; then
+            echo "::error::Release APK is debuggable"; exit 1
+          fi
+          echo "OK: not debuggable"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FocusBlock-release-apk
+          path: app/build/outputs/apk/release/app-release.apk

@@ -76,13 +76,13 @@
     <string name="permission_overlay">Display Over Apps</string>
     <string name="permission_overlay_desc">Required to show blocking screen</string>
     <string name="permission_accessibility">Accessibility Service</string>
-    <string name="permission_accessibility_desc">Optional: For enhanced blocking capabilities</string>
+    <string name="permission_accessibility_desc">Optional: slightly faster blocking. Banking apps may refuse to run while it is on.</string>
     <string name="permission_notification">Notifications</string>
     <string name="permission_notification_desc">Required to show blocking status</string>
     <string name="grant_permission">Grant Permission</string>
 
     <!-- Accessibility Service -->
-    <string name="accessibility_service_description">FocusBlock uses Accessibility Service to detect and block apps when they are opened. This helps ensure effective app blocking even when the standard method is bypassed.</string>
+    <string name="accessibility_service_description">Optional faster blocking. FocusBlock only detects which app is opened so it can block it a little faster; it cannot read what is on your screen. FocusBlock works fully without this using Usage Access. Many banking and payment apps refuse to run while any third-party accessibility service is on, so leave this off if you use them.</string>
 
     <!-- Notifications -->
     <string name="notification_channel_blocking">App Blocking</string>

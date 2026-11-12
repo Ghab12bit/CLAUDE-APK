@@ -5,7 +5,7 @@
 -->
 <resources>
     <string name="app_name">FocusBlock</string>
-    <string name="accessibility_service_description">FocusBlock uses Accessibility to see which app is on screen, so it can show the block screen when you open a blocked app. It does not read what you type or see in other apps.</string>
+    <string name="accessibility_service_description">Optional faster blocking. FocusBlock already blocks apps without this, using Usage access. Turning this on only lets it notice a blocked app a moment sooner. It sees which app is on screen and never reads what you type or see. Many banking and payment apps refuse to run while any third-party accessibility service is on, so leave this off if you use them.</string>
 
     <!-- Kept for the legacy notification channel until it is removed. -->
     <string name="notification_channel_blocking">Block status</string>
@@ -245,6 +245,7 @@
     <string name="state_locked">Locked until %s</string>
     <string name="cause_usage_off">Usage access is off</string>
     <string name="cause_accessibility_off">Accessibility is off</string>
+    <string name="cause_overlay_off">Display over other apps is off</string>
     <string name="cause_no_apps">no apps chosen</string>
     <string name="rule_deleted">%s deleted</string>
     <string name="rule_locked_strict">Strict Lock · can\'t be edited or turned off while active</string>
@@ -372,7 +373,7 @@
         <item quantity="one">%s needs attention</item>
         <item quantity="other">%s need attention</item>
     </plurals>
-    <string name="perm_accessibility">Accessibility</string>
+    <string name="perm_accessibility">Faster blocking (Accessibility)</string>
     <string name="perm_usage">Usage access</string>
     <string name="perm_notifications">Notifications</string>
     <string name="perm_battery">Unrestricted battery</string>
@@ -383,12 +384,12 @@
     <string name="health_not_running">On, but not running</string>
     <string name="health_optional">Optional</string>
     <string name="health_repair">Repair</string>
-    <string name="health_desc_accessibility">Notices when a blocked app opens and shows the block screen. Required.</string>
-    <string name="health_desc_usage">Counts minutes for limits and Activity.</string>
+    <string name="health_desc_accessibility">Optional. Notices a blocked app a moment sooner. Many banking and payment apps won\'t open while it\'s on, so leave it off if you use them.</string>
+    <string name="health_desc_usage">Notices which app is open so FocusBlock can block it, and counts minutes for limits and Activity. Required.</string>
     <string name="health_desc_notifications">Shows what is blocked and asks “Did you finish?”.</string>
     <string name="health_desc_battery">Stops the phone from closing FocusBlock in the background.</string>
     <string name="health_desc_exact_alarms">Ends blocks and sends “Did you finish?” on time.</string>
-    <string name="health_desc_overlay">Only used for backup blocking when Accessibility is off.</string>
+    <string name="health_desc_overlay">Lets FocusBlock show the block screen over a blocked app. Required.</string>
     <string name="health_repair_body">Android has Accessibility on for FocusBlock but the service isn\'t running. Turn FocusBlock off and on again in Accessibility settings.</string>
     <string name="essentials_body">These apps open during every block, rule and limit. Calls, emergency apps and Settings are always available.</string>
     <string name="essentials_add">Add or remove apps</string>
@@ -425,7 +426,7 @@
     <string name="troubleshoot_samsung_title">Samsung (One UI)</string>
     <string name="troubleshoot_samsung_1">Settings › Apps › FocusBlock › Battery › Unrestricted.</string>
     <string name="troubleshoot_samsung_2">Settings › Battery › Background usage limits: FocusBlock must not be in Sleeping or Deep sleeping apps.</string>
-    <string name="troubleshoot_samsung_3">If blocking stops after an update, turn FocusBlock off and on in Settings › Accessibility › Installed apps.</string>
+    <string name="troubleshoot_samsung_3">If you turned on Faster blocking and it stops after an update, turn FocusBlock off and on in Settings › Accessibility › Installed apps.</string>
     <string name="troubleshoot_other_title">Other phones</string>
     <string name="troubleshoot_other_1">Set battery use to Unrestricted or turn off battery optimisation for FocusBlock.</string>
     <string name="troubleshoot_other_2">Don\'t swipe FocusBlock away with “Clear all” if your phone stops apps that way.</string>
@@ -451,15 +452,15 @@
     <string name="onb_why">Why</string>
     <string name="onb_sees">FocusBlock sees</string>
     <string name="onb_not_sees">FocusBlock doesn\'t see</string>
-    <string name="onb_acc_title">See which app is open</string>
-    <string name="onb_acc_why">This is how FocusBlock notices a blocked app and shows the block screen.</string>
-    <string name="onb_acc_sees">The name of the app on screen.</string>
-    <string name="onb_acc_not">What you type, read or watch.</string>
-    <string name="onb_acc_hint">In the list, tap FocusBlock, then turn it on.</string>
     <string name="onb_usage_title">Count app minutes</string>
-    <string name="onb_usage_why">Needed for app limits, the daily limit and Activity.</string>
+    <string name="onb_usage_why">This is how FocusBlock notices a blocked app. It also counts minutes for limits and Activity.</string>
     <string name="onb_usage_sees">Which app was open and for how long.</string>
     <string name="onb_usage_not">Anything inside apps.</string>
+    <string name="onb_overlay_title">Show the block screen</string>
+    <string name="onb_overlay_why">Lets FocusBlock put the block screen over a blocked app the moment it opens.</string>
+    <string name="onb_overlay_sees">Nothing. It only lets FocusBlock show its own screen.</string>
+    <string name="onb_overlay_not">Anything inside other apps.</string>
+    <string name="onb_overlay_hint">If you see a list, tap FocusBlock, then turn it on.</string>
     <string name="onb_notif_title">Show block status</string>
     <string name="onb_notif_why">Shows what is blocked and asks “Did you finish?” when a block ends.</string>
     <string name="onb_notif_sees">Nothing new.</string>
@@ -483,7 +484,7 @@
     <string name="onb_test_skip">Skip test</string>
     <string name="onb_test_waiting">Test block running. Open %s.</string>
     <string name="onb_test_seen">The block screen appeared. Blocking works.</string>
-    <string name="onb_test_needs_accessibility">The test needs Accessibility. You can test later from Settings › Troubleshooting.</string>
+    <string name="onb_test_needs_permissions">The test needs Usage access and Display over other apps. You can test later from Settings › Troubleshooting.</string>
     <string name="onb_ready_title">FocusBlock is ready</string>
     <string name="onb_ready_body">Start a block from the Block tab, or add a rule that runs on its own.</string>
     <string name="onb_finish">Go to Block</string>
@@ -495,7 +496,7 @@
     <string name="channel_reminders">Usage reminders</string>
     <string name="channel_summary">Daily summary</string>
     <string name="channel_problems">Blocking problems</string>
-    <string name="channel_backup">Backup blocking</string>
+    <string name="channel_backup">Blocking</string>
     <string name="notif_active_until">Blocking until %s</string>
     <string name="notif_active_open">Blocking until you end it</string>
     <string name="notif_focus_until">Focus %1$d of %2$d · until %3$s</string>
@@ -506,8 +507,8 @@
     <string name="notif_summary_title">Today: %s of screen time</string>
     <string name="notif_problem_title">Blocking stopped working: %s</string>
     <string name="notif_problem_text">Tap to fix it.</string>
-    <string name="notif_backup_title">Backup blocking is on</string>
-    <string name="notif_backup_text">Accessibility is off, so FocusBlock uses a slower backup. Turn Accessibility on for reliable blocking.</string>
+    <string name="notif_backup_title">Blocking is on</string>
+    <string name="notif_backup_text">FocusBlock checks which app is open so it can block the apps you chose.</string>
     <string name="notif_extended">Added 15 minutes</string>
     <string name="notif_end_refused">You can\'t end this block early.</string>
 

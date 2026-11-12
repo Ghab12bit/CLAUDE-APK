@@ -31,8 +31,10 @@ also runs routines and limits on its own and keeps calls and essential apps avai
 
 - One pure-Kotlin policy engine (`app/src/main/java/com/focusblock/app/policy`) decides every
   block.
-  - Both enforcement paths call it: the accessibility service, and a foreground fallback that only
-    runs while accessibility is off.
+  - Both enforcement paths call it: the Usage access service (the default, needs no accessibility),
+    and the optional accessibility service ("Faster blocking"), which takes over while it's on.
+  - Accessibility is never required: many banking and payment apps refuse to run while a
+    third-party accessibility service is on.
   - The widget, notifications and every screen use the same session API (`core/SessionManager`).
 - Room is the source of truth.
   - Blocks are stored as start and end timestamps. Nothing counts down in memory.
@@ -57,11 +59,15 @@ After installing, the first-run setup asks for these, one at a time:
 
 | Permission | Why |
 |---|---|
-| Accessibility | Required. It's how FocusBlock notices a blocked app. It only receives window changes and can't read window content. |
-| Usage access | Limits and Activity |
+| Usage access | Required. How FocusBlock notices a blocked app; also limits and Activity. |
+| Display over other apps | Required on Android 10+. Shows the block screen over a blocked app. |
 | Notifications | Block status and "Did you finish?" |
 | Unrestricted battery | Reliability. On Samsung, also keep FocusBlock out of Sleeping apps. |
 | Exact alarms | Ends blocks and asks "Did you finish?" on time |
+
+Optional, off by default, in Settings › Blocking health: **Faster blocking (Accessibility)**. It
+notices a blocked app a moment sooner. It only receives window changes and can't read window
+content. Leave it off if you use banking or payment apps: many refuse to run while it's on.
 
 ## Build
 

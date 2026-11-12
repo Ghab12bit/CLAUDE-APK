@@ -84,6 +84,7 @@ import com.focusblock.app.R
 import com.focusblock.app.core.Fmt
 import com.focusblock.app.core.HealthState
 import com.focusblock.app.core.PermissionHealth
+import com.focusblock.app.core.cause
 import com.focusblock.app.policy.SessionClock
 import com.focusblock.app.policy.SessionOutcome
 import com.focusblock.app.policy.SessionType
@@ -464,7 +465,8 @@ fun nextRuleText(name: String, at: Long): String {
 private fun BlockStatus(state: BlockUi, onHealth: () -> Unit) {
     val context = LocalContext.current
     when {
-        state.accessibility == HealthState.NOT_RUNNING ->
+        // A stuck optional accessibility service only matters when the Usage access path can't cover for it.
+        state.accessibility == HealthState.NOT_RUNNING && state.missing != null ->
             StatusLine(stringResource(R.string.status_not_running), StatusKind.WARN, actionLabel = stringResource(R.string.health_repair), onAction = onHealth)
         state.missing != null ->
             StatusLine(stringResource(R.string.status_needs, stringResource(state.missing.label)), StatusKind.WARN, actionLabel = stringResource(R.string.action_fix),
@@ -548,12 +550,14 @@ private fun ActiveBlock(state: BlockUi, vm: BlockViewModel, now: Long, onEssenti
         else -> stringResource(R.string.quick_block_on)
     }
     ScreenTitle(title)
-    // Degraded protection mid-block is reported plainly (spec 4.11).
-    if (state.accessibility != HealthState.OK) {
+    // Degraded protection mid-block is reported plainly (spec 4.11). Accessibility being off is not
+    // degraded: Usage access + Display over other apps block on their own.
+    val missing = state.missing
+    if (missing != null) {
         Spacer(Modifier.height(12.dp))
-        val cause = stringResource(R.string.cause_accessibility_off)
-        ProblemBanner(stringResource(R.string.degraded_banner, cause), stringResource(R.string.action_fix),
-            { PermissionHealth.open(context, com.focusblock.app.core.Requirement.ACCESSIBILITY) })
+        val causeText = stringResource(missing.cause)
+        ProblemBanner(stringResource(R.string.degraded_banner, causeText), stringResource(R.string.action_fix),
+            { PermissionHealth.open(context, missing) })
     }
     Spacer(Modifier.height(16.dp))
 

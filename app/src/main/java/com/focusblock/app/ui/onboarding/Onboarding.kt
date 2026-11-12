@@ -59,7 +59,10 @@ import com.focusblock.app.ui.theme.Fb
 import com.focusblock.app.ui.theme.FbType
 import kotlinx.coroutines.launch
 
-private enum class Step { INTRO, APPS, ACCESSIBILITY, USAGE, NOTIFICATIONS, BATTERY, EXACT_ALARMS, TEST, READY }
+// No Accessibility step: blocking works with Usage access + Display over other apps, and many banking
+// apps refuse to run while a third-party accessibility service is on. Faster blocking (Accessibility)
+// stays available, off by default, in Settings › Blocking health.
+private enum class Step { INTRO, APPS, USAGE, OVERLAY, NOTIFICATIONS, BATTERY, EXACT_ALARMS, TEST, READY }
 
 /**
  * First run (spec 4.10): what FocusBlock does, pick apps, permissions one at a time, a 1-minute
@@ -81,7 +84,11 @@ fun OnboardingFlow(onDone: () -> Unit) {
     var startingTest by remember { mutableStateOf(false) }
     RefreshOnResume { refreshTick++ }
 
-    val steps = Step.values().filter { it != Step.EXACT_ALARMS || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S }
+    val steps = Step.values().filter {
+        (it != Step.EXACT_ALARMS || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) &&
+            // Before Android 10 a service can show the block screen without this permission.
+            (it != Step.OVERLAY || Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+    }
     val step = steps[stepIndex.coerceIn(0, steps.lastIndex)]
     // A test block ends quietly: it never asks "Did you finish?" and never replaces the apps chosen
     // above as the Block tab's selection.
@@ -112,8 +119,8 @@ fun OnboardingFlow(onDone: () -> Unit) {
 
     // Permission steps advance on their own once granted (checked on every resume).
     val requirement = when (step) {
-        Step.ACCESSIBILITY -> Requirement.ACCESSIBILITY
         Step.USAGE -> Requirement.USAGE
+        Step.OVERLAY -> Requirement.OVERLAY
         Step.NOTIFICATIONS -> Requirement.NOTIFICATIONS
         Step.BATTERY -> Requirement.BATTERY
         Step.EXACT_ALARMS -> Requirement.EXACT_ALARMS
@@ -170,10 +177,10 @@ fun OnboardingFlow(onDone: () -> Unit) {
                     TextLink(stringResource(R.string.onb_skip), { next() }, accent = false)
                 }
             }
-            Step.ACCESSIBILITY -> PermissionStep(R.string.onb_acc_title, R.string.onb_acc_why, R.string.onb_acc_sees, R.string.onb_acc_not, granted,
-                hint = R.string.onb_acc_hint, onAllow = { PermissionHealth.open(context, Requirement.ACCESSIBILITY) }, onNext = { next() })
             Step.USAGE -> PermissionStep(R.string.onb_usage_title, R.string.onb_usage_why, R.string.onb_usage_sees, R.string.onb_usage_not, granted,
                 onAllow = { PermissionHealth.open(context, Requirement.USAGE) }, onNext = { next() })
+            Step.OVERLAY -> PermissionStep(R.string.onb_overlay_title, R.string.onb_overlay_why, R.string.onb_overlay_sees, R.string.onb_overlay_not, granted,
+                hint = R.string.onb_overlay_hint, onAllow = { PermissionHealth.open(context, Requirement.OVERLAY) }, onNext = { next() })
             Step.NOTIFICATIONS -> PermissionStep(R.string.onb_notif_title, R.string.onb_notif_why, R.string.onb_notif_sees, R.string.onb_notif_not, granted,
                 onAllow = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -192,7 +199,7 @@ fun OnboardingFlow(onDone: () -> Unit) {
                 Title(stringResource(R.string.onb_test_title))
                 when {
                     app == null || !ready -> {
-                        Body(stringResource(if (app == null) R.string.onb_test_no_apps else R.string.onb_test_needs_accessibility))
+                        Body(stringResource(if (app == null) R.string.onb_test_no_apps else R.string.onb_test_needs_permissions))
                         Actions { PrimaryButton(stringResource(R.string.action_continue), { next() }) }
                     }
                     testSeen -> {

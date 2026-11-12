@@ -206,10 +206,10 @@ class Notifier(private val context: Context, private val db: FocusBlockDatabase,
             .setAutoCancel(true).setContentIntent(openApp(MainActivity.OPEN_ACTIVITY, 5)).build())
     }
 
-    /** "Blocking stopped working: Accessibility is off" (spec 4.11, 9.1). */
+    /** "Blocking stopped working: Usage access is off" (spec 4.11, 9.1). */
     suspend fun showProblem(requirement: Requirement) {
         if (!enabled(Kind.PROBLEMS)) return
-        val cause = context.getString(if (requirement == Requirement.ACCESSIBILITY) R.string.cause_accessibility_off else R.string.cause_usage_off)
+        val cause = context.getString(requirement.cause)
         post(ID_PROBLEM, NotificationCompat.Builder(context, CHANNEL_PROBLEMS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.notif_problem_title, cause))

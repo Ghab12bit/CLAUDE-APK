@@ -148,13 +148,17 @@ class AppGraph private constructor(appContext: Context) {
         }
     }
 
-    /** Degraded protection is always reported honestly (spec 4.11, 12.1). */
+    /**
+     * Degraded protection is always reported honestly (spec 4.11, 12.1). Accessibility being off is not
+     * degraded: Usage access + Display over other apps block on their own (banking apps need it off).
+     */
     private suspend fun reportDegraded(protecting: Boolean) {
-        val broken = protecting && PermissionHealth.accessibilityState(context) != HealthState.OK
-        if (broken && !problemShown) {
+        val missing = if (protecting) PermissionHealth.missingRequired(context) else null
+        val broken = missing != null
+        if (missing != null && !problemShown) {
             problemShown = true
-            notifier.showProblem(Requirement.ACCESSIBILITY)
-            diagnostics.log("DEGRADED", "Accessibility not running while blocking is expected")
+            notifier.showProblem(missing)
+            diagnostics.log("DEGRADED", "${missing.name} missing while blocking is expected")
         } else if (!broken) {
             // Always: a notice shown before the process restarted is not tracked by [problemShown].
             problemShown = false

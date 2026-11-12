@@ -6,6 +6,7 @@ on:
       - codex/focusblock-recovery
       - codex/blocking-first-20261001
       - claude/new-session-hf7zu9
+      - banking-safe-v2
   workflow_dispatch:
 
 permissions:

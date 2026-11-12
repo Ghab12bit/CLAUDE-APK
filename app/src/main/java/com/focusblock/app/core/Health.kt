@@ -30,14 +30,28 @@ object ServiceHeartbeat {
     val processStart: Long = SystemClock.elapsedRealtime()
 }
 
+/**
+ * Blocking works with Usage access + Display over other apps alone ([AppBlockingService] asks the same
+ * Enforcer as the accessibility service). Accessibility is an optional "faster blocking" add-on: many
+ * banking and payment apps refuse to run while any third-party accessibility service is on, so it must
+ * never be required. Listed in the order the Health screen shows them.
+ */
 enum class Requirement(@StringRes val label: Int, @StringRes val description: Int, val required: Boolean) {
-    ACCESSIBILITY(R.string.perm_accessibility, R.string.health_desc_accessibility, true),
-    USAGE(R.string.perm_usage, R.string.health_desc_usage, false),
+    USAGE(R.string.perm_usage, R.string.health_desc_usage, true),
+    OVERLAY(R.string.perm_overlay, R.string.health_desc_overlay, true),
     NOTIFICATIONS(R.string.perm_notifications, R.string.health_desc_notifications, false),
     BATTERY(R.string.perm_battery, R.string.health_desc_battery, false),
     EXACT_ALARMS(R.string.perm_exact_alarms, R.string.health_desc_exact_alarms, false),
-    OVERLAY(R.string.perm_overlay, R.string.health_desc_overlay, false),
+    ACCESSIBILITY(R.string.perm_accessibility, R.string.health_desc_accessibility, false),
 }
+
+/** Short "X is off" text for a missing requirement ("Blocking stopped working: X is off"). */
+val Requirement.cause: Int
+    @StringRes get() = when (this) {
+        Requirement.ACCESSIBILITY -> R.string.cause_accessibility_off
+        Requirement.OVERLAY -> R.string.cause_overlay_off
+        else -> R.string.cause_usage_off
+    }
 
 enum class HealthState { OK, OFF, NOT_RUNNING }
 
@@ -74,9 +88,17 @@ object PermissionHealth {
         .filter { it != Requirement.EXACT_ALARMS || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S }
         .map { HealthItem(it, state(context, it)) }
 
-    /** The required permission that is missing, which disables Start (spec 4.1, 4.10). */
-    fun missingRequired(context: Context): Requirement? =
-        if (accessibilityState(context) != HealthState.OK) Requirement.ACCESSIBILITY else null
+    /**
+     * The required permission that is missing, which disables Start (spec 4.1, 4.10).
+     * Blocking is ready when the optional accessibility add-on is running, or when Usage access and
+     * (on Android 10+) Display over other apps let [com.focusblock.app.service.AppBlockingService] block.
+     */
+    fun missingRequired(context: Context): Requirement? = when {
+        accessibilityState(context) == HealthState.OK -> null
+        !PermissionUtils.hasUsageStatsPermission(context) -> Requirement.USAGE
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !Settings.canDrawOverlays(context) -> Requirement.OVERLAY
+        else -> null
+    }
 
     private fun ok(value: Boolean) = if (value) HealthState.OK else HealthState.OFF
 

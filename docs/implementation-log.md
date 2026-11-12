@@ -643,3 +643,33 @@ UI and UX
 Not changed (design decisions for the owner): Strict mode can still be escaped by turning off
 Accessibility, force-stopping or uninstalling FocusBlock from Settings, and by changing the phone's
 clock or time zone.
+
+---
+
+## Round 9: blocking without Accessibility, so banking apps work (2026-11-12)
+
+Base: `2f1828a` (the build the owner has installed, v2.0.0 / code 100; matched against the installed
+APK by class set, string literals and compiled-code fingerprints). Version 2.0.1 / code 101, same
+development key, so it installs over the existing app and keeps its data.
+
+**Problem.** Many banking and payment apps refuse to run while any third-party accessibility service
+is enabled. FocusBlock required Accessibility: `PermissionHealth.missingRequired()` returned
+ACCESSIBILITY whenever it was off, which disabled Start, the widget and the onboarding test, and
+reported "Blocking stopped working" even though `AppBlockingService` makes the same Enforcer
+decisions with Usage access.
+
+**Change.**
+- `missingRequired()`: ready when Accessibility is running, or when Usage access and (Android 10+)
+  Display over other apps are granted. Usage access and Display over other apps are now the
+  required items; Accessibility is optional ("Faster blocking"), last in Blocking health.
+- Degraded reporting (problem notification, block-screen banner, status line, Settings home) fires
+  only when `missingRequired()` is non-null, and names the missing item. A stuck accessibility
+  service is still offered Repair in Blocking health.
+- Onboarding: the Accessibility step is replaced by a Display over other apps step (Android 10+).
+- Copy: Accessibility is described as optional with the banking trade-off; the foreground
+  notification is "Blocking is on" instead of "backup".
+- Policy engine, Enforcer and both services are unchanged.
+
+**Trade-off.** Without Accessibility a blocked app is noticed up to ~1 s later (Usage access is
+polled every second while the screen is on).
+

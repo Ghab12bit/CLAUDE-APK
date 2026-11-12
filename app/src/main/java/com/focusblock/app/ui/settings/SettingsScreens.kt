@@ -131,8 +131,10 @@ private fun MessageDialog(state: SettingsUi, vm: SettingsViewModel) {
 fun SettingsHome(state: SettingsUi, vm: SettingsViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) {
     val context = LocalContext.current
     RefreshOnResume(vm::refresh)
+    // Optional Accessibility being off is the recommended setup (banking apps), not a problem; a stuck one still is.
     val problems = state.health.filter { it.requirement.required && it.state != HealthState.OK } +
-        state.health.filter { !it.requirement.required && it.state != HealthState.OK && it.requirement != Requirement.OVERLAY }
+        state.health.filter { !it.requirement.required && it.state != HealthState.OK &&
+            !(it.requirement == Requirement.ACCESSIBILITY && it.state == HealthState.OFF) }
     Page(stringResource(R.string.settings), onBack) {
         Spacer(Modifier.height(8.dp))
         FbCard(contentPadding = 0.dp) {

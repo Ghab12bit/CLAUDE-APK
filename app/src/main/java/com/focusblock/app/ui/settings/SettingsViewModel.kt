@@ -104,7 +104,7 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
     }
 
     private fun put(key: String, value: String) {
-        viewModelScope.launch { graph.db.settingsDao().insert(AppSettings(key, value)); refresh(); graph.requestRefresh() }
+        viewModelScope.launch { graph.db.settingsDao().insert(AppSettings(key, value)); graph.pauses.invalidate(); refresh(); graph.requestRefresh() }
     }
 
     fun setNotify(kind: Notifier.Kind, on: Boolean) = put(kind.pref, on.toString())

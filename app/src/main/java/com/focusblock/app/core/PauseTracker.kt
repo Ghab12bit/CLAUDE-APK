@@ -45,11 +45,19 @@ class PauseTracker(
     /** Package → when the last "5 more minutes" was granted (one per app per hour). */
     private val lastSnooze = HashMap<String, Long>()
 
-    /** Minutes before the pause, 0 = off. Reads the setting each time: it is cheap and always current. */
-    suspend fun thresholdMinutes(): Int {
-        if (!notifier.enabled(Notifier.Kind.REMINDERS)) return 0
-        return db.settingsDao().getValue(PrefKeys.PAUSE_MINUTES)?.toIntOrNull()?.coerceIn(0, 180) ?: DEFAULT_MINUTES
+    private var thresholdCache: Pair<Long, Int>? = null
+
+    /** Minutes before the pause, 0 = off. Cached briefly: [observe] runs every second. */
+    suspend fun thresholdMinutes(now: Long = clock.now()): Int {
+        thresholdCache?.let { if (now - it.first < THRESHOLD_CACHE_MS) return it.second }
+        val minutes = if (!notifier.enabled(Notifier.Kind.REMINDERS)) 0
+        else db.settingsDao().getValue(PrefKeys.PAUSE_MINUTES)?.toIntOrNull()?.coerceIn(0, 180) ?: DEFAULT_MINUTES
+        thresholdCache = now to minutes
+        return minutes
     }
+
+    /** Settings changed: re-read on the next observe. */
+    fun invalidate() { thresholdCache = null }
 
     /**
      * Report the app in front. [foreground] is null when the screen is off. Call often (every
@@ -73,14 +81,15 @@ class PauseTracker(
             else -> if (pkg != null && now - lastSeen > AWAY_RESET_MS) { pkg = null; since = 0; candidate = null }
         }
         val p = pkg ?: return@withLock
-        if (fg != p) return@withLock
-        val minutes = thresholdMinutes()
+        if (fg != p || p == context.packageName) return@withLock
+        val minutes = thresholdMinutes(now)
         if (minutes <= 0) return@withLock
-        if (p == context.packageName || p in exempt()) return@withLock
         val stretch = now - since
+        // Cheap checks first; exempt() reads the database and only matters once the threshold is crossed.
         if (stretch < minutes * 60_000L) return@withLock
         if (shownFor == p to since) return@withLock
         if ((snoozed[p] ?: 0L) > now) return@withLock
+        if (p in exempt()) return@withLock
         shownFor = p to since
         show(p, (stretch / 60_000L).toInt())
     }
@@ -96,7 +105,11 @@ class PauseTracker(
         true
     }
 
-    suspend fun canSnooze(pkg: String): Boolean = mutex.withLock { clock.now() - (lastSnooze[pkg] ?: 0L) >= SNOOZE_COOLDOWN_MS }
+    /**
+     * The pause screen went away without Close or 5 more minutes (Home, Recents, a call). The
+     * stretch is not resolved: show it again the next time the app is in front.
+     */
+    suspend fun dismissed(pkg: String) = mutex.withLock { if (shownFor?.first == pkg) shownFor = null }
 
     /** The user closed the app from the pause screen: its stretch ends now. */
     suspend fun closed(pkg: String) = mutex.withLock { if (this.pkg == pkg) { this.pkg = null; since = 0 } }
@@ -115,5 +128,6 @@ class PauseTracker(
         const val AWAY_RESET_MS = 2 * 60_000L
         const val SNOOZE_MS = 5 * 60_000L
         const val SNOOZE_COOLDOWN_MS = 60 * 60_000L
+        private const val THRESHOLD_CACHE_MS = 15_000L
     }
 }

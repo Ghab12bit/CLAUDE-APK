@@ -97,7 +97,10 @@ class AppGraph private constructor(appContext: Context) {
         FocusBlockWidget.updateAll(context)
         ServiceHeartbeat.recheck?.invoke()
         val protecting = anythingProtecting(snap, now)
-        ensureBackupBlocking(protecting)
+        // The pause screen needs a foreground-app feed too; with Accessibility off only the Usage
+        // Access service provides one, so it also runs while the pause is on.
+        val pauseOn = runCatching { pauses.thresholdMinutes(now) > 0 }.getOrDefault(false)
+        ensureBackupBlocking(protecting || pauseOn)
         reportDegraded(protecting)
     }
 

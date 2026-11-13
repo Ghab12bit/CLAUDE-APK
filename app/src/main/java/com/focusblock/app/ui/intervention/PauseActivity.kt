@@ -46,32 +46,62 @@ import kotlinx.coroutines.launch
  * nothing is forbidden. One big "Close app" (goes home) and, once an hour, a small "5 more minutes".
  */
 class PauseActivity : ComponentActivity() {
+    private var pkg: String = ""
+    /** Set by Close and 5 more minutes; any other way off this screen leaves the stretch unresolved. */
+    private var handled = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
-        val pkg = intent.getStringExtra(EXTRA_PACKAGE) ?: run { finish(); return }
+        if (!bind(intent)) return
+    }
+
+    /** singleTask: a second pause while this one is still around arrives here with new extras. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handled = false
+        bind(intent)
+    }
+
+    private fun bind(intent: Intent?): Boolean {
+        pkg = intent?.getStringExtra(EXTRA_PACKAGE) ?: run { finish(); return false }
         val minutes = intent.getIntExtra(EXTRA_MINUTES, 0)
         val canSnooze = intent.getBooleanExtra(EXTRA_CAN_SNOOZE, true)
         val graph = AppGraph.get(applicationContext)
+        val p = pkg
         setContent {
             FbTheme {
                 // Back behaves like Close: the point of the screen is the deliberate choice.
-                BackHandler { closeApp(graph, pkg) }
-                PauseScreen(pkg, graph.apps.label(pkg), minutes, canSnooze, onClose = { closeApp(graph, pkg) }, onMore = { more(graph, pkg) })
+                BackHandler { closeApp(graph, p) }
+                PauseScreen(p, graph.apps.label(p), minutes, canSnooze, onClose = { closeApp(graph, p) }, onMore = { more(graph, p) })
             }
+        }
+        return true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Home or Recents: not a decision. The pause comes back when the app is in front again.
+        if (!handled && pkg.isNotEmpty()) {
+            val graph = AppGraph.get(applicationContext)
+            graph.scope.launch { graph.pauses.dismissed(pkg) }
+            finish()
         }
     }
 
     private fun closeApp(graph: AppGraph, pkg: String) {
+        handled = true
         graph.scope.launch { graph.pauses.closed(pkg) }
         startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         finish()
     }
 
     private fun more(graph: AppGraph, pkg: String) {
+        handled = true
         graph.scope.launch(Dispatchers.IO) { graph.pauses.snooze(pkg) }
         // The app is still underneath this screen; finishing returns to it.
         finish()

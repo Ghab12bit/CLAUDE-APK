@@ -44,6 +44,8 @@ data class RulesUi(
     val segments: List<Coverage.Segment> = emptyList(),
     val coveredMinutes: Int = 0,
     val gap: RecommendationEngine.Recommendation? = null,
+    val taper: com.focusblock.app.core.LimitTaper.Config? = null,
+    val taperStreak: Int = 0,
     val labels: Map<String, String> = emptyMap(),
     val now: Long = System.currentTimeMillis(),
     val message: Int? = null,
@@ -101,6 +103,8 @@ class RulesViewModel(private val graph: AppGraph) : ViewModel() {
                     segments = segments,
                     coveredMinutes = Coverage.coveredMinutes(segments),
                     gap = gap,
+                    taper = runCatching { graph.taper.config() }.getOrNull(),
+                    taperStreak = runCatching { graph.taper.underStreak() }.getOrDefault(0),
                     labels = labels,
                     now = now,
                 )
@@ -150,6 +154,14 @@ class RulesViewModel(private val graph: AppGraph) : ViewModel() {
                 is Deleted.Limit -> graph.db.appLimitDao().upsert(d.limit)
             }
             graph.requestRefresh()
+        }
+    }
+
+    /** Daily limit taper (LimitTaper): on with a target and step, or off. */
+    fun setTaper(on: Boolean, targetMinutes: Int, stepMinutes: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (on) graph.taper.start(targetMinutes, stepMinutes) else graph.taper.stop()
+            graph.requestRefresh(); refresh()
         }
     }
 

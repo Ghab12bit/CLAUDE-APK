@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.focusblock.app.R
 import com.focusblock.app.blocking.ImportedRuleStore
 import com.focusblock.app.core.Fmt
+import com.focusblock.app.core.LimitTaper
 import com.focusblock.app.core.csv
 import com.focusblock.app.policy.RecommendationEngine
 import com.focusblock.app.policy.Strength
@@ -67,6 +68,7 @@ import com.focusblock.app.ui.components.SectionLabel
 import com.focusblock.app.ui.components.SkeletonLine
 import com.focusblock.app.ui.components.StateChip
 import com.focusblock.app.ui.components.StripSegment
+import com.focusblock.app.ui.components.Stepper
 import com.focusblock.app.ui.components.TextLink
 import com.focusblock.app.ui.components.pluralRes
 import com.focusblock.app.ui.theme.Fb
@@ -237,13 +239,23 @@ fun RulesScreen(state: RulesUi, vm: RulesViewModel, onSettings: () -> Unit, onEd
                         summary = RuleText.daily(context, d, vm::label),
                         chip = RuleText.limitState(context, d.isEnabled, counted?.usedMillisToday?.takeIf { state.usageAccess }, d.dailyLimitMinutes,
                             if (!state.usageAccess) context.getString(R.string.cause_usage_off) else null),
-                        extra = lockedUntil?.let { stringResource(R.string.state_locked, Fmt.time(context, it)) },
+                        extra = lockedUntil?.let { stringResource(R.string.state_locked, Fmt.time(context, it)) }
+                            ?: state.taper?.takeIf { it.on }?.let { t ->
+                                if (d.dailyLimitMinutes <= t.targetMinutes) stringResource(R.string.taper_reached, Fmt.minutes(context, t.targetMinutes))
+                                else stringResource(R.string.taper_summary, Fmt.minutes(context, t.targetMinutes), Fmt.minutes(context, t.stepMinutes), state.taperStreak, LimitTaper.DAYS_PER_STEP)
+                            },
                         progress = counted?.usedMillisToday?.takeIf { state.usageAccess && d.isEnabled }?.let { it.toFloat() / (d.dailyLimitMinutes * 60_000L).coerceAtLeast(1L) },
                         enabled = d.isEnabled,
                         toggleEnabled = !(d.isEnabled && lockedUntil != null),
                         onToggle = { vm.setDailyEnabled(d, it) },
                         onClick = { onEdit(EditorRequest(RuleKind.DAILY_LIMIT)) },
                     )
+                    var taperDialog by rememberSaveable { mutableStateOf(false) }
+                    TextLink(
+                        stringResource(if (state.taper?.on == true) R.string.taper_edit else R.string.taper_set_up),
+                        { taperDialog = true }, modifier = Modifier.padding(start = Fb.gutter - 8.dp),
+                    )
+                    if (taperDialog) TaperDialog(state.taper, d.dailyLimitMinutes, onDismiss = { taperDialog = false }, onSave = { on, target, step -> vm.setTaper(on, target, step); taperDialog = false })
                 }
                 Spacer(Modifier.height(10.dp))
                 SectionGap()
@@ -362,6 +374,30 @@ private fun ImportedRow(r: ImportedRuleStore.Rule, state: RulesUi, vm: RulesView
 }
 
 /** One rule: name · summary · state chip, switch, overflow menu with Delete (spec 4.6). */
+/** Target and step for the daily limit taper. Two numbers, set once. */
+@Composable
+private fun TaperDialog(current: LimitTaper.Config?, limitMinutes: Int, onDismiss: () -> Unit, onSave: (Boolean, Int, Int) -> Unit) {
+    val context = LocalContext.current
+    var on by rememberSaveable { mutableStateOf(current?.on == true) }
+    var target by rememberSaveable { mutableStateOf(current?.takeIf { it.on }?.targetMinutes ?: 150) }
+    var step by rememberSaveable { mutableStateOf(current?.stepMinutes ?: LimitTaper.DEFAULT_STEP) }
+    AlertDialog(
+        onDismissRequest = onDismiss, containerColor = Fb.surface,
+        title = { Text(stringResource(R.string.taper_title), style = FbType.heading) },
+        text = {
+            Column {
+                Text(stringResource(R.string.taper_body, LimitTaper.DAYS_PER_STEP), style = FbType.body.copy(color = Fb.textSecondary))
+                Spacer(Modifier.height(12.dp))
+                DividerRow(title = stringResource(R.string.taper_on), trailing = { FbSwitch(on, { on = it }, contentDescription = stringResource(R.string.taper_on)) })
+                Stepper(stringResource(R.string.taper_target), Fmt.minutes(context, target), onMinus = { target = (target - 15).coerceAtLeast(LimitTaper.MIN_TARGET) }, onPlus = { target = (target + 15).coerceAtMost(limitMinutes.coerceAtLeast(LimitTaper.MIN_TARGET)) }, enabled = on)
+                Stepper(stringResource(R.string.taper_step), Fmt.minutes(context, step), onMinus = { step = (step - 5).coerceAtLeast(5) }, onPlus = { step = (step + 5).coerceAtMost(60) }, enabled = on)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(on, target, step) }) { Text(stringResource(R.string.action_save), color = Fb.accent) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel), color = Fb.textSecondary) } },
+    )
+}
+
 @Composable
 fun RuleRow(
     name: String,

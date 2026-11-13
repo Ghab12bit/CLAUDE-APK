@@ -92,6 +92,8 @@ class AppBlockingService : Service() {
                     }
                 }
             }
+            // Pause screen after N continuous minutes in one app; null while the screen is off.
+            runCatching { graph.pauses.observe(if (power.isInteractive) current else null) }
             delay(1_000)
         }
     }

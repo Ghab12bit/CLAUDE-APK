@@ -40,6 +40,7 @@ data class SettingsUi(
     val notify: Map<Notifier.Kind, Boolean> = emptyMap(),
     val systemNotifications: Boolean = true,
     val widgetAction: String = "last",
+    val pauseMinutes: Int = com.focusblock.app.core.PauseTracker.DEFAULT_MINUTES,
     val serviceConnected: Boolean = false,
     val lastEventAt: Long = 0,
     val nextCheck: Long? = null,
@@ -78,6 +79,7 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
                     notify = notify,
                     systemNotifications = androidx.core.app.NotificationManagerCompat.from(graph.context).areNotificationsEnabled(),
                     widgetAction = s.getValue(PrefKeys.WIDGET_ACTION) ?: "last",
+                    pauseMinutes = s.getValue(PrefKeys.PAUSE_MINUTES)?.toIntOrNull() ?: com.focusblock.app.core.PauseTracker.DEFAULT_MINUTES,
                     serviceConnected = ServiceHeartbeat.connected,
                     lastEventAt = ServiceHeartbeat.lastEventAt,
                     nextCheck = graph.alarms.nextAt,
@@ -113,6 +115,7 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
     fun setDefaultMinutes(minutes: Int) = put(PrefKeys.DEFAULT_MINUTES, minutes.coerceIn(5, 720).toString())
     fun setDefaultStrength(strength: Strength) = put(PrefKeys.DEFAULT_STRENGTH, strength.name)
     fun setWidgetAction(action: String) = put(PrefKeys.WIDGET_ACTION, action)
+    fun setPauseMinutes(minutes: Int) = put(PrefKeys.PAUSE_MINUTES, minutes.coerceIn(5, 180).toString())
 
     /**
      * Adding an essential app during Strict Lock would unblock it, so additions are refused then.

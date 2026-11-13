@@ -221,6 +221,17 @@ class Notifier(private val context: Context, private val db: FocusBlockDatabase,
 
     fun cancelProblem() = cancel(ID_PROBLEM)
 
+    /** "Daily limit is now 3 h 50 min" when the taper steps it down (LimitTaper). */
+    suspend fun showLimitStepped(minutes: Int, targetMinutes: Int, reached: Boolean) {
+        if (!enabled(Kind.BLOCK_STATUS)) return
+        val title = context.getString(R.string.notif_taper_title, Fmt.minutes(context, minutes))
+        val text = if (reached) context.getString(R.string.notif_taper_reached)
+        else context.getString(R.string.notif_taper_text, Fmt.minutes(context, targetMinutes))
+        post(ID_TAPER, NotificationCompat.Builder(context, CHANNEL_STATUS)
+            .setSmallIcon(R.drawable.ic_notification).setContentTitle(title).setContentText(text)
+            .setAutoCancel(true).setContentIntent(openApp(MainActivity.OPEN_RULES, 8)).build())
+    }
+
     fun backupNotification(): android.app.Notification = NotificationCompat.Builder(context, CHANNEL_BACKUP)
         .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle(context.getString(R.string.notif_backup_title))
@@ -247,6 +258,7 @@ class Notifier(private val context: Context, private val db: FocusBlockDatabase,
         const val ID_PROBLEM = 4106
         const val ID_BACKUP = 4107
         const val ID_UNLOCKED = 4108
+        const val ID_TAPER = 4109
         /** Plus 0–255 per app, so two apps' "ready" notices do not replace each other. */
         const val ID_EMERGENCY_READY = 4200
         /** Plus 0–255 per app, so two apps' emergency access countdowns do not replace each other. */

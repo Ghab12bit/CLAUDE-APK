@@ -673,3 +673,27 @@ decisions with Usage access.
 **Trade-off.** Without Accessibility a blocked app is noticed up to ~1 s later (Usage access is
 polled every second while the screen is on).
 
+---
+
+## Round 10: pause screen and a daily limit that steps down (2026-11-13)
+
+Goal from the owner: cut phone use from 5–6 h a day to 2–3 h, without turning the app into a book of
+options. Declined: per-app auto-limits (time just moves to the next app), goals/sprints/points
+(a habit tracker bolted on), and rewarding with screen time (makes the prize the problem).
+
+**Pause screen** (`core/PauseTracker`, `ui/intervention/PauseActivity`). After N continuous minutes
+in one non-essential app (Settings › Notifications › Usage reminders, "Pause after", default 20),
+a full-screen pause with one big "Close app" and a small "5 more minutes" (once per app per hour).
+Based on the one sec result: the option to close the app is what cuts opens, a swipe-away
+notification is not. "Continuous" survives a detour under 2 minutes; screen off counts as away.
+Fed by both hosts, so it works with Accessibility off. Replaces the 30/60-minute notifications,
+which only ran inside the Accessibility service and so stopped with Round 9. Falls back to the
+notification when the screen cannot be started from the background.
+
+**Daily limit taper** (`core/LimitTaper`, Rules › Daily limit › "Step down to a target…"). Two
+numbers: target (default 150 min) and step (default 10). Starting limit = 75% of the last 7 days'
+median counted use, rounded to 5, or the current limit if lower. Judged once a day from the 9 PM
+worker: 2 days under in a row lower the limit by one step; a day over holds, it never punishes;
+stops at the target. State in the settings table, no schema change. One line under the daily
+limit row shows target, step and days under.
+

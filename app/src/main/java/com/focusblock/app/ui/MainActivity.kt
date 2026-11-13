@@ -138,6 +138,7 @@ class MainActivity : ComponentActivity() {
         const val OPEN_END_EARLY = "end_early"
         const val OPEN_HEALTH = "health"
         const val OPEN_ACTIVITY = "activity"
+        const val OPEN_RULES = "rules"
     }
 }
 
@@ -185,6 +186,7 @@ private fun MainNav(open: String?, onOpened: () -> Unit) {
         when (open) {
             MainActivity.OPEN_HEALTH -> nav.navigate(SettingsRoutes.HEALTH) { launchSingleTop = true }
             MainActivity.OPEN_ACTIVITY -> selectTab(nav, Tabs.ACTIVITY)
+            MainActivity.OPEN_RULES -> selectTab(nav, Tabs.RULES)
             MainActivity.OPEN_END_SHEET -> selectTab(nav, Tabs.BLOCK)
             MainActivity.OPEN_END_EARLY -> {
                 selectTab(nav, Tabs.BLOCK)

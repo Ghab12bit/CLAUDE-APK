@@ -66,6 +66,8 @@ class AppGraph private constructor(appContext: Context) {
     val focusCycles = FocusCycleTracker(db, clock, policy)
     val smartApps by lazy { SmartAppsRepository(history, categories, policy, apps, db, clock) }
     val recommendations = RecommendationRepository(context, db, clock, usage, policy, apps)
+    val taper = LimitTaper(db, clock, usage, history, exempt = { policy.exempt() }, notifier)
+    val pauses = PauseTracker(context, db, clock, notifier, exempt = { policy.exempt() }, transient = { safety.transient() })
 
     private val refreshMutex = Mutex()
     private var pendingRefresh: Job? = null

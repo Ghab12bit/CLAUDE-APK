@@ -19,6 +19,13 @@ object PrefKeys {
     const val NOTIFY_USAGE_REMINDERS = "notify_usage_reminders"
     const val NOTIFY_DAILY_SUMMARY = "notify_daily_summary"
     const val NOTIFY_PROBLEMS = "notify_problems"
+    /** Minutes of continuous use in one app before the pause screen (0 = off). */
+    const val PAUSE_MINUTES = "pause_minutes"
+    /** Daily limit taper (LimitTaper): target in minutes (0 = off), step, days under in a row, last day judged. */
+    const val TAPER_TARGET = "taper_target_minutes"
+    const val TAPER_STEP = "taper_step_minutes"
+    const val TAPER_UNDER_STREAK = "taper_under_streak"
+    const val TAPER_LAST_DAY = "taper_last_day"
 
     const val WIDGET_ACTION = "widget_action"
     const val ONBOARDING_DONE = "onboarding_v17_done"

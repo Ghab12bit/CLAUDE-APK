@@ -15,7 +15,8 @@ import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
 
 /**
- * Daily summary notification at about 9 PM (Settings › Notifications, off by default). It uses the
+ * Runs about 9 PM: saves usage history, steps the daily limit down (LimitTaper), then the optional
+ * daily summary notification (Settings › Notifications, off by default). It uses the
  * same sources as Activity: UsageStats for screen time and block_logs for blocked attempts.
  */
 class DailySummaryWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
@@ -23,6 +24,8 @@ class DailySummaryWorker(context: Context, params: WorkerParameters) : Coroutine
         val graph = AppGraph.get(applicationContext)
         // Save complete days before Android drops its detailed events (about 7–10 days).
         runCatching { graph.history.persistRecent() }
+        // Daily limit taper: judge yesterday, step the limit down when earned.
+        if (runCatching { graph.taper.evaluate() }.getOrNull() != null) graph.requestRefresh()
         if (!graph.notifier.enabled(Notifier.Kind.SUMMARY)) return Result.success()
         val now = graph.clock.now()
         val exempt = graph.history.notCounted()

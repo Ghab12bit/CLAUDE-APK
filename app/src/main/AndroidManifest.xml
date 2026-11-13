@@ -75,6 +75,15 @@
             android:taskAffinity="com.focusblock.app.block"
             android:excludeFromRecents="true" />
 
+        <!-- Pause screen after N continuous minutes in one app (PauseTracker). -->
+        <activity
+            android:name=".ui.intervention.PauseActivity"
+            android:exported="false"
+            android:theme="@style/Theme.FocusBlock.Intervention"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.focusblock.app.pause"
+            android:excludeFromRecents="true" />
+
         <!-- Single next-policy-change alarm. -->
         <receiver
             android:name=".core.PolicyAlarmReceiver"

@@ -345,6 +345,12 @@ fun NotificationsScreen(state: SettingsUi, vm: SettingsViewModel, onBack: () -> 
             FbDivider()
             val on = state.notify[kind] ?: kind.defaultOn
             DividerRow(title = stringResource(title), subtitle = stringResource(desc), trailing = { FbSwitch(on, { vm.setNotify(kind, it) }, contentDescription = stringResource(title)) })
+            if (kind == Notifier.Kind.REMINDERS && on) {
+                Stepper(
+                    stringResource(R.string.pause_after), Fmt.minutes(context, state.pauseMinutes),
+                    onMinus = { vm.setPauseMinutes(state.pauseMinutes - 5) }, onPlus = { vm.setPauseMinutes(state.pauseMinutes + 5) },
+                )
+            }
         }
         FbDivider()
     }

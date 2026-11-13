@@ -40,12 +40,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
     @Volatile private var foreground: String? = null
     @Volatile private var foregroundSince: Long = 0L
-    /** Start of the current stretch of use: the app change, or the screen coming back on. */
-    @Volatile private var usageSince: Long = 0L
-    private var remindersSent = 0
 
     private val recheckRunnable = Runnable { scope.launch { recheck(fresh = true) } }
-    private val reminderRunnable = Runnable { scope.launch { usageReminder() } }
+    private val reminderRunnable = Runnable { scope.launch { pauseCheck() } }
 
     /**
      * Locked time is not use: usage reminders and Focus Cycles stop counting while the screen is off.
@@ -56,13 +53,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
-                    handler.removeCallbacks(reminderRunnable)
                     val pkg = foreground ?: return
                     scope.launch { mutex.withLock { runCatching { graph.focusCycles.onForeground(null, pkg) } } }
                 }
                 Intent.ACTION_SCREEN_ON -> {
-                    usageSince = System.currentTimeMillis()
-                    remindersSent = 0
                     recheckNow()
                 }
             }
@@ -86,6 +80,8 @@ class FocusBlockAccessibilityService : AccessibilityService() {
             addAction(Intent.ACTION_SCREEN_OFF)
         }
         runCatching { ContextCompat.registerReceiver(this, screenReceiver, screen, ContextCompat.RECEIVER_NOT_EXPORTED) }
+        handler.removeCallbacks(reminderRunnable)
+        handler.postDelayed(reminderRunnable, PAUSE_CHECK_MS)
         scope.launch {
             graph.diagnostics.log("SERVICE_CONNECTED")
             graph.tick("service_connected")
@@ -105,9 +101,6 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         // Leaving an app ends its Open anyway (it covers one visit only).
         if (previous != null && previous != packageName) scope.launch { runCatching { graph.overrides.onLeft(previous) } }
         foregroundSince = System.currentTimeMillis()
-        usageSince = foregroundSince
-        remindersSent = 0
-        handler.removeCallbacks(reminderRunnable)
         if (pkg == packageName) {
             // FocusBlock itself is never checked, but a Focus Cycle must still count the time in the app just left.
             if (previous != null) scope.launch { mutex.withLock { runCatching { graph.focusCycles.onForeground(null, previous) } } }
@@ -122,9 +115,9 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         val blocked = runCatching { graph.enforcer.check(pkg, fresh) }.getOrNull()
         if (blocked != null && foreground == pkg) {
             withContext(Dispatchers.Main) { showIntervention(pkg, blocked) }
-        } else if (blocked == null) {
-            scheduleReminder(pkg)
         }
+        // Pause screen after N continuous minutes in one app (PauseTracker).
+        if (blocked == null) runCatching { graph.pauses.observe(pkg) }
         scheduleRecheck(pkg, cycleRunsOut)
     }
 
@@ -191,23 +184,10 @@ class FocusBlockAccessibilityService : AccessibilityService() {
         handler.postDelayed(recheckRunnable, delay)
     }
 
-    /** Usage reminders after 30 and 60 minutes in one non-essential app (Settings › Notifications). */
-    private suspend fun scheduleReminder(pkg: String) {
-        if (pkg in graph.policy.exempt()) return
-        val minutes = if (remindersSent == 0) 30 else 60
-        val delay = usageSince + minutes * 60_000L - System.currentTimeMillis()
-        handler.removeCallbacks(reminderRunnable)
-        if (delay > 0) handler.postDelayed(reminderRunnable, delay)
-    }
-
-    private suspend fun usageReminder() {
-        val pkg = foreground ?: return
-        if (!interactive() || pkg == packageName) return
-        val minutes = ((System.currentTimeMillis() - usageSince) / 60_000L).toInt()
-        if (minutes < 30) return
-        graph.notifier.showUsageReminder(pkg, if (minutes >= 60) 60 else 30)
-        remindersSent++
-        if (remindersSent < 2) scheduleReminder(pkg)
+    /** Feeds the pause screen's tracker while the user stays in one app (no new events arrive then). */
+    private suspend fun pauseCheck() {
+        if (::graph.isInitialized) runCatching { graph.pauses.observe(if (interactive()) foreground else null) }
+        handler.postDelayed(reminderRunnable, PAUSE_CHECK_MS)
     }
 
     private fun interactive(): Boolean = (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
@@ -243,6 +223,7 @@ class FocusBlockAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val INTERVENTION_GRACE_MS = 3_000L
+        private const val PAUSE_CHECK_MS = 30_000L
         val isRunning: Boolean get() = ServiceHeartbeat.connected
     }
 }
